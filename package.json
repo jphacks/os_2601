@@ -1,0 +1,14 @@
+{
+  "name": "tonari",
+  "private": true,
+  "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "dev:mock": "pnpm --filter web dev:mock",
+    "check": "pnpm --filter web check",
+    "check:ws": "uv run --directory api tools/validate_worksheets.py && uv run --directory api tools/leak_selftest.py"
+  }
+}

@@ -2,11 +2,13 @@ import { readFileSync, existsSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { resolve, relative, sep } from "node:path";
 
+const CONTRACT_REQUESTS = /^CONTRACT_REQUESTS\.md$/;
+
 const ROLES = {
   takahashi: [/^/],
-  b: [/^web\/app\/device\//, /^web\/app\/ops\//],
-  c: [/^web\/app\/log\//, /^web\/app\/sheets\//, /^worksheets\/ws\d+\.json$/, /^worksheets\/README\.md$/, /^README\.md$/],
-  d: [/^web\/app\/page\.tsx$/, /^docs\/pitch\//, /^docs\/video\//],
+  b: [/^web\/app\/device\//, /^web\/app\/ops\//, CONTRACT_REQUESTS],
+  c: [/^web\/app\/log\//, /^web\/app\/sheets\//, /^worksheets\/ws\d+\.json$/, /^worksheets\/README\.md$/, /^README\.md$/, CONTRACT_REQUESTS],
+  d: [/^web\/app\/page\.tsx$/, /^docs\/pitch\//, /^docs\/video\//, CONTRACT_REQUESTS],
 };
 
 const PROTECTED = [
@@ -23,14 +25,14 @@ const BASH_DENY_ALL = [
   [/rm\s+-rf\s+(\/|~|\.\.)/, "危険な rm"],
 ];
 const BASH_DENY_MEMBER = [
-  [/git\s+push\b[^\n]*\bmain\b/, "main への push は高橋だけ。自分のブランチに push"],
-  [/pnpm\s+(add|remove|rm|i\s+\S|install\s+\S)/, "依存の追加・削除は高橋だけ。Slack で頼む"],
-  [/npm\s+(i|install)\b(?!\s+-g\s+pnpm)/, "npm install は使わない（pnpm install だけ）"],
+  [/git\s+push\b[^\n]*[\s:]main(\s|$)/, "main への push は高橋だけ。自分のブランチに push"],
+  [/pnpm\s+(--filter\s+\S+\s+)?(add|remove|rm|uninstall|i\s+[\w@]|install\s+[\w@])/, "依存の追加・削除は高橋だけ。Slack で頼む"],
+  [/\bnpm\s+(i|install)\b(?!\s+-g\s+pnpm)/, "npm install は使わない（pnpm install だけ）"],
   [/git\s+branch\s+-D/, "ブランチの強制削除は禁止"],
-  [/\b(vercel|railway)\s/, "デプロイは高橋だけ"],
+  [/(^|[;&|]\s*)(npx\s+|pnpm\s+(dlx\s+|exec\s+)?)?(vercel|railway)\s/, "デプロイは高橋だけ"],
 ];
 
-const root = process.cwd();
+const root = execSync("git rev-parse --show-toplevel", { encoding: "utf8" }).trim();
 const mode = process.argv[2] || "--staged";
 
 function fail(msg) {
@@ -41,7 +43,9 @@ function fail(msg) {
 function readRole() {
   const f = resolve(root, ".role.local");
   if (!existsSync(f)) fail("`.role.local` が無い。リポジトリの root で `echo b > .role.local`（b / c / d / takahashi のどれか）を打ってから続ける。");
-  const role = readFileSync(f, "utf8").trim().toLowerCase();
+  const bytes = readFileSync(f);
+  const encoding = bytes[0] === 0xff && bytes[1] === 0xfe ? "utf16le" : "utf8";
+  const role = bytes.toString(encoding).replace(/^﻿/, "").trim().toLowerCase();
   if (!ROLES[role]) fail(`役割 '${role}' は不明。.role.local は b / c / d / takahashi のどれか。`);
   return role;
 }
@@ -60,9 +64,18 @@ function git(cmd) {
   return execSync(`git ${cmd}`, { cwd: root, encoding: "utf8" }).trim();
 }
 
+function gitSucceeds(cmd) {
+  try {
+    execSync(`git ${cmd}`, { cwd: root, stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 if (mode === "--staged") {
   const role = readRole();
-  const files = git("diff --cached --name-only --diff-filter=ACMRD").split("\n").filter(Boolean);
+  const files = git("diff --cached --name-only --no-renames").split("\n").filter(Boolean);
   checkPaths(role, files);
   process.exit(0);
 }
@@ -74,39 +87,35 @@ if (mode === "--push") {
     const [localRef, localSha, remoteRef, remoteSha] = line.split(" ");
     if (role !== "takahashi" && /\/main$/.test(remoteRef)) fail("main への push は高橋だけ。自分のブランチ（b/… c/… d/…）に push して PR を出す。");
     if (!/^0+$/.test(remoteSha) && !/^0+$/.test(localSha)) {
-      try {
-        execSync(`git merge-base --is-ancestor ${remoteSha} ${localSha}`, { cwd: root, stdio: "ignore" });
-      } catch {
-        fail(`${remoteRef} への force push は禁止。先に git pull してから push。`);
-      }
+      if (!gitSucceeds(`cat-file -e ${remoteSha}`)) fail(`${remoteRef} に手元に無いコミットがある。先に git pull してから push。`);
+      if (!gitSucceeds(`merge-base --is-ancestor ${remoteSha} ${localSha}`)) fail(`${remoteRef} への force push は禁止。先に git pull してから push。`);
     }
   }
   process.exit(0);
 }
 
 if (mode === "--ci") {
-  const actor = (process.argv[3] || "").toLowerCase();
+  const author = (process.argv[3] || "").toLowerCase();
   const base = process.argv[4] || "main";
   const team = JSON.parse(readFileSync(resolve(root, "team.json"), "utf8"));
-  const role = Object.entries(team).find(([login]) => login.toLowerCase() === actor)?.[1];
+  const role = Object.entries(team).find(([login]) => login.toLowerCase() === author)?.[1];
   if (!role) {
-    process.stdout.write(`[となり guard] ${actor} は team.json に無いので担当の検査は省略\n`);
+    process.stdout.write(`[となり guard] ${author} は team.json に無いので担当の検査は省略\n`);
     process.exit(0);
   }
-  const files = git(`diff --name-only origin/${base}...HEAD`).split("\n").filter(Boolean);
+  const files = git(`diff --name-only --no-renames origin/${base}...HEAD`).split("\n").filter(Boolean);
   checkPaths(role, files);
-  process.stdout.write(`[となり guard] ${actor}（${role}）の変更 ${files.length} 件は担当内\n`);
+  process.stdout.write(`[となり guard] ${author}（${role}）の変更 ${files.length} 件は担当内\n`);
   process.exit(0);
 }
 
 if (mode === "--claude") {
   const input = JSON.parse(readFileSync(0, "utf8"));
-  const cwd = input.cwd || root;
   const tool = input.tool_name;
   if (["Edit", "Write", "MultiEdit", "NotebookEdit"].includes(tool)) {
     const role = readRole();
     const raw = input.tool_input?.file_path || input.tool_input?.notebook_path || "";
-    const rel = relative(cwd, resolve(cwd, raw)).split(sep).join("/");
+    const rel = relative(root, resolve(input.cwd || root, raw)).split(sep).join("/");
     if (rel.startsWith("..")) fail(`リポジトリの外（${rel}）は編集しない。`);
     checkPaths(role, [rel]);
   }

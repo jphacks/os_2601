@@ -43,7 +43,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .githooks/guard.mjs --claude"
+            "command": "node \"$CLAUDE_PROJECT_DIR/.githooks/guard.mjs\" --claude"
           }
         ]
       }

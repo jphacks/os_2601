@@ -3,6 +3,7 @@ import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -80,7 +81,7 @@ def ai() -> SlowAI:
 
 
 @pytest.fixture
-def device(monkeypatch: pytest.MonkeyPatch, tmp_path, ai: SlowAI) -> Iterator[Device]:
+def device(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, ai: SlowAI) -> Iterator[Device]:
     monkeypatch.setenv("OPERATOR_KEY", OPERATOR_KEY)
     monkeypatch.setenv("DATA_PATH", str(tmp_path / "tonari.json"))
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
@@ -118,4 +119,14 @@ def test_hint_being_prepared_is_dropped_when_the_hand_moves_again(device: Device
     device.frame()
     wait_until(lambda: ai.started == 1)
     assert device.signal(9, MOVING)["state"] == "watching"
+    wait_until(lambda: ai.cancelled == 1)
+
+
+def test_hint_prepared_before_a_signal_gap_is_dropped_when_the_next_stillness_starts(device: Device, ai: SlowAI) -> None:
+    ai.delay = 30
+    stay_still_until_frame_is_requested(device)
+    device.frame()
+    wait_until(lambda: ai.started == 1)
+    signal = device.signal(15, STILL)
+    assert (signal["state"], signal["still_seconds"]) == ("still", 0)
     wait_until(lambda: ai.cancelled == 1)

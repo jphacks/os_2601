@@ -44,7 +44,6 @@ logger = logging.getLogger(__name__)
 
 MAX_FRAME_BYTES = 600 * 1024
 MODE_DEFAULT = "live"
-PREFETCH_STATES = ("still", "stuck")
 
 
 @dataclass
@@ -197,6 +196,10 @@ async def _compose(context: AppContext, problem: Problem, level: int, frame: byt
     )
 
 
+def _prefetch_wanted(session: Session) -> bool:
+    return session.state == "stuck" or (session.state == "still" and session.prefetch_requested)
+
+
 def _discard_prefetch(context: AppContext, session_id: str) -> None:
     prefetch = context.prefetches.pop(session_id, None)
     if prefetch:
@@ -223,7 +226,7 @@ def _find_session(context: AppContext, session_id: str) -> Session:
 def _apply(context: AppContext, session: Session, event: Event, now: datetime) -> tuple[Session, Accepted]:
     next_session, result = step(session, event, now, context.thresholds)
     context.store.put(next_session)
-    if next_session.state not in PREFETCH_STATES:
+    if not _prefetch_wanted(next_session):
         _discard_prefetch(context, next_session.session_id)
     if next_session.state == "ended":
         context.frames.pop(next_session.session_id, None)
@@ -405,13 +408,13 @@ async def post_signal(
 async def post_frame(
     session_id: str, request: Request, frame: UploadFile = File(...), context: AppContext = Depends(get_context)
 ) -> dict:
-    session = _find_session(context, session_id)
-    _require_device(request, context, session)
-    if session.state == "ended":
-        _fail(409, "終了したセッションにはフレームを送れない")
+    _require_device(request, context, _find_session(context, session_id))
     data = await frame.read(MAX_FRAME_BYTES + 1)
     if len(data) > MAX_FRAME_BYTES:
         _fail(413, f"フレームは {MAX_FRAME_BYTES // 1024} KB まで")
+    session = _find_session(context, session_id)
+    if session.state == "ended":
+        _fail(409, "終了したセッションにはフレームを送れない")
     frame_id = _new_id("frm")
     context.frames[session.session_id] = (frame_id, data)
     if (

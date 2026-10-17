@@ -95,11 +95,38 @@
 - README の骨子を書く。**JPHACKS のテンプレート（今の `README.md` の見出し：製品概要／開発技術／独自技術）を残し、その中に入れる**。配置は C2-1 の箇条書きどおり。中身は `docs/01` の「一言で」「課題」「既存の取り組みとの位置づけ」、`docs/09` の「仕組みの説明」、`docs/12` の「README の『既知の制約』に転記する文」をそのまま。
 - 完了条件：`git merge main` 後に `pnpm check` が緑で、モックで `/log` が出る。README にテンプレートの見出しが全部残り、「既知の制約」が入っている。本物の API での `/log` の確認はオペレータキーが要るので高橋がやる（C は高橋の画面で見る）。
 
-### C1-6 17:00-19:10
+### C1-6 17:30〜（できるだけ早く） 人格モードの土台（ADR 0031）
 
-- `pnpm check:ws` を回し、赤を直す。
-- `worksheets/README.md` に「表の直し方（07 の表 → JSON）と `pnpm check:ws`」を 10 行で書く。
-- README の骨子を続ける。
+10/17 に担当フォルダの線引きが無くなった（ADR 0030）ので、`api/` も触れる。ワークシートの作業（`check:ws`）は ADR 0026 で無くなった。
+
+- 準備
+  - `/sync` で `main` を取り込む。新しい guard になり、`api/` を止めなくなる
+  - PR #15 は閉じる。口調の案（`personas.py` の設定）は、下の新しい形に移す
+  - ブランチは `c/persona`。PR は 2 本に分ける。人が触っているファイルは衝突しやすいので、着手を Slack で言う
+    - PR 1：`/device` 以外の全部。ここで触る `api/`・`openapi.yaml`・`web/lib/api.ts` は、高橋も触っていることが多い
+    - PR 2：`/device` の人格のボタン。`/device` は B の画面なので、B と分担を決める
+- PR 1 で AI に渡す文：
+
+```
+docs/adr/0031-tutor-personas.md、docs/05_hint_policy.md、api/app/hints.py、api/app/check.py を全部読んでください。家庭教師の人格（teacher・friend・sister）の土台を作ります。
+- api/app/personas.py（新規）：Persona（frozen dataclass）に display_name、style（AI への口調の指示）、fallback_hints（{1: 段階 1 の問い返し, 2: 段階 2 の問い返し}）、unreadable_hint、check_texts（correct・incorrect・unreadable・failed の 4 つ）を持たせ、PERSONAS（ID → Persona）と DEFAULT_PERSONA = "teacher" を置く。teacher の固定文は、今の hints.py と check.py の文をそのまま使う。
+- api/app/state.py：SessionSettings に persona（既定 "teacher"）。ChangeSettings に persona を足し、_on_change_settings で変える。
+- api/app/routes.py：SettingsInput と SettingsPatch に persona（Literal["teacher", "friend", "sister"] | None）。SettingsPatch の「どれか 1 つは要る」に persona を含める。hints と check で session.settings.persona を渡す。scripted の固定文も人格のものにする。
+- api/app/hints.py：compose_hint が persona を受け取り、AI への指示の最後に「口調：<style>。ただし、答えを言わない決まりは口調より優先する」を足す。固定文は人格のものを使う。答え漏れの検査と長さの上限は変えない。
+- api/app/check.py：judge が persona を受け取り、読み上げを人格の check_texts にする。
+- openapi.yaml：SessionSettings・SettingsInput・SettingsPatch に persona（enum teacher・friend・sister、既定 teacher）。web/lib/api.ts の Settings と SettingsPatch の型に persona を足す。
+- tests：api/tests/test_personas.py（全人格の固定文が 35 文字以内で、「惜しい」「違う」「答えは」を含まない。必要な文が全部ある）。test_state.py（PATCH で persona を変えられる）。test_hints.py（friend の口調の指示が AI への依頼に入る。AI が失敗したら friend の固定文になる）。
+- 終わったら uv run --directory api pytest と pnpm check を回し、赤を直す。コミットはまだしない。
+```
+
+- PR 2 で AI に渡す文（B と決めた方がやる）：
+
+```
+docs/adr/0031-tutor-personas.md と web/app/device/page.tsx を読んでください。「はじめる」の前に、人格を選ぶボタンを 3 つ（先生・友達・お姉さん）出します。選んだボタンを強調し、既定は先生。「はじめる」で今 patchSettings に送っている { stuck_seconds } に persona を足します。web/app から fetch は書かず、web/lib の patchSettings を使います。
+```
+
+- 完了条件：PR 1 で `pytest` と `pnpm check` が緑。高橋が本物の Gemini で、友達モードのヒントの口調が変わり、答え漏れが出ないことを確かめる。PR 2 で、`/device` で友達を選んで「はじめる」を押すと、ヒントと「できた」の読み上げが友達の言い方になる。
+- 主張（README・ピッチ）に人格を入れるかは、動くのを見てから高橋が決める。
 
 ## Day 2
 

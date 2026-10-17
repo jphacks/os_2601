@@ -1,7 +1,7 @@
 # PR を出す
 
 1. `docs/prompts/check.md` の検査を通す。赤のまま進めない。
-2. `git status` で触ったファイルが担当内だけか見る。担当外が混ざっていたら `git restore <file>` で戻す。
+2. `git status` で、頼んだこと以外のファイルが混ざっていないか見る。混ざっていたら `git restore <file>` で戻す。
 3. `git add <担当のファイルだけ>`（`git add .` はしない）。
 4. `git commit -m "<役割>: <何を作ったか 1 行>"`。コミットがフックで止まったら、理由のファイルを `git restore --staged <file>` で外して、もう一度。
 5. `git push -u origin <今のブランチ>`。`main` には push しない。

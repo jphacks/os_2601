@@ -6,6 +6,7 @@ Hack Day 版はヒント 2 段階（H1 固定文・H2 GPT）、SSE なし（記�
 
 ## 共通事項
 
+- **10/17 の変更（ADR 0026）**：契約の形は変えていない。ワークシートはやめ、見えないワークシート `FREE`（`title` は「自由な問題」、`grade` は空、問題の枠 20）だけを置く。`GET /worksheets` は `FREE` だけ、`GET /worksheets/FREE` の `problems` は空。セッション作成は `worksheet_id: "FREE"`。ヒントは 1 回目から AI が作り、`source` は `gpt`（生成 AI の総称）、AI が失敗したときと答え漏れで差し替えたときは `fallback`。`stuck_point` は AI が付けたラベル。
 - ベース URL：`NEXT_PUBLIC_API_BASE`（例 `https://tonari-api.up.railway.app`）。
 - 認可（02 参照）：デバイス `Authorization: Bearer <session_token>`、オペレータ `X-Operator-Key: <OPERATOR_KEY>`、公開はヘッダなし。
 - エラー形式：`{"error": {"code": "STATE_CONFLICT", "message": "..."}}`。使う HTTP ステータス：400 / 401 / 403 / 404 / 409（状態競合）/ 413（フレームが大きい）/ 422（検証）/ 503（固定ヒントも読めない）。

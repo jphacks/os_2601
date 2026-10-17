@@ -1,5 +1,7 @@
 # 07 ワークシート（fixtures）
 
+**10/17 に廃止（ADR 0026）。** 自前のワークシートをやめ、学習者の紙の問題（初見）を AI が写真から読んで解く形にした。`worksheets/`・検証スクリプト・`pnpm check:ws`・`/sheets` は作らない。API には見えないワークシート `FREE`（自由な問題、枠 20）だけを置く。以下は以前の設計の記録として残す。
+
 担当：C。高橋が先に `worksheets/schema.json` と `api/tools/validate_worksheets.py`、`api/tools/leak_selftest.py` を書き、C は問題データと固定ヒントだけを編集する。検証はリポジトリの root で `pnpm check:ws`（CI でも回す）。
 
 ## 原則

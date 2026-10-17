@@ -7,7 +7,7 @@
 
 ## 確認したこと
 
-- [ ] root で `pnpm check` が緑（worksheets を触ったら `pnpm check:ws` も）
+- [ ] root で `pnpm check` が緑
 - [ ] `pnpm dev:mock` でブラウザに出した（スクリーンショットを下に）
 - [ ] `web/lib`・`api`・`openapi.yaml`・設定ファイルは触っていない
 - [ ] 正答・`leak_strings`・固定ヒント・鍵を画面やモックに入れていない

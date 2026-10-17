@@ -4,5 +4,4 @@ WORKDIR /app
 COPY api/pyproject.toml api/uv.lock /app/api/
 RUN uv sync --frozen --no-dev --directory /app/api
 COPY api/ /app/api/
-COPY worksheets/ /app/worksheets/
 CMD uv run --frozen --no-dev --directory /app/api uvicorn app.main:app --host 0.0.0.0 --port $PORT

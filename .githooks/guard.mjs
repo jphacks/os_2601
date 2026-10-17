@@ -7,12 +7,12 @@ const CONTRACT_REQUESTS = /^CONTRACT_REQUESTS\.md$/;
 const ROLES = {
   takahashi: [/^/],
   b: [/^web\/app\/device\//, /^web\/app\/ops\//, CONTRACT_REQUESTS],
-  c: [/^web\/app\/log\//, /^web\/app\/sheets\//, /^worksheets\/ws\d+\.json$/, /^worksheets\/README\.md$/, /^README\.md$/, CONTRACT_REQUESTS],
+  c: [/^web\/app\/log\//, /^README\.md$/, CONTRACT_REQUESTS],
   d: [/^web\/app\/page\.tsx$/, /^docs\/pitch\//, /^docs\/video\//, CONTRACT_REQUESTS],
 };
 
 const PROTECTED = [
-  /^web\/lib\//, /^api\//, /^openapi\.yaml$/, /^worksheets\/schema\.json$/,
+  /^web\/lib\//, /^api\//, /^openapi\.yaml$/,
   /^\.github\//, /^\.githooks\//, /^\.claude\//, /^team\.json$/,
   /^package\.json$/, /^web\/package\.json$/, /^pnpm-lock\.yaml$/, /^pnpm-workspace\.yaml$/,
   /^CLAUDE\.md$/, /^AGENTS\.md$/, /^RUNBOOK\.md$/,

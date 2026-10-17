@@ -15,6 +15,7 @@ HINTABLE_STATES: tuple[State, ...] = ("watching", "still", "cooldown")
 SETTINGS_EDITABLE_STATES: tuple[State, ...] = ("created", "watching", "still", "cooldown")
 ADVANCEABLE_STATES: tuple[State, ...] = ("watching", "still", "cooldown", "speaking")
 TIMEOUT_STATES: tuple[State, ...] = ("watching", "still", "stuck")
+PENDING_SECONDS = 12
 
 
 @dataclass(frozen=True)
@@ -71,6 +72,8 @@ class Problem:
     finished_at: datetime | None = None
     hints: list[Hint] = field(default_factory=list)
     check: Check | None = None
+    problem_text: str | None = None
+    leak_strings: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -92,6 +95,7 @@ class Session:
     cooldown_until: datetime | None = None
     last_signal_at: datetime | None = None
     speaking_after_correct: bool = False
+    pending_until: datetime | None = None
 
     @property
     def current_problem(self) -> Problem:
@@ -212,6 +216,10 @@ def _end_session(session: Session, now: datetime) -> None:
 
 
 def _apply_clock(session: Session, now: datetime, thresholds: Thresholds) -> None:
+    if session.pending_until is not None and now >= session.pending_until:
+        session.pending_until = None
+        if session.state == "checking":
+            _return_to_watching(session)
     signal_lost = (
         session.last_signal_at is not None
         and (now - session.last_signal_at).total_seconds() >= thresholds.signal_timeout_seconds
@@ -268,20 +276,26 @@ def _on_change_settings(session: Session, change: ChangeSettings) -> Result:
     return Accepted()
 
 
-def _on_hint_requested(session: Session, request: HintRequested) -> Result:
+def _on_hint_requested(session: Session, request: HintRequested, now: datetime) -> Result:
+    if session.pending_until is not None:
+        return Rejected()
     problem = session.current_problem
     if request.trigger == "auto":
         if session.state != "stuck":
             return Rejected()
-        return Accepted(level=min(problem.stuck_count, session.settings.max_level))
-    if session.state not in HINTABLE_STATES:
+        level = min(problem.stuck_count, session.settings.max_level)
+    elif session.state not in HINTABLE_STATES:
         return Rejected()
-    return Accepted(level=problem.hints[-1].level if problem.hints else 1)
+    else:
+        level = problem.hints[-1].level if problem.hints else 1
+    session.pending_until = now + timedelta(seconds=PENDING_SECONDS)
+    return Accepted(level=level)
 
 
 def _on_check_done(session: Session, done: CheckDone, now: datetime, thresholds: Thresholds) -> Result:
     if session.state != "checking":
         return Rejected()
+    session.pending_until = None
     if done.verdict == "correct":
         problem = session.current_problem
         problem.status = "done"
@@ -335,14 +349,16 @@ def step(session: Session, event: Event, now: datetime, thresholds: Thresholds) 
         case ChangeSettings():
             return next_session, _on_change_settings(next_session, event)
         case HintRequested():
-            return next_session, _on_hint_requested(next_session, event)
+            return next_session, _on_hint_requested(next_session, event, now)
         case HintIssued(speech_chars=chars):
+            next_session.pending_until = None
             _enter_speaking(next_session, now, chars, thresholds)
             return next_session, Accepted()
         case CheckRequested():
-            if next_session.state not in HINTABLE_STATES:
+            if next_session.state not in HINTABLE_STATES or next_session.pending_until is not None:
                 return next_session, Rejected()
             next_session.state = "checking"
+            next_session.pending_until = now + timedelta(seconds=PENDING_SECONDS)
             return next_session, Accepted()
         case CheckDone():
             return next_session, _on_check_done(next_session, event, now, thresholds)

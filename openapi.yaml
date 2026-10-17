@@ -292,7 +292,7 @@ paths:
         - `level` は `auto` なら `min(stuck_count, max_level)`（1 回目 H1、2 回目以降 H2）。`manual` と `voice` はその問題で最後に出した段階（まだなら 1）で、段階を上げない。
         - `auto` は `stuck` のときだけ受理し、それ以外は 409（受理の判定はリクエスト到着時）。`manual` と `voice` は `watching`・`still`・`cooldown` で受理し、`created`・`stuck`・`speaking`・`checking`・`ended` では 409。`cooldown` が止めるのは `auto` だけ。
         - 応答を返した時点で `speaking` にし、読み上げ推定時間（`speech` の文字数 × 0.15 秒 + 1 秒）後に `cooldown`、`cooldown_seconds` 後に `watching` へ戻す。
-        - `leak_check` が `{ok: false, fallback: true}` なら、GPT の文が答え漏れ検査に一致したので固定 H2 に差し替えた。GPT のタイムアウト（8 秒）・エラーは固定 H2 で `source: fallback`、`leak_check.ok: true`。固定ヒントも読めなければ 503。
+        - `leak_check` が `{ok: false, fallback: true}` なら、AI の文が答え漏れ検査に一致したので固定の問い返しに差し替えた。AI のタイムアウト（8 秒）・エラー・フレーム無しは固定の問い返しで `source: fallback`、`leak_check.ok: true`（ADR 0026）。
         - `frame_id` は照合せず、最新 1 枚を使う。
       security:
         - device: []
@@ -518,7 +518,7 @@ paths:
       tags: [ops]
       operationId: getHealth
       summary: 死活
-      description: "`gpt` は OPENAI_API_KEY があれば ok、無ければ missing（疎通確認はしない）。"
+      description: "`gpt` は生成 AI の鍵（GEMINI_API_KEY）があれば ok、無ければ missing（疎通確認はしない。ADR 0025）。"
       security: []
       responses:
         "200":
@@ -639,7 +639,7 @@ components:
           description: false なら GPT の文が答え漏れ検査に一致した
         fallback:
           type: boolean
-          description: true なら固定 H2 に差し替えた
+          description: true なら固定の問い返しに差し替えた
     Settings:
       type: object
       required: [stuck_seconds, cooldown_seconds, max_level]

@@ -9,13 +9,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
+from app.gemini import Gemini
 from app.routes import AppContext, router
 from app.state import SessionSettings, Thresholds
 from app.store import SessionStore
-from app.worksheets import load_worksheets
+from app.worksheets import FREE_WORKSHEET
 
 SETTINGS_PATH = Path(__file__).resolve().parents[1] / "settings.yaml"
 DEFAULT_DATA_PATH = "./data/tonari.json"
+DEFAULT_MODEL = "gemini-3.5-flash-lite"
 DEFAULT_CORS_ORIGIN_REGEX = r"https://.*\.vercel\.app|https://.*\.trycloudflare\.com"
 ERROR_CODES = {
     400: "BAD_REQUEST",
@@ -48,11 +50,13 @@ def _build_context() -> AppContext:
             cooldown_seconds=settings["cooldown_seconds"],
             max_level=settings["max_level"],
         ),
-        worksheets=load_worksheets(),
+        worksheets={FREE_WORKSHEET.worksheet_id: FREE_WORKSHEET},
         store=SessionStore(Path(os.environ.get("DATA_PATH", DEFAULT_DATA_PATH))),
         operator_key=os.environ.get("OPERATOR_KEY", ""),
         demo_mode=os.environ.get("DEMO_MODE") == "1",
-        gpt_available=bool(os.environ.get("OPENAI_API_KEY")),
+        ai=Gemini(api_key) if (api_key := os.environ.get("GEMINI_API_KEY")) else None,
+        hint_model=os.environ.get("HINT_MODEL", DEFAULT_MODEL),
+        check_model=os.environ.get("CHECK_MODEL", DEFAULT_MODEL),
     )
     context.store.load()
     return context

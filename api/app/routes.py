@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import secrets
 import time
@@ -29,12 +30,13 @@ from app.state import (
     Thresholds,
     Tick,
     cooldown_remaining,
+    next_auto_hint_level,
     step,
     still_seconds,
 )
 from app.check import CORRECT_TEXT, Judgement, judge
 from app.gemini import Gemini
-from app.hints import compose_hint, fixed_hint
+from app.hints import ComposedHint, compose_hint, fixed_hint
 from app.store import SessionStore
 from app.worksheets import PRINT_LAYOUT, Worksheet
 
@@ -42,6 +44,13 @@ logger = logging.getLogger(__name__)
 
 MAX_FRAME_BYTES = 600 * 1024
 MODE_DEFAULT = "live"
+
+
+@dataclass
+class Prefetch:
+    problem_no: int
+    level: int
+    hint: asyncio.Task[ComposedHint]
 
 
 @dataclass
@@ -56,6 +65,7 @@ class AppContext:
     hint_model: str
     check_model: str
     frames: dict[str, tuple[str, bytes]] = field(default_factory=dict)
+    prefetches: dict[str, Prefetch] = field(default_factory=dict)
 
 
 StuckSeconds = Annotated[int, Field(ge=5, le=1200)]
@@ -174,6 +184,38 @@ def _latest_frame(context: AppContext, session_id: str) -> bytes | None:
     return latest[1] if latest else None
 
 
+async def _compose(context: AppContext, problem: Problem, level: int, frame: bytes | None) -> ComposedHint:
+    return await compose_hint(
+        context.ai,
+        context.hint_model,
+        frame,
+        level,
+        [hint.display for hint in problem.hints],
+        problem.problem_text,
+        problem.leak_strings,
+    )
+
+
+def _prefetch_wanted(session: Session) -> bool:
+    return session.state == "stuck" or (session.state == "still" and session.prefetch_requested)
+
+
+def _discard_prefetch(context: AppContext, session_id: str) -> None:
+    prefetch = context.prefetches.pop(session_id, None)
+    if prefetch:
+        prefetch.hint.cancel()
+
+
+def _take_prefetch(context: AppContext, session: Session, level: int) -> asyncio.Task[ComposedHint] | None:
+    prefetch = context.prefetches.pop(session.session_id, None)
+    if prefetch is None:
+        return None
+    if (prefetch.problem_no, prefetch.level) == (session.current_problem_no, level):
+        return prefetch.hint
+    prefetch.hint.cancel()
+    return None
+
+
 def _find_session(context: AppContext, session_id: str) -> Session:
     session = context.store.get(session_id)
     if session is None:
@@ -184,6 +226,8 @@ def _find_session(context: AppContext, session_id: str) -> Session:
 def _apply(context: AppContext, session: Session, event: Event, now: datetime) -> tuple[Session, Accepted]:
     next_session, result = step(session, event, now, context.thresholds)
     context.store.put(next_session)
+    if not _prefetch_wanted(next_session):
+        _discard_prefetch(context, next_session.session_id)
     if next_session.state == "ended":
         context.frames.pop(next_session.session_id, None)
     if isinstance(result, Rejected):
@@ -364,15 +408,25 @@ async def post_signal(
 async def post_frame(
     session_id: str, request: Request, frame: UploadFile = File(...), context: AppContext = Depends(get_context)
 ) -> dict:
-    session = _find_session(context, session_id)
-    _require_device(request, context, session)
-    if session.state == "ended":
-        _fail(409, "終了したセッションにはフレームを送れない")
+    _require_device(request, context, _find_session(context, session_id))
     data = await frame.read(MAX_FRAME_BYTES + 1)
     if len(data) > MAX_FRAME_BYTES:
         _fail(413, f"フレームは {MAX_FRAME_BYTES // 1024} KB まで")
+    session = _find_session(context, session_id)
+    if session.state == "ended":
+        _fail(409, "終了したセッションにはフレームを送れない")
     frame_id = _new_id("frm")
     context.frames[session.session_id] = (frame_id, data)
+    if (
+        session.mode == "live"
+        and session.state == "still"
+        and session.prefetch_requested
+        and session.session_id not in context.prefetches
+    ):
+        level = next_auto_hint_level(session)
+        context.prefetches[session.session_id] = Prefetch(
+            session.current_problem_no, level, asyncio.create_task(_compose(context, session.current_problem, level, data))
+        )
     return {"frame_id": frame_id, "received_at": _iso(_now()), "bytes": len(data)}
 
 
@@ -387,18 +441,13 @@ async def request_hint(
     session, accepted = _apply(context, session, HintRequested(body.trigger), now)
     problem_no = session.current_problem_no
     problem = session.current_problem
+    prefetched = _take_prefetch(context, session, accepted.level) if body.trigger == "auto" else None
     if session.mode == "scripted":
         composed = fixed_hint(accepted.level, "scripted", LeakCheck(ok=True, fallback=False), problem.leak_strings)
+    elif prefetched:
+        composed = await prefetched
     else:
-        composed = await compose_hint(
-            context.ai,
-            context.hint_model,
-            _latest_frame(context, session_id),
-            accepted.level,
-            [hint.display for hint in problem.hints],
-            problem.problem_text,
-            problem.leak_strings,
-        )
+        composed = await _compose(context, problem, accepted.level, _latest_frame(context, session_id))
     session, _ = _apply(context, _find_session(context, session_id), HintIssued(len(composed.speech)), _now())
     hint = Hint(
         hint_id=_new_id("hnt"),
@@ -421,6 +470,15 @@ async def request_hint(
         session.leak_blocked_count += 1
     context.store.put(session)
     context.store.save()
+    logger.info(
+        "hint session=%s trigger=%s level=%s source=%s prefetched=%s latency_ms=%s",
+        session.session_id,
+        hint.trigger,
+        hint.level,
+        hint.source,
+        prefetched is not None,
+        hint.latency_ms,
+    )
     return {
         "hint_id": hint.hint_id,
         "problem_no": problem_no,
@@ -531,6 +589,8 @@ async def demo_reset(request: Request, context: AppContext = Depends(get_context
         _fail(404, "DEMO_MODE が 1 でない")
     removed = context.store.clear()
     context.frames.clear()
+    for session_id in list(context.prefetches):
+        _discard_prefetch(context, session_id)
     context.store.save()
     return {"ok": True, "removed_sessions": removed}
 

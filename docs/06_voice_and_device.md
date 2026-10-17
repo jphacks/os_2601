@@ -116,7 +116,7 @@ PC（横持ち）では映像を左、字幕とボタンを右に置く。部品
 ## フレームの送り方（`web/lib/camera.ts`、高橋が書く）
 
 - `video` を `canvas` に長辺 1024 で描き、`canvas.toBlob("image/jpeg", 0.7)` で JPEG にする。
-- 送るタイミング：`signals` の応答に `next_action` が来たら即 1 枚、「ヒント」「できた」を押した直後に 1 枚。定期的には送らない。
+- 送るタイミング：`signals` の応答に `next_action` が来たら即 1 枚（`send_frame_and_request_hint` のときは、`send_frame` で先に送っていなければ）、「ヒント」「できた」を押した直後に 1 枚。定期的には送らない。
 - 送った `frame_id` を保持し、直後の `hints` / `check` に渡す。
 - 回線が落ちているときは送らない（キューに溜めない。古いフレームに意味はない）。
 
@@ -145,7 +145,8 @@ PC（横持ち）では映像を左、字幕とボタンを右に置く。部品
 `startSession(video, sessionId, token, handlers)` が 1 つで次を全部やる。B は `handlers` で受け取った値を表示するだけ。
 
 - `startMotionLoop` で 1 秒ごとに `motion` と `brightness` を取り、`postSignal` を送る。応答を `handlers.onState(resp)` に渡す（`state`、`current_problem_no`、`still_seconds`）。
-- 応答の `next_action` が `send_frame_and_request_hint` なら `captureFrame → postFrame → requestHint({trigger: "auto", frame_id})` を行い、応答を `handlers.onHint(resp)` に渡し、`speech` があれば `speak` する。一度成功したら、`signals` の `state` が `stuck` 以外になるのを見るまで再要求しない（失敗したときだけ次の秒に再試行）。
+- 応答の `next_action` が `send_frame` なら `captureFrame → postFrame` を行い、`frame_id` を覚えておく（静止が途切れたら忘れる。ADR 0028）。
+- 応答の `next_action` が `send_frame_and_request_hint` なら、覚えた `frame_id` があればそれで、無ければ `captureFrame → postFrame` をしてから `requestHint({trigger: "auto", frame_id})` を行い、応答を `handlers.onHint(resp)` に渡し、`speech` があれば `speak` する。一度成功したら、`signals` の `state` が `stuck` 以外になるのを見るまで再要求しない（失敗したときだけ次の秒に再試行）。
 - `state` が `created`・`checking`・`ended` のとき、`onHint` は呼ばれない（字幕の固定文は B が `state` で出す）。
 - 最初に `state` が `watching` になったとき「見守りを始めるよ」を 1 回読み上げる（B は書かない）。
 - `brightness` を `handlers.onBrightness(b)` に渡す（B が 60 未満で「明るさが足りません」を重ねる）。

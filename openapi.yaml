@@ -186,6 +186,7 @@ paths:
         - `camera_ok: false` か `motion` 省略は「信号が来ていない」のと同じ扱い（`still` なら `watching` に戻し `still_seconds` を 0 に）。
         - `stuck`・`speaking`・`checking` の間は `motion` を無視する。
         - **`next_action` は `stuck` の間の応答すべてで `send_frame_and_request_hint`。** デバイスはフレームを送ってから `hints` を `trigger: auto` で呼ぶ。一度成功したら、`state` が `stuck` 以外になるまで再要求しない。
+        - **`next_action` は、静止がひと続きの間に 1 回だけ、`still_seconds` が `stuck_seconds − prefetch_lead_seconds`（3 秒。`api/settings.yaml`）に達した応答で `send_frame`。** デバイスはフレームを送り、その `frame_id` を覚えておく。stuck になったら撮り直さず、その `frame_id` で `hints` を `trigger: auto` で呼ぶ（ADR 0028）。
         - `force_stuck: true` は `motion` を無視して `stuck` に入る（/ops の強制 stuck）。受理は `watching`・`still`・`cooldown`。`stuck` なら何もせず 200。`created`・`speaking`・`checking`・`ended` では 409。**このときだけ `X-Operator-Key` でも認可する。** `force_stuck` の無い要求にオペレータの鍵で来たら 403。
         - `ended` の後の通常の signals は 200 で `state: ended` を返す。デバイスはループを止める。
         - `watching`・`still`・`stuck` で 5 秒以上 signals が来なければ、サーバは `watching` に戻す。
@@ -240,6 +241,7 @@ paths:
       description: |
         送るのは 3 つの瞬間だけ（`next_action` が来たとき、「ヒント」を押したとき、「できた」を押したとき）。定期的には送らない。
         サーバはセッションごとに最新 1 枚だけメモリに持ち、保存しない。600 KB を超えたら 413。`ended` では 409。
+        `send_frame` を返した後の `still` の間に届いたフレームでは、次の `auto` の段階（`min(stuck_count + 1, max_level)`）のヒントを裏で作り始める。静止が途切れたら（`still`・`stuck` 以外になったら）取り消す（ADR 0028）。
       security:
         - device: []
       requestBody:
@@ -293,7 +295,7 @@ paths:
         - `auto` は `stuck` のときだけ受理し、それ以外は 409（受理の判定はリクエスト到着時）。`manual` と `voice` は `watching`・`still`・`cooldown` で受理し、`created`・`stuck`・`speaking`・`checking`・`ended` では 409。`cooldown` が止めるのは `auto` だけ。
         - 応答を返した時点で `speaking` にし、読み上げ推定時間（`speech` の文字数 × 0.15 秒 + 1 秒）後に `cooldown`、`cooldown_seconds` 後に `watching` へ戻す。
         - `leak_check` が `{ok: false, fallback: true}` なら、AI の文が答え漏れ検査に一致したので固定の問い返しに差し替えた。AI のタイムアウト（8 秒）・エラー・フレーム無しは固定の問い返しで `source: fallback`、`leak_check.ok: true`（ADR 0026）。
-        - `frame_id` は照合せず、最新 1 枚を使う。
+        - `frame_id` は照合せず、最新 1 枚を使う。ただし `auto` で、先に作り始めたヒントの段階と問題が合えば、それを（できるまで待って）返す（ADR 0028）。
       security:
         - device: []
       requestBody:
@@ -918,8 +920,8 @@ components:
           minimum: 1
         next_action:
           type: [string, "null"]
-          enum: [send_frame_and_request_hint, null]
-          description: stuck の間の応答すべてで send_frame_and_request_hint
+          enum: [send_frame_and_request_hint, send_frame, null]
+          description: stuck の間の応答すべてで send_frame_and_request_hint。静止が stuck の prefetch_lead_seconds 秒前に達した応答で 1 回だけ send_frame
         cooldown_remaining:
           type: integer
           minimum: 0

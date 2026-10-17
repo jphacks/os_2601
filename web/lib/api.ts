@@ -109,7 +109,7 @@ export type SignalResponse = {
   state: State;
   still_seconds: number;
   current_problem_no: number;
-  next_action: "send_frame_and_request_hint" | null;
+  next_action: "send_frame_and_request_hint" | "send_frame" | null;
   cooldown_remaining: number;
 };
 

@@ -8,7 +8,6 @@
   "scripts": {
     "dev": "pnpm --filter web dev",
     "dev:mock": "pnpm --filter web dev:mock",
-    "check": "pnpm --filter web check",
-    "check:ws": "uv run --directory api tools/validate_worksheets.py && uv run --directory api tools/leak_selftest.py"
+    "check": "pnpm --filter web check"
   }
 }

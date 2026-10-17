@@ -32,15 +32,15 @@ from app.state import (
     step,
     still_seconds,
 )
+from app.check import CORRECT_TEXT, Judgement, judge
+from app.gemini import Gemini
+from app.hints import compose_hint, fixed_hint
 from app.store import SessionStore
 from app.worksheets import PRINT_LAYOUT, Worksheet
 
 logger = logging.getLogger(__name__)
 
 MAX_FRAME_BYTES = 600 * 1024
-SPEECH_MAX_CHARS = 40
-DISPLAY_MAX_CHARS = 60
-UNREADABLE_TEXT = "もう少し明るいところで、もう一回見せて"
 MODE_DEFAULT = "live"
 
 
@@ -52,7 +52,9 @@ class AppContext:
     store: SessionStore
     operator_key: str
     demo_mode: bool
-    gpt_available: bool
+    ai: Gemini | None
+    hint_model: str
+    check_model: str
     frames: dict[str, tuple[str, bytes]] = field(default_factory=dict)
 
 
@@ -167,6 +169,11 @@ def _require_device_or_operator(request: Request, context: AppContext, session: 
         _fail(401, "セッションのトークンかオペレータの鍵が要る")
 
 
+def _latest_frame(context: AppContext, session_id: str) -> bytes | None:
+    latest = context.frames.get(session_id)
+    return latest[1] if latest else None
+
+
 def _find_session(context: AppContext, session_id: str) -> Session:
     session = context.store.get(session_id)
     if session is None:
@@ -236,7 +243,7 @@ async def create_session(
         _fail(422, f"ワークシート {body.worksheet_id} が無い")
     now = _now()
     settings = SessionSettings(**{**asdict(context.default_settings), **body.settings.model_dump(exclude_none=True)})
-    problems = [Problem(problem_no=problem.problem_no) for problem in worksheet.problems]
+    problems = [Problem(problem_no=problem_no) for problem_no in range(1, worksheet.problem_count + 1)]
     problems[0].status = "working"
     problems[0].started_at = now
     session = Session(
@@ -378,30 +385,46 @@ async def request_hint(
     started = time.monotonic()
     now = _now()
     session, accepted = _apply(context, session, HintRequested(body.trigger), now)
-    problem = context.worksheets[session.worksheet_id].problem(session.current_problem_no)
-    text = problem.fixed_hints.get(str(accepted.level))
-    if not text:
-        _fail(503, f"問 {problem.problem_no} の固定ヒント {accepted.level} が無い")
+    problem_no = session.current_problem_no
+    problem = session.current_problem
+    if session.mode == "scripted":
+        composed = fixed_hint(accepted.level, "scripted", LeakCheck(ok=True, fallback=False), problem.leak_strings)
+    else:
+        composed = await compose_hint(
+            context.ai,
+            context.hint_model,
+            _latest_frame(context, session_id),
+            accepted.level,
+            [hint.display for hint in problem.hints],
+            problem.problem_text,
+            problem.leak_strings,
+        )
+    session, _ = _apply(context, _find_session(context, session_id), HintIssued(len(composed.speech)), _now())
     hint = Hint(
         hint_id=_new_id("hnt"),
         level=accepted.level,
         trigger=body.trigger,
-        speech=text[:SPEECH_MAX_CHARS],
-        display=text[:DISPLAY_MAX_CHARS],
-        stuck_point=problem.typical_mistakes[0],
-        source="scripted" if session.mode == "scripted" else "fallback",
-        leak_check=LeakCheck(ok=True, fallback=False),
-        model=None,
+        speech=composed.speech,
+        display=composed.display,
+        stuck_point=composed.stuck_point,
+        source=composed.source,
+        leak_check=composed.leak_check,
+        model=composed.model,
         latency_ms=int((time.monotonic() - started) * 1000),
         created_at=now,
     )
-    session, _ = _apply(context, session, HintIssued(len(hint.speech)), _now())
-    session.current_problem.hints.append(hint)
+    recorded = session.problems[problem_no - 1]
+    recorded.hints.append(hint)
+    recorded.problem_text = composed.problem_text or recorded.problem_text
+    recorded.answer = composed.final_answer or recorded.answer
+    recorded.leak_strings = composed.leak_strings
+    if not composed.leak_check.ok:
+        session.leak_blocked_count += 1
     context.store.put(session)
     context.store.save()
     return {
         "hint_id": hint.hint_id,
-        "problem_no": session.current_problem_no,
+        "problem_no": problem_no,
         "level": hint.level,
         "trigger": hint.trigger,
         "speech": hint.speech,
@@ -409,6 +432,7 @@ async def request_hint(
         "stuck_point": hint.stuck_point,
         "leak_check": asdict(hint.leak_check),
         "source": hint.source,
+        **({"model": hint.model} if hint.model else {}),
         "latency_ms": hint.latency_ms,
         "state": session.state,
     }
@@ -423,14 +447,21 @@ async def post_check(
     now = _now()
     session, _ = _apply(context, session, CheckRequested(), now)
     checked_no = session.current_problem_no
-    problem = context.worksheets[session.worksheet_id].problem(checked_no)
-    verdict, text = ("correct", problem.fixed_check_correct) if session.mode == "scripted" else ("unreadable", UNREADABLE_TEXT)
-    session, _ = _apply(context, session, CheckDone(verdict, len(text[:SPEECH_MAX_CHARS])), _now())
+    problem = session.current_problem
+    if session.mode == "scripted":
+        judgement = Judgement("correct", CORRECT_TEXT)
+    else:
+        judgement = await judge(
+            context.ai, context.check_model, _latest_frame(context, session_id), problem.problem_text, problem.answer
+        )
+    session, _ = _apply(
+        context, _find_session(context, session_id), CheckDone(judgement.verdict, len(judgement.speech)), _now()
+    )
     check = Check(
         check_id=_new_id("chk"),
-        verdict=verdict,
-        speech=text[:SPEECH_MAX_CHARS],
-        display=text[:DISPLAY_MAX_CHARS],
+        verdict=judgement.verdict,
+        speech=judgement.speech,
+        display=judgement.speech,
         created_at=now,
     )
     session.problems[checked_no - 1].check = check
@@ -474,7 +505,7 @@ async def list_worksheets(context: AppContext = Depends(get_context)) -> dict:
             {
                 "worksheet_id": worksheet.worksheet_id,
                 "title": worksheet.title,
-                "problem_count": len(worksheet.problems),
+                "problem_count": worksheet.problem_count,
                 "grade": worksheet.grade,
             }
             for worksheet in context.worksheets.values()
@@ -491,7 +522,7 @@ async def get_worksheet(worksheet_id: str, context: AppContext = Depends(get_con
         "worksheet_id": worksheet.worksheet_id,
         "title": worksheet.title,
         "grade": worksheet.grade,
-        "problems": [{"problem_no": problem.problem_no, "text": problem.text} for problem in worksheet.problems],
+        "problems": [],
         "print": PRINT_LAYOUT,
     }
 
@@ -511,7 +542,7 @@ async def demo_reset(request: Request, context: AppContext = Depends(get_context
 async def healthz(context: AppContext = Depends(get_context)) -> dict:
     return {
         "ok": True,
-        "gpt": "ok" if context.gpt_available else "missing",
+        "gpt": "ok" if context.ai else "missing",
         "worksheets": len(context.worksheets),
         "mode_default": MODE_DEFAULT,
     }

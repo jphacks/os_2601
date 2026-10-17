@@ -71,6 +71,9 @@ class Problem:
     finished_at: datetime | None = None
     hints: list[Hint] = field(default_factory=list)
     check: Check | None = None
+    problem_text: str | None = None
+    answer: str | None = None
+    leak_strings: list[str] = field(default_factory=list)
 
 
 @dataclass

@@ -7,7 +7,7 @@
 - `api/` FastAPI（Python 3.12、uv）。起動: `uv run --directory api --env-file .env uvicorn app.main:app --reload --port 8000`
 - `web/` Next.js（pnpm ワークスペース）。root で `pnpm dev:mock`（モック）/ `pnpm dev`（本物の API）。検査: `pnpm check`
 - `web/lib/` カメラ・動きスコア・音声・音声認識・API・ループ（`loop.ts`）。画面はこれを呼ぶだけ
-- `worksheets/` ワークシート定義（正答・固定ヒントはサーバだけが読む）。検証: `pnpm check:ws`
+- 問題は学習者の紙の問題（初見）。ワークシートは使わない（ADR 0026）
 - `openapi.yaml` 契約。変更は高橋のみ
 
 ## 役割（root の `.role.local` に 1 語。git のフックと CI が担当外の変更を止める）
@@ -15,7 +15,7 @@
 | 役割 | 触ってよい | 触らない |
 |---|---|---|
 | `b` | `web/app/device/` `web/app/ops/` | それ以外 |
-| `c` | `web/app/log/` `web/app/sheets/` `worksheets/ws*.json` `worksheets/README.md` `README.md` | `worksheets/schema.json` ほか |
+| `c` | `web/app/log/` `README.md` | それ以外 |
 | `d` | `web/app/page.tsx` `docs/pitch/` `docs/video/` | それ以外 |
 | `takahashi` | 全部（`api/` `web/lib/` `openapi.yaml` `.github/` `.githooks/` `.claude/` 設定ファイル） | |
 
@@ -24,7 +24,7 @@
 ## 進め方（手順の型は `docs/prompts/`。Claude Code は同名のスラッシュコマンド）
 
 - `docs/prompts/start.md`（`/start`）カードを読んで、最初に作る 1 部品を決める
-- `docs/prompts/check.md`（`/check`）`pnpm check`（担当なら `pnpm check:ws` も）を回して赤を直す
+- `docs/prompts/check.md`（`/check`）`pnpm check` を回して赤を直す
 - `docs/prompts/pr.md`（`/pr`）検査 → コミット → push → PR 作成まで
 - `docs/prompts/sync.md`（`/sync`）`main` の最新を自分のブランチに取り込む
 

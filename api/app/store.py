@@ -39,6 +39,9 @@ def _decode_problem(raw: dict) -> Problem:
         finished_at=_parse_time(raw["finished_at"]),
         hints=[_decode_hint(hint) for hint in raw["hints"]],
         check=Check(**{**check, "created_at": datetime.fromisoformat(check["created_at"])}) if check else None,
+        problem_text=raw.get("problem_text"),
+        answer=raw.get("answer"),
+        leak_strings=raw.get("leak_strings", []),
     )
 
 

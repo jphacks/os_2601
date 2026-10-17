@@ -192,6 +192,7 @@ export class ApiError extends Error {
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 const USE_MOCK = process.env.NEXT_PUBLIC_MOCK === "1";
 
+const SIGNAL_TIMEOUT_MS = 3000;
 const SIGNALS_PER_STATE = 5;
 const SIGNAL_CYCLE = [
   signalsWatchingMock,
@@ -275,7 +276,9 @@ export async function postSignal(id: string, auth: Auth, body: SignalRequest): P
     mockSignalCount += 1;
     return signal;
   }
-  return request(sessionPath(id, "/signals"), jsonInit("POST", auth, body));
+  const timeout = new AbortController();
+  setTimeout(() => timeout.abort(), SIGNAL_TIMEOUT_MS);
+  return request(sessionPath(id, "/signals"), { ...jsonInit("POST", auth, body), signal: timeout.signal });
 }
 
 export async function postFrame(id: string, token: string, blob: Blob): Promise<FrameReceived> {

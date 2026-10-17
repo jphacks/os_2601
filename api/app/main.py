@@ -41,6 +41,7 @@ def _build_context() -> AppContext:
     context = AppContext(
         thresholds=Thresholds(
             motion_threshold=settings["motion_threshold"],
+            motion_exit_threshold=settings["motion_exit_threshold"],
             signal_timeout_seconds=settings["signal_timeout_seconds"],
             speech_seconds_per_char=settings["speech_seconds_per_char"],
             speech_seconds_base=settings["speech_seconds_base"],

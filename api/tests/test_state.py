@@ -24,6 +24,7 @@ from app.state import (
 
 THRESHOLDS = Thresholds(
     motion_threshold=0.02,
+    motion_exit_threshold=0.03,
     signal_timeout_seconds=5,
     speech_seconds_per_char=0.15,
     speech_seconds_base=1.0,
@@ -189,3 +190,9 @@ def test_check_that_never_finishes_returns_to_watching_after_the_pending_window(
     assert session.state == "checking"
     session, _ = step(session, Signal(motion=MOVING, camera_ok=True), at(13), THRESHOLDS)
     assert (session.state, session.pending_until) == ("watching", None)
+
+
+def test_small_tremor_while_still_does_not_restart_the_count() -> None:
+    _, trace = send(new_session(), [MOVING] + [STILL] * 5 + [0.025] * 3 + [STILL] * 12, start_second=0)
+    assert first_stuck(trace) == 21
+    assert all(state != "watching" for state, _ in trace[1:20])

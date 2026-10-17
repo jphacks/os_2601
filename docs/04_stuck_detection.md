@@ -22,7 +22,7 @@ flowchart LR
 
 1. `requestVideoFrameCallback` か `setInterval(1000)` で 1 秒に 1 回、`video` を `canvas` に 64×36 で描く（`drawImage` の縮小で足りる。アスペクト比は 16:9 前提。縦持ちなら 36×64）。
 2. `getImageData` でピクセルを取り、グレースケール（`0.299R + 0.587G + 0.114B`）の `Uint8Array` にする。
-3. 前回の配列との差の絶対値を全ピクセルで平均し、255 で割って 0〜1 にする。これが生の差分。
+3. 前回の配列との差の絶対値を全ピクセルで平均し、255 で割って 0〜1 にする。これが生の差分。10/17 から、差を取る前に 2 枚の平均の明るさの差を引き、自動露出やちらつきで全体が明るく・暗くなる分を除く（ADR 0027）。
 4. 直近 3 回の生の差分の中央値を `motion` とする（1 フレームの自動露出の揺れを消す）。
 5. 最初の 3 秒（3 回）は `motion` を送らず、`camera_ok: true` だけ送る（ウォームアップ）。
 6. `video.readyState < 2` やカメラが止まっていれば `camera_ok: false` を送る。サーバはこのとき `still_seconds` を増やさない。
@@ -57,7 +57,7 @@ stateDiagram-v2
 | 今の状態 | 入力 | 次の状態 | 付随する動作 |
 |---|---|---|---|
 | `watching` | `motion < τ` | `still` | `still_since = now` |
-| `still` | `motion ≥ τ`、または `camera_ok: false`、または `motion` 省略 | `watching` | `still_seconds = 0` |
+| `still` | `motion ≥ motion_exit_threshold`（0.045。10/17 に τ から変更、ADR 0027）、または `camera_ok: false`、または `motion` 省略 | `watching` | `still_seconds = 0` |
 | `still` | `now − still_since ≥ stuck_seconds` | `stuck` | 応答に `next_action: send_frame_and_request_hint`。`problems.stuck_count += 1` |
 | `created` | 最初の `signals` | `watching` | 「はじめる」が押された合図 |
 | `stuck` | `POST /hints`（auto） | `speaking` | ヒント生成。`speaking_until = now + est`。`auto` は `stuck` 以外では 409 |
@@ -94,7 +94,8 @@ stateDiagram-v2
 ## 設定（settings.yaml）
 
 ```yaml
-motion_threshold: 0.02      # τ。T0-2 と Day 1 の計測で更新する
+motion_threshold: 0.02      # τ。T0-2 と Day 1 の計測で更新する（10/17 に 0.03）
+motion_exit_threshold: 0.045  # 静止を抜ける境目（10/17 に追加、ADR 0027）
 warmup_seconds: 3
 stuck_seconds: 20           # セッション作成時と /device の選択で上書き可（5〜1200）
 cooldown_seconds: 60        # 同上（0〜300）

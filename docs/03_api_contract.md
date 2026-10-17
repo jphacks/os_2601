@@ -125,7 +125,7 @@ Hack Day 版はヒント 2 段階（H1 固定文・H2 GPT）、SSE なし（記�
 - 省略可の `force_stuck: true` を付けると `motion` を無視して `stuck` に入る（`/ops` の強制 stuck ボタン）。受理するのは `watching`・`still`・`cooldown` だけで、`stuck` なら何もせず 200、それ以外は 409。**このときだけ `X-Operator-Key` でも認可する**（`/ops` はセッショントークンを持たないため。`openapi.yaml` の `security` に両方を書く）。`motion` と `camera_ok` は省略可。
 - `still_seconds` は `still` のときだけ正、他は 0。`cooldown_remaining` は `cooldown` のときだけ正、他は 0。
 - `next_action` は `null` | `"send_frame_and_request_hint"` | `"send_frame"`。**`stuck` の間の応答すべてに `"send_frame_and_request_hint"` が付く。** デバイス（`web/lib/loop.ts`）は、直ちにフレーム 1 枚を `frames` に送ってから `hints` を `trigger: "auto"` で呼ぶ。**一度 `auto` が成功したら、`signals` の応答で `state` が `stuck` 以外になるのを見るまで再要求しない**（失敗したときだけ次の秒に再試行）。これで二重要求が出ない。サーバのタイマーで GPT を呼ぶ作りにはしない（デバイスの最新フレームが要るため）。
-- **静止がひと続きの間に 1 回だけ、`still_seconds` が `stuck_seconds − prefetch_lead_seconds`（3 秒）に達した応答に `"send_frame"` が付く**（10/17 に追加、ADR 0028）。デバイスはフレームを送り、その `frame_id` を覚えておく。サーバはそのフレームで次の自動ヒントを裏で作り始め、静止が途切れたら（`still`・`stuck` 以外になったら）取り消す。stuck になったら、デバイスは撮り直さずに覚えた `frame_id` で `hints`（auto）を呼び、サーバは作っておいたヒントを（まだならできるまで待って）返す。AI の時間とフレームの送信が stuck の前に済むので、「考え中？」とほぼ同時に声が出る。
+- **静止がひと続きの間に 1 回だけ、`still_seconds` が `stuck_seconds − prefetch_lead_seconds`（3 秒）に達した応答に `"send_frame"` が付く**（`live` のセッションだけ。10/17 に追加、ADR 0028）。デバイスはフレームを送り、その `frame_id` を覚えておく。サーバはそのフレームで次の自動ヒントを裏で作り始め、静止が途切れたら（`still`・`stuck` 以外になったら）取り消す。stuck になったら、デバイスは撮り直さずに覚えた `frame_id` で `hints`（auto）を呼び、サーバは作っておいたヒントを（まだならできるまで待って）返す。AI の時間とフレームの送信が stuck の前に済むので、「考え中？」とほぼ同時に声が出る。
 - `stuck`・`speaking`・`checking` の間は `motion` を無視する（状態は変わらない）。
 - `watching`・`still`・`stuck` のとき、5 秒以上 `signals` が来なければサーバは状態を `watching` に戻し `still_seconds` を 0 にする（回線断で誤って詰まり判定しない）。`created`・`speaking`・`checking`・`cooldown`・`ended` には適用しない。評価順は 04 の「時刻」。
 - `ended` の後に来た `signals` には 200 で `{"state": "ended", "still_seconds": 0, "current_problem_no": n, "next_action": null, "cooldown_remaining": 0}` を返す。デバイスはループを止める。
@@ -138,7 +138,7 @@ Hack Day 版はヒント 2 段階（H1 固定文・H2 GPT）、SSE なし（記�
 → `{"frame_id": "frm_…", "received_at": "…", "bytes": 182311}`。
 
 - サーバはセッションごとに最新 1 枚だけメモリに持つ。保存はしない。再起動で消える。
-- 送るのは 3 つの瞬間だけ：`next_action`（`send_frame` か、先に送っていなければ `send_frame_and_request_hint`）が来たとき、「ヒント」を押したとき、「できた」を押したとき。定期的には送らない（「詰まったときだけ 1 枚」を README とピッチで言うため）。
+- 送るのは 3 つの瞬間だけ：`next_action`（`send_frame` か、先に送っていなければ `send_frame_and_request_hint`）が来たとき、「ヒント」を押したとき、「できた」を押したとき。定期的には送らない（「手が止まったときだけ 1 枚」を README とピッチで言うため）。
 - 大きすぎれば 413。`ended` なら 409。
 
 ## ヒント
@@ -149,7 +149,7 @@ Hack Day 版はヒント 2 段階（H1 固定文・H2 GPT）、SSE なし（記�
 {"trigger": "auto", "frame_id": "frm_…"}
 ```
 
-`trigger` は `auto`（`next_action` に従って）| `manual`（ボタン）| `voice`（学習者が「わからない」「わかんない」「ヒント」と言った。ブラウザの音声認識で聞き取り、`web/lib/loop.ts` が送る）。`frame_id` は直前に送ったフレーム（サーバは照合せず最新 1 枚を使う。`auto` で先に作り始めたヒントの段階と問題が合えば、それを返す。ADR 0028）。
+`trigger` は `auto`（`next_action` に従って）| `manual`（ボタン）| `voice`（学習者が「わからない」「わかんない」「ヒント」と言った。ブラウザの音声認識で聞き取り、`web/lib/loop.ts` が送る）。`frame_id` は直前に送ったフレーム（サーバは照合せず最新 1 枚を使う。`auto` で先に作り始めたヒントが同じ問題の同じ詰まり（`stuck_count`）のものなら、それを返す。ADR 0028）。
 
 ```json
 {"hint_id": "hnt_…", "problem_no": 2, "level": 2, "trigger": "auto",

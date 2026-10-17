@@ -28,7 +28,7 @@ flowchart LR
   GPT["Gemini API（無料枠）"]
   SHEET --> PHONE --> DEV
   DEV -->|"1 秒ごと motion"| SM
-  DEV -->|"詰まり時・ボタン時に 1 枚"| MEM
+  DEV -->|"止まって 17 秒・ボタン時に 1 枚"| MEM
   SM -->|"stuck → next_action"| DEV
   DEV -->|"hints"| HG --> GPT
   HG --> LC --> DEV
@@ -46,13 +46,13 @@ flowchart LR
 | 何が | どこまで行くか | 残るか |
 |---|---|---|
 | 映像（毎秒） | ブラウザの中だけ。動きスコアの計算に使って捨てる | 残らない |
-| フレーム（JPEG、長辺 1024） | 詰まった瞬間・「ヒント」「できた」の瞬間の 1 枚だけサーバへ。サーバはメモリに最新 1 枚だけ持つ | 残らない |
+| フレーム（JPEG、長辺 1024） | 手が止まって 17 秒（詰まりの 3 秒前）・「ヒント」「できた」の瞬間の 1 枚だけサーバへ。サーバはメモリに最新 1 枚だけ持つ | 残らない |
 | 詰まった瞬間・「できた」の瞬間のフレーム | ヒント生成・正誤チェックのために Gemini API（無料枠）へ送る | API 側の扱いは Google の規約に従い、無料枠では Google のサービス改善に使われうる（ADR 0025）。ピッチで自分から言う |
 | 状態、ヒント文、詰まりポイント、正誤 | JSON ファイル | 残る。記録画面に出すのはこれ |
 | 正答・典型ミス・固定ヒント・`leak_strings` | サーバだけ。`GET /worksheets*` は問題文だけ返す | デバイス・記録画面には出ない |
 | 音声（マイク） | ブラウザの音声認識（Chrome は Google、Safari は Apple のサーバ）で文字にし、「わからない」等を含むときだけヒント要求を送る | 音声は残らない。聞き取った文字も保存しない（`trigger: voice` だけ残る） |
 
-ピッチでは「映像は手元だけ、残るのはラベルだけ。ただし詰まった瞬間の 1 枚は AI に送る」と自分から言う。
+ピッチでは「映像は手元だけ、残るのはラベルだけ。ただし手が止まったときの 1 枚は AI に送る」と自分から言う。
 
 ## 認可の 3 系統
 
@@ -189,7 +189,7 @@ stateDiagram-v2
   [*] --> created: POST /sessions
   created --> watching: 最初の signals
   watching --> still: motion < τ
-  still --> watching: motion ≥ τ
+  still --> watching: motion ≥ motion_exit_threshold
   still --> stuck: 静止が stuck_seconds 続いた
   watching --> stuck: force_stuck
   still --> stuck: force_stuck

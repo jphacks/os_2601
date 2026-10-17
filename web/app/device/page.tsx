@@ -6,6 +6,7 @@ import { ApiError, getSession, patchSettings, type SessionDetail, type State } f
 import { startCamera, stopCamera } from "@/lib/camera";
 import { advance, end, requestCheck, requestManualHint, startSession } from "@/lib/loop";
 import { unlockSpeech } from "@/lib/speech";
+import { primeListening, stopListening } from "@/lib/voice";
 import { Buttons } from "./_components/Buttons";
 import { Caption } from "./_components/Caption";
 import { Header } from "./_components/Header";
@@ -104,10 +105,12 @@ function Device() {
         ? patchSettings(sessionId, token, { stuck_seconds: stuckSeconds }).catch(ignoreError)
         : null;
     unlockSpeech();
+    primeListening();
     try {
       await startCamera(video);
     } catch (error) {
       console.warn("[device] startCamera に失敗", error);
+      stopListening();
       setCaption(CAMERA_DENIED_CAPTION);
       setBusy(false);
       startingRef.current = false;

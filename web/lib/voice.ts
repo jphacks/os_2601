@@ -1,6 +1,8 @@
 const LANG = "ja-JP";
 const RESTART_DELAY_MS = 500;
-const PERMISSION_ERRORS = new Set(["not-allowed", "service-not-allowed"]);
+const RETRY_DELAY_MS = 3000;
+const FATAL_ERRORS = new Set(["not-allowed", "service-not-allowed", "audio-capture", "language-not-supported"]);
+const QUIET_ERRORS = new Set(["no-speech", "aborted"]);
 
 type RecognitionResultEvent = { resultIndex: number; results: SpeechRecognitionResultList };
 
@@ -17,56 +19,82 @@ type Recognizer = {
 
 type RecognizerClass = new () => Recognizer;
 
-let active: Recognizer | null = null;
+let recognizer: Recognizer | null = null;
+let onHeard: (text: string) => void = () => {};
+let wanted = false;
+let running = false;
+let blocked = false;
+let nextBeginDelayMs = RESTART_DELAY_MS;
 let restartTimer: ReturnType<typeof setTimeout> | undefined;
 
-function findRecognizerClass(): RecognizerClass | undefined {
-  if (typeof window === "undefined") return undefined;
+function createRecognizer(): Recognizer | null {
   const speechWindow = window as unknown as {
     SpeechRecognition?: RecognizerClass;
     webkitSpeechRecognition?: RecognizerClass;
   };
-  return speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
-}
-
-function begin(recognizer: Recognizer): void {
-  try {
-    recognizer.start();
-  } catch (error) {
-    console.warn("[voice] 聞き取りを始められない", error);
-  }
-}
-
-export function startListening(onHeard: (text: string) => void): () => void {
-  const Recognizer = findRecognizerClass();
-  if (!Recognizer) return stopListening;
-  stopListening();
-  const recognizer = new Recognizer();
-  recognizer.lang = LANG;
-  recognizer.continuous = true;
-  recognizer.interimResults = false;
-  recognizer.onresult = (event) => {
+  const Recognizer = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
+  if (!Recognizer) return null;
+  const created = new Recognizer();
+  created.lang = LANG;
+  created.continuous = false;
+  created.interimResults = false;
+  created.onresult = (event) => {
+    if (!wanted) return;
     for (let i = event.resultIndex; i < event.results.length; i += 1) {
       const text = event.results[i][0].transcript.trim();
       if (event.results[i].isFinal && text) onHeard(text);
     }
   };
-  recognizer.onerror = (event) => {
-    if (!PERMISSION_ERRORS.has(event.error)) return;
-    console.warn("[voice] マイクか音声認識が許可されていない", event.error);
-    stopListening();
+  created.onerror = (event) => {
+    if (FATAL_ERRORS.has(event.error)) {
+      console.warn("[voice] 聞き取りをやめる", event.error);
+      blocked = true;
+      wanted = false;
+    } else if (!QUIET_ERRORS.has(event.error)) {
+      console.warn("[voice] 聞き取りのエラー。少し待って再開", event.error);
+      nextBeginDelayMs = RETRY_DELAY_MS;
+    }
   };
-  recognizer.onend = () => {
-    if (active === recognizer) restartTimer = setTimeout(() => begin(recognizer), RESTART_DELAY_MS);
+  created.onend = () => {
+    running = false;
+    if (wanted) scheduleBegin(nextBeginDelayMs);
+    nextBeginDelayMs = RESTART_DELAY_MS;
   };
-  active = recognizer;
-  begin(recognizer);
+  return created;
+}
+
+function scheduleBegin(delayMs: number): void {
+  clearTimeout(restartTimer);
+  restartTimer = setTimeout(begin, delayMs);
+}
+
+function begin(): void {
+  if (!wanted || running || blocked || !recognizer) return;
+  try {
+    recognizer.start();
+    running = true;
+  } catch (error) {
+    console.warn("[voice] 聞き取りを始められない。少し待って再開", error);
+    scheduleBegin(RETRY_DELAY_MS);
+  }
+}
+
+export function startListening(handler: (text: string) => void): () => void {
+  onHeard = handler;
+  if (typeof window === "undefined" || blocked) return stopListening;
+  if (new URLSearchParams(window.location.search).get("voice") === "0") return stopListening;
+  recognizer ??= createRecognizer();
+  wanted = true;
+  begin();
   return stopListening;
 }
 
+export function primeListening(): void {
+  startListening(() => {});
+}
+
 export function stopListening(): void {
+  wanted = false;
   clearTimeout(restartTimer);
-  const recognizer = active;
-  active = null;
-  recognizer?.abort();
+  if (running) recognizer?.abort();
 }

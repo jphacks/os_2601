@@ -73,7 +73,10 @@ PC（横持ち）では映像を左、字幕とボタンを右に置く。部品
 
 ## 音声認識（`web/lib/voice.ts`、高橋が書く）
 
-- `webkitSpeechRecognition`（`lang: ja-JP`、`continuous: true`、`interimResults: false`）。結果の文字列を `onHeard` に渡す。終了イベントで自動再開。非対応なら何もしない。
+- `webkitSpeechRecognition`（`lang: ja-JP`、`continuous: false`、`interimResults: false`）。発話ごとに確定した文字列を `onHeard` に渡し、終わったら 0.5 秒おいて自動で再開する（`continuous: true` だと iOS Safari で確定が遅れるため）。エラーの後は 3 秒待つ。非対応なら何もしない。
+- 「はじめる」のクリックの中で `primeListening()` を呼び、マイクと音声認識の許可をその場で取る（iOS は操作の直後でないと許可を求められないことがある）。許可されなかったら、そのページではもう聞かない。
+- `/device` の URL に `voice=0` を付けると聞き取らない（中間発表や動画の撮影で、会場の声に反応させないため）。
+- 合言葉は「わからない」「わかんない」「分からない」「分かんない」「わかりません」「分かりません」「ヒント」（音声認識は漢字で返すことが多い）。
 - iOS Safari は「Siri と音声入力」が ON でないと動かない。Mac Chrome は動く（音声は Google のサーバで文字にされる。Safari は Apple）。聞き取った文字だけを使い、音声は保存しない。README と 12 に書く。
 - ピッチでは使わない（会場のマイクやスピーカーの音を誤認識するため）。製品説明動画の 3 問目で見せる。
 

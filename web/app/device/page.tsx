@@ -23,6 +23,8 @@ const CAMERA_DENIED_CAPTION = "設定からカメラを許可してね。LINE �
 const END_CONFIRM = "おわる？";
 // 平均輝度がこれ未満なら「明るさが足りません」を重ねる（docs/tasks/b.md の B1-4）
 const DARK_BRIGHTNESS = 60;
+// 聞き取った文字を字幕の下に出しておく時間（docs/06 の「声のトリガー」）
+const HEARD_MS = 3000;
 
 // ApiError は画面に何も出さない。それ以外はコンソールにだけ残す
 function ignoreError(error: unknown) {
@@ -47,6 +49,8 @@ function Device() {
   const [brightness, setBrightness] = useState<number | null>(null);
   const [stillSeconds, setStillSeconds] = useState(0);
   const [connected, setConnected] = useState(true);
+  // 同じ文字が続けて来ても 3 秒を数え直すように、受け取るたびに新しいオブジェクトにする
+  const [heard, setHeard] = useState<{ text: string } | null>(null);
 
   useEffect(() => {
     if (!sessionId || !token) return;
@@ -70,6 +74,12 @@ function Device() {
     },
     [],
   );
+
+  useEffect(() => {
+    if (!heard) return;
+    const timer = setTimeout(() => setHeard(null), HEARD_MS);
+    return () => clearTimeout(timer);
+  }, [heard]);
 
   function applyState(next: State, nextProblemNo: number) {
     setState(next);
@@ -113,7 +123,7 @@ function Device() {
       },
       onBrightness: setBrightness,
       onConnection: setConnected,
-      onHeard: () => {},
+      onHeard: (text) => setHeard({ text }),
     });
     setBusy(false);
     startingRef.current = false;
@@ -182,30 +192,37 @@ function Device() {
           worksheetTitle={session.worksheet_title}
           problemNo={problemNo}
           problemCount={session.problem_count}
+          mode={session.mode}
           connected={connected}
         />
       )}
-      <VideoFrame
-        videoRef={videoRef}
-        dark={brightness !== null && brightness < DARK_BRIGHTNESS}
-        debugText={debug ? `輝度 ${brightness === null ? "-" : Math.round(brightness)} / 静止 ${stillSeconds} 秒` : null}
-      >
-        <StateBadge state={state} />
-      </VideoFrame>
-      <div className="flex flex-col gap-4 p-4">
-        <Caption text={caption} />
-        {state === "created" && selectedSeconds !== null && (
-          <SecondsPicker value={selectedSeconds} onChange={setStuckSeconds} />
-        )}
-        <Buttons
-          state={state}
-          busy={busy}
-          onStart={handleStart}
-          onHint={handleHint}
-          onCheck={handleCheck}
-          onNext={handleNext}
-          onEnd={handleEnd}
-        />
+      {/* スマホ縦持ちは縦に積む。PC 横持ちは映像を左、字幕とボタンを右（docs/06 の「画面の配置」） */}
+      <div className="flex flex-1 flex-col md:flex-row md:items-start">
+        <div className="md:w-3/5">
+          <VideoFrame
+            videoRef={videoRef}
+            dark={brightness !== null && brightness < DARK_BRIGHTNESS}
+            debugText={debug ? `輝度 ${brightness === null ? "-" : Math.round(brightness)} / 静止 ${stillSeconds} 秒` : null}
+          >
+            <StateBadge state={state} />
+          </VideoFrame>
+        </div>
+        <div className="flex flex-col gap-4 p-4 md:w-2/5">
+          <Caption text={caption} />
+          {heard && <p className="text-sm text-gray-500">聞こえた：{heard.text}</p>}
+          {state === "created" && selectedSeconds !== null && (
+            <SecondsPicker value={selectedSeconds} onChange={setStuckSeconds} />
+          )}
+          <Buttons
+            state={state}
+            busy={busy}
+            onStart={handleStart}
+            onHint={handleHint}
+            onCheck={handleCheck}
+            onNext={handleNext}
+            onEnd={handleEnd}
+          />
+        </div>
       </div>
     </main>
   );

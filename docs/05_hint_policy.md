@@ -68,30 +68,32 @@ class HintOut(BaseModel):
 ```
 
 ```python
-# api/app/hints.py の骨子（当日書く。SDK の呼び方は当日 OpenAI のドキュメントで確認する）
+# api/app/hints.py の骨子（10/17 に OpenAI から Gemini API の無料枠に変更。ADR 0025）
 import base64, os
-from openai import OpenAI
-client = OpenAI()
+import httpx
 
-def generate_hint(frame_jpeg: bytes, problem_text: str, level: int,
-                  typical_mistakes: list[str], previous: list[str]) -> HintOut:
-    img = base64.standard_b64encode(frame_jpeg).decode()
-    res = client.responses.parse(
-        model=os.environ.get("HINT_MODEL", "gpt-6.1-sol"),
-        reasoning={"effort": "low"},
-        instructions=SYSTEM_PROMPT,
-        input=[{"role": "user", "content": [
-            {"type": "input_image", "image_url": f"data:image/jpeg;base64,{img}", "detail": "low"},
-            {"type": "input_text", "text": render_user_text(problem_text, level, typical_mistakes, previous)},
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+async def generate_hint(frame_jpeg: bytes, problem_text: str, level: int,
+                        typical_mistakes: list[str], previous: list[str]) -> HintOut:
+    body = {
+        "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+        "contents": [{"role": "user", "parts": [
+            {"text": render_user_text(problem_text, level, typical_mistakes, previous)},
+            {"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(frame_jpeg).decode()}},
         ]}],
-        text_format=HintOut,
-    )
-    return res.output_parsed
+        "generationConfig": {"responseMimeType": "application/json", "responseSchema": HINT_SCHEMA},
+    }
+    async with httpx.AsyncClient(timeout=8) as client:
+        res = await client.post(GEMINI_URL.format(model=os.environ["HINT_MODEL"]), json=body,
+                                headers={"x-goog-api-key": os.environ["GEMINI_API_KEY"]})
+    res.raise_for_status()
+    return HintOut.model_validate_json(res.json()["candidates"][0]["content"]["parts"][-1]["text"])
 ```
 
-- `reasoning.effort: low` で遅延を抑える。システムプロンプトは固定文なのでキャッシュが効く。
-- タイムアウトは 8 秒、リトライなし。429 / 5xx / タイムアウトで固定ヒント（`source: "fallback"`）。`HINT_MODEL_FALLBACK` は Day 2 に余裕があれば。
-- 1 回の呼び出しで画像は 1 枚。費用は 1 ヒントあたり数円の桁。詰まったときしか呼ばないので、1 セッション（4 問・15 分）で 10 回も呼ばない。
+- `HINT_MODEL` は `gemini-3.5-flash-lite`。考える工程が無く、10/17 の計測で約 2 秒（ADR 0025）。`HINT_SCHEMA` は HintOut と同じ形を Gemini の `responseSchema`（`type: OBJECT` ほか）で書く。
+- タイムアウトは 8 秒、リトライなし。429（無料枠の上限）/ 5xx / タイムアウトで固定ヒント（`source: "fallback"`）。`HINT_MODEL_FALLBACK` は Day 2 に余裕があれば。
+- 1 回の呼び出しで画像は 1 枚。Gemini の無料枠なので費用は 0 円。ただし送った画像は Google のサービス改善に使われうる（`docs/12`）。詰まったときしか呼ばないので、1 セッション（4 問・15 分）で 10 回も呼ばない。
 
 ## 答え漏れ検査（2 層目）
 
@@ -129,7 +131,7 @@ flowchart TD
 ### 限界（言ってよいことに合わせる）
 
 - 「2 倍して 10 になる数」「5 の反対」のような言い換えは止められない。プロンプトで禁止しているが、保証ではない。
-- 正答を GPT に渡していないので、GPT が偶然正答を言うには自分で解く必要がある。短い `reasoning.effort: low` と「解いて見せない」の指示でその確率を下げている。
+- 正答を GPT に渡していないので、GPT が偶然正答を言うには自分で解く必要がある。考える工程の無い lite モデルと「解いて見せない」の指示でその確率を下げている。
 
 ## 正誤チェック
 
@@ -147,7 +149,7 @@ class CheckOut(BaseModel):
 
 - GPT に出させるのは判定だけ。読み上げ文は `fixed_check_correct`（「正解。符号の直し方、ばっちり」）・`fixed_check_incorrect`（「もう一回、2 行目の符号を見てみて」）・`unreadable` の共通文を使う。正答を渡した呼び出しに文を作らせると答えを言いうるので、ここは固定にする。
 - `final_answer_seen` はデバッグ用に残すが、API では返さない。
-- モデルは `CHECK_MODEL`（既定 `gpt-6-luna`。判定だけなので速くて安いモデルでよい）。
+- モデルは `CHECK_MODEL`（`gemini-3.5-flash-lite`。判定だけなので速いモデルでよい。ADR 0025）。
 
 ## 固定ヒントと scripted モード
 
@@ -160,4 +162,4 @@ class CheckOut(BaseModel):
 
 - 詰まりポイントのラベルを固定語彙（移項の符号、分配法則、両辺を割る、代入ミス、展開の中央項、因数の符号）に寄せ、記録画面で単元をまたいで集計できるようにする。
 - `where`（今どこまで書いているか）を使って、「3 行目で止まっているね」のように位置に触れる H2 を出す。
-- 言い換えによる答え漏れを、正答を知る別の呼び出し（`reasoning.effort: low`、判定だけ）で検査する 3 層目。
+- 言い換えによる答え漏れを、正答を知る別の呼び出し（判定だけ）で検査する 3 層目。

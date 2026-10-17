@@ -65,3 +65,4 @@
 | 0022 | [正解の読み上げ中の「次へ」は、読み上げを止めるだけにする](0022-advance-after-correct-only-stops-speech.md) | 提案 |
 | 0023 | [Railway と Vercel は Mac から CLI でデプロイする](0023-deploy-from-mac-with-cli.md) | 承認 |
 | 0024 | [Vercel のプレビューは保護を外して公開する](0024-public-vercel-previews.md) | 承認 |
+| 0025 | [ヒントの H2 と正誤判定は Gemini API の無料枠（gemini-3.5-flash-lite）で行う](0025-gemini-free-tier.md) | 承認 |

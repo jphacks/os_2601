@@ -1,3 +1,4 @@
+import logging
 import secrets
 import time
 from dataclasses import asdict, dataclass, field
@@ -33,6 +34,8 @@ from app.state import (
 )
 from app.store import SessionStore
 from app.worksheets import PRINT_LAYOUT, Worksheet
+
+logger = logging.getLogger(__name__)
 
 MAX_FRAME_BYTES = 600 * 1024
 SPEECH_MAX_CHARS = 40
@@ -333,6 +336,14 @@ async def post_signal(
     now = _now()
     event = Signal(motion=body.motion, camera_ok=bool(body.camera_ok), force_stuck=body.force_stuck)
     session, result = _apply(context, session, event, now)
+    logger.info(
+        "signal session=%s motion=%s camera_ok=%s force_stuck=%s state=%s",
+        session.session_id,
+        body.motion,
+        body.camera_ok,
+        body.force_stuck,
+        session.state,
+    )
     return {
         "state": session.state,
         "still_seconds": still_seconds(session, now),

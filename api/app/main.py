@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 
@@ -58,6 +59,7 @@ def _build_context() -> AppContext:
 
 
 def create_app() -> FastAPI:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     app = FastAPI(title="となり API")
     app.state.context = _build_context()
     app.add_middleware(

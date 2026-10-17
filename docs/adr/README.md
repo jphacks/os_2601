@@ -73,3 +73,4 @@
 | 0030 | [担当フォルダの線引きをなくし、事故の防止だけ残す](0030-remove-folder-ownership.md) | 承認 |
 | 0031 | [家庭教師の人格を /device で選び、ヒントの口調と固定文と正誤の読み上げを変える](0031-tutor-personas.md) | 承認 |
 | 0032 | [聞こえた文をすべて AI に渡し、問いには説明も含めて答える](0032-answer-what-the-learner-says.md) | 承認 |
+| 0033 | [ヒントと声の答えの精度の穴を 6 つふさぐ](0033-hint-precision-holes.md) | 承認 |

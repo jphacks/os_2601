@@ -25,7 +25,7 @@ flowchart LR
     JSON[("JSON ファイル 1 つ<br/>セッション・問題・ヒント・チェック")]
     WS["ワークシート定義<br/>正答・典型ミス・固定ヒント"]
   end
-  GPT["OpenAI API"]
+  GPT["Gemini API（無料枠）"]
   SHEET --> PHONE --> DEV
   DEV -->|"1 秒ごと motion"| SM
   DEV -->|"詰まり時・ボタン時に 1 枚"| MEM
@@ -47,7 +47,7 @@ flowchart LR
 |---|---|---|
 | 映像（毎秒） | ブラウザの中だけ。動きスコアの計算に使って捨てる | 残らない |
 | フレーム（JPEG、長辺 1024） | 詰まった瞬間・「ヒント」「できた」の瞬間の 1 枚だけサーバへ。サーバはメモリに最新 1 枚だけ持つ | 残らない |
-| 詰まった瞬間・「できた」の瞬間のフレーム | ヒント生成・正誤チェックのために OpenAI API へ送る | API 側の保持は OpenAI の規約に従う。ピッチで自分から言う |
+| 詰まった瞬間・「できた」の瞬間のフレーム | ヒント生成・正誤チェックのために Gemini API（無料枠）へ送る | API 側の扱いは Google の規約に従い、無料枠では Google のサービス改善に使われうる（ADR 0025）。ピッチで自分から言う |
 | 状態、ヒント文、詰まりポイント、正誤 | JSON ファイル | 残る。記録画面に出すのはこれ |
 | 正答・典型ミス・固定ヒント・`leak_strings` | サーバだけ。`GET /worksheets*` は問題文だけ返す | デバイス・記録画面には出ない |
 | 音声（マイク） | ブラウザの音声認識（Chrome は Google、Safari は Apple のサーバ）で文字にし、「わからない」等を含むときだけヒント要求を送る | 音声は残らない。聞き取った文字も保存しない（`trigger: voice` だけ残る） |
@@ -227,7 +227,7 @@ stateDiagram-v2
 
 | 変数 | 置き場所 | 用途 |
 |---|---|---|
-| `OPENAI_API_KEY` | Railway | GPT の呼び出し |
+| `GEMINI_API_KEY` | Railway | 生成 AI（Gemini）の呼び出し。10/17 に `OPENAI_API_KEY` から変更（ADR 0025） |
 | `HINT_MODEL` / `CHECK_MODEL` | Railway | 既定 `gpt-6.1-sol` / `gpt-6-luna`。ヒントが遅ければ `HINT_MODEL` も `gpt-6-luna` |
 | `OPERATOR_KEY` | Railway・オペレータの手元 | オペレータ系統の認可。Hack Day 後に変える |
 | `CORS_ORIGINS` | Railway | カンマ区切りの正規オリジン（`http://localhost:3000`、Vercel の本番 URL） |

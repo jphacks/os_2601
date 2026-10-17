@@ -56,7 +56,7 @@ JPHACKS 2026（大阪会場・Hack Day 10/17-18）で作る「答えを言わな
 | ヒント生成 | GPT（`gpt-6.1-sol`、`reasoning.effort: low`、画像入力、構造化出力）。遅ければ `gpt-6-luna` に切替 |
 | 答えを言わない | プロンプトだけに頼らず、サーバが正答文字列で機械的に検査する。落ちたら固定ヒント（Hack Day 版は再生成しない） |
 | 音声 | ブラウザの音声合成（Web Speech API、`ja-JP`）。字幕は常に出す。VOICEVOX は Kaizen Sprint の候補 |
-| 映像の扱い | 手元だけ。顔は映さない角度。保存しない（最新 1 枚をメモリに持つだけ）。詰まった瞬間と「できた」の瞬間の 1 枚は OpenAI に送る |
+| 映像の扱い | 手元だけ。顔は映さない角度。保存しない（最新 1 枚をメモリに持つだけ）。詰まった瞬間と「できた」の瞬間の 1 枚は Gemini API（無料枠）に送る（10/17 に OpenAI から変更） |
 | API キー | 個人で作成。Railway の環境変数にのみ置く。リポジトリは公開される |
 | 事前開発 | 本番リポジトリのコードは当日ゼロから書く。事前は環境・アカウント・捨てコードでの検証・文書・調査・ワークシート印刷・リハまで |
 | 文書の共有 | この `docs/` と、Notion への手動インポート |
@@ -74,6 +74,8 @@ JPHACKS 2026（大阪会場・Hack Day 10/17-18）で作る「答えを言わな
 | 設計の穴の修正（10/16 夜） | Meet は「Chrome のタブを共有」（Mac はタブ共有だけが音を運ぶ）。`/log` へは同じタブで `?k=` つき URL で移る。Mac の Chrome ではラベルに iPhone を含むカメラを優先（`?cam=iphone`）。デモ用セッションは stuck 12 秒・cooldown 3 秒（3 周目で 10 秒・0 秒に変更）。GPT のタイムアウトは 8 秒で固定ヒントに落ちる。CORS は Vercel と trycloudflare のプレビューを正規表現で許す。`signals` に `force_stuck` を足す（scripted の最小版）。Railway の App Sleeping は無効にする。**2 周目（10/16 夜）**：`next_action` は `stuck` の間ずっと返す。`stuck`・`speaking`・`checking` 中は動きを無視。1 秒ごとの送信と自動ヒントは `web/lib/loop.ts`（高橋）に寄せ、B は表示だけ。答え漏れ検査で一致したら固定 H2 に落とす。`check` のタイムアウトは `unreadable`。`signal_timeout_seconds` は 5。固定ヒントは H1・H2 だけ必須。01・09 の主張を「2 段階」に直した。**3 周目（3 体の独立レビュー）**：デモ用セッションは stuck 10 秒・cooldown 0 秒（名目 1:28、1:20 に正解が無ければ `/log` を落とす）。「はじめる」は自分の番が来てから。正誤の読み上げ文は固定（GPT は判定だけ、`CHECK_MODEL` は `gpt-6-luna`）。今夜の `loop.ts` は空実装（本物は Day 1）。10 秒ごとのフレームは送らない。強制 stuck はオペレータキーで通す。`stuck` 中はボタン無効。CI は今夜 `pnpm check` だけ。D は Day 1 午前を受付に専念しトップページは 13:00〜15:00。紙の許可は Day 1 20:10 に聞く。動画工程を 12:30 撮影・13:15 アップロードと GIF・13:45 README に分割。Meet の録音テストを Day 2 午前に。**4 周目（C・D・今夜の実行性）**：README はテンプレートの見出しを Day 1 から、正誤の固定文は全問共通の既定文、`/log` の鍵は `type=password`、紙は片面「1 枚に 2 ページ」で切る、D は URL を 10 本もらって計時、ボタンは全部高橋が押し合図は「落とす」「飛ばす」、D が声で「できた」、紙を置けなければ式を声で読む、中間発表は 3 版、読み合わせは 11:00、pnpm ワークスペース、今夜は T0-6 から、loop.ts と check の文を今夜書いた |
 | ハーネス（10/16 夜） | 全員が AI（Claude Code か Codex）で開発するので、ツールに依らない層で守る：`AGENTS.md`＝`CLAUDE.md`、root の `.role.local`、git の `pre-commit`／`pre-push` フック（担当外・保護ファイル・`main` への push・force push を止める）、CI の担当検査（`team.json`）、`docs/prompts/` の手順 4 本。Claude Code にはその上に `.claude/settings.json`（同じ guard を編集前に走らせる）とスラッシュコマンド。正本は `tonari/harness/`、当日コピー。予行で「担当外を触ると止まる」を全員が体験する |
 | 追加仕様（10/16 夜） | 止まったと判定する秒数は学習者が `/device` で選ぶ（10 秒・20 秒・30 秒・1 分・3 分・5 分・10 分・20 分。`PATCH /sessions/{id}/settings`）。「わからない」と言えば声でヒントを呼べる（`web/lib/voice.ts`、`trigger: voice`。Day 1 17:00〜、間に合わなければ落とす。ピッチでは使わず動画で見せる）。一度声をかけた後の沈黙（`cooldown_seconds`）が止めるのは自動のヒントだけで、ボタンと声は通る |
+| API（10/17） | ヒント生成と正誤チェックを OpenAI から Gemini API の無料枠（`gemini-3.5-flash-lite`、約 2 秒）に変更。費用を 0 円にするため。鍵は `GEMINI_API_KEY`。契約は変えず、`source: "gpt"` と docs の「GPT」は生成 AI の総称として読む。無料枠では送った 1 枚が Google の改善に使われうるので、README・ピッチでそう言う（ADR 0025） |
+| デプロイ（10/17） | Railway と Vercel は高橋の Mac から CLI で（org の GitHub 連携は使わない）。API `https://api-production-67c3.up.railway.app`、Web `https://tonari-nine.vercel.app`。プレビューは保護を外して公開（ADR 0023・0024） |
 
 ## Notion へのインポート手順
 

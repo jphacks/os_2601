@@ -119,7 +119,7 @@ tonari/web/lib/ に camera.ts、motion.ts、speech.ts、voice.ts、api.ts、loop
 
 - 手順メモどおり。`jphacks2026/repo/os_2601`（10/16 に clone 済み。中身は JPHACKS のテンプレート README と MIT LICENSE だけ）に T0-6 の設定一式と T0-1 の成果物を入れ、**10:35 に `main` へ push して Slack に「clone していい」と書く**。テンプレート README は消さず、C が中身を埋める。`web/app/page.tsx` はリンク 4 つ（`/device` `/ops` `/log` `/sheets`）だけの 1 ファイルを置く（D が 13:00 に差し替える）。
 - Railway（Root Directory 空、`RAILWAY_DOCKERFILE_PATH=api/Dockerfile`）と Vercel（Root Directory `web`）を本番リポジトリにつなぎ直す。GitHub 連携が org で入らなければ Mac から `railway up` と `vercel` CLI でデプロイし、以後 B・C のブランチも高橋が手で打つ。
-- Railway の環境変数：`OPERATOR_KEY`、`OPENAI_API_KEY`、`HINT_MODEL`、`CHECK_MODEL`、`CORS_ORIGINS`（`http://localhost:3000` と Vercel の本番 URL）、`CORS_ORIGIN_REGEX`、`DATA_PATH=/app/api/data/tonari.json`、`DEMO_MODE=1`。Vercel の環境変数：Production に `NEXT_PUBLIC_API_BASE`（Railway の URL）、Preview に `NEXT_PUBLIC_MOCK=1`（B・C のプレビューが未完成の API を叩かない）。`OPERATOR_KEY` は Hack Day 後に変える。
+- Railway の環境変数：`OPERATOR_KEY`、`GEMINI_API_KEY`（10/17 に `OPENAI_API_KEY` から変更、ADR 0025）、`HINT_MODEL`、`CHECK_MODEL`、`CORS_ORIGINS`（`http://localhost:3000` と Vercel の本番 URL）、`CORS_ORIGIN_REGEX`、`DATA_PATH=/app/api/data/tonari.json`、`DEMO_MODE=1`。Vercel の環境変数：Production に `NEXT_PUBLIC_API_BASE`（Railway の URL）、Preview に `NEXT_PUBLIC_MOCK=1`（B・C のプレビューが未完成の API を叩かない）。`OPERATOR_KEY` は Hack Day 後に変える。
 - 10:35 の `main` に `web/lib` の 6 ファイル（今夜の版）と `web/.env.example` が入っていること。10:50 から 1 人 3 分ずつ `pnpm dev:mock` の起動を見る。
 - 11:00-11:15：D の進行で契約の読み合わせ（`openapi.yaml` を 10 分で説明。B・C に「最初の 1 部品」を言ってもらう）。
 - 完了条件：3 人の PC で `/device` の空ページが出る。CI が緑。Railway の `/healthz` と Vercel の `/` が本番リポジトリから出ている。
@@ -184,7 +184,7 @@ openapi.yaml を契約として、api/ に FastAPI を実装してください�
 docs/05_hint_policy.md を全部読んでください。app/leak.py と app/hints.py を書き、routes.py の hints を差し替えます。
 - leak.py: normalize(text)（先に ² → ^2・³ → ^3、次に NFKC、空白除去、× ✕ → *、− と数字直前の ー → -、＝ → =）と、leak_strings のいずれかを含むかの判定。
 - api/tools/validate_worksheets.py: worksheets/*.json を schema.json で検証。problems が無いファイルは警告だけ。leak_strings が正規化後と一致しない要素と 3 文字未満の要素は赤。fixed_hints に "1" "2" があること、固定ヒントと fixed_check_* が 40 文字以内、text に answer が含まれないこと。api/tools/leak_selftest.py: 全問題の fixed_hints と fixed_check_incorrect を正規化し、その問題の leak_strings を含まないことを確かめる。両方とも worksheets は Path(__file__).resolve().parents[2] / "worksheets"。
-- hints.py: HintOut（learner_present, readable, where, stuck_point, speech, display）。AsyncOpenAI(timeout=8, max_retries=0) の responses.parse、model は HINT_MODEL、reasoning effort low、画像は最新フレームを base64 の input_image（detail low）。SYSTEM_PROMPT には 05 の「システムプロンプトの方針」「段階」の表（H2 だけ）「文言の規則」を全文入れる。ユーザー文には問題文・典型ミス・この問題で既に出したヒント文（「別の着眼点で」）を入れ、正答は渡さない。readable が false なら一般形「2 行目を声に出して読んでみて」。learner_present は記録するだけ。
+- hints.py: HintOut（learner_present, readable, where, stuck_point, speech, display）。Gemini API の generateContent を httpx.AsyncClient(timeout=8) で 1 回だけ呼ぶ（リトライなし、鍵は GEMINI_API_KEY を x-goog-api-key ヘッダで）。model は HINT_MODEL（gemini-3.5-flash-lite）、systemInstruction に SYSTEM_PROMPT、画像は最新フレームを inline_data（image/jpeg、base64）、generationConfig は responseMimeType application/json と HintOut と同じ形の responseSchema（ADR 0025）。SYSTEM_PROMPT には 05 の「システムプロンプトの方針」「段階」の表（H2 だけ）「文言の規則」を全文入れる。ユーザー文には問題文・典型ミス・この問題で既に出したヒント文（「別の着眼点で」）を入れ、正答は渡さない。readable が false なら一般形「2 行目を声に出して読んでみて」。learner_present は記録するだけ。
 - routes の hints: level 1 と scripted は GPT を呼ばず fixed_hints["1"] / ["2"]（source は fallback / scripted）。level 2 の live は GPT → speech を 40 文字・display を 60 文字で切ってから leak 検査 → 一致したら fixed_hints["2"] に差し替えて leak_check {ok:false, fallback:true} と leak_blocked_count += 1。タイムアウト・例外・最新フレーム無しは fixed_hints["2"] で source fallback、leak_check {ok:true, fallback:false}。固定文も無ければ 503。frame_id は照合せず最新フレームを使う。GET /sessions/{id} の hints[] に source・latency_ms・leak_check・trigger を含める。
 ```
 
@@ -208,7 +208,7 @@ docs/05_hint_policy.md を全部読んでください。app/leak.py と app/hint
 - `POST .../check`（`app/check.py`）：
 
 ```
-docs/05_hint_policy.md の「正誤チェック」を読んで app/check.py を書き、routes.py の check を差し替えてください。CheckOut は readable・final_answer_seen・verdict の 3 つだけ。AsyncOpenAI(timeout=8, max_retries=0)、model は CHECK_MODEL、最新フレームと問題文と answer を渡して verdict だけ返させる。読み上げ文は GPT に作らせず固定：correct は fixed_check_correct、incorrect は fixed_check_incorrect、GPT が unreadable と言ったら「もう少し明るいところで、もう一回見せて」、8 秒で返らない・例外・フレーム無しは「うまく読めなかった。もう一回、できたを押してみて」（verdict は unreadable）。display は speech と同じ文。scripted は GPT を呼ばず常に correct。final_answer_seen は保存するが API では返さない。
+docs/05_hint_policy.md の「正誤チェック」を読んで app/check.py を書き、routes.py の check を差し替えてください。CheckOut は readable・final_answer_seen・verdict の 3 つだけ。hints.py と同じ Gemini API の呼び方（httpx、timeout 8、リトライなし、responseSchema）、model は CHECK_MODEL（gemini-3.5-flash-lite）、最新フレームと問題文と answer を渡して verdict だけ返させる。読み上げ文は GPT に作らせず固定：correct は fixed_check_correct、incorrect は fixed_check_incorrect、GPT が unreadable と言ったら「もう少し明るいところで、もう一回見せて」、8 秒で返らない・例外・フレーム無しは「うまく読めなかった。もう一回、できたを押してみて」（verdict は unreadable）。display は speech と同じ文。scripted は GPT を呼ばず常に correct。final_answer_seen は保存するが API では返さない。
 ```
 
 - 11:30 までに終わらなければ「できた」は `advance` するだけにし、D に文言変更を頼む。

@@ -1,0 +1,9 @@
+{
+  "session_id": "ses_mock",
+  "session_token": "tok_mock",
+  "mode": "live",
+  "state": "created",
+  "worksheet": { "worksheet_id": "WS-01", "title": "一次方程式", "problem_count": 4 },
+  "settings": { "stuck_seconds": 20, "cooldown_seconds": 60, "max_level": 2 },
+  "created_at": "2026-10-17T01:30:00Z"
+}

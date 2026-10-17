@@ -81,6 +81,7 @@ function say(session: Session, text: string | null): void {
     .catch((error) => console.warn("[loop] 読み上げに失敗", error))
     .finally(() => {
       session.speechesInProgress -= 1;
+      updateState(session, session.state, session.problemNo);
     });
 }
 

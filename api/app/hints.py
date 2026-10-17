@@ -2,7 +2,7 @@ import logging
 from dataclasses import dataclass
 
 from app.gemini import AIUnavailable, Gemini
-from app.leak import contains_leak, leak_strings, normalize
+from app.leak import contains_leak, leak_strings, normalize, without_written
 from app.reading import to_reading
 from app.state import LeakCheck
 
@@ -179,20 +179,21 @@ def _read_problem(out: dict, known_problem: str | None, known_leaks: list[str]) 
     same_problem = bool(known_problem and problem_text) and normalize(known_problem) == normalize(problem_text)
     inherited = known_leaks if same_problem or not problem_text else []
     written = out.get("written_lines") or []
-    fresh = leak_strings(out["final_answer"], out["key_values"], written)
-    return problem_text, sorted(set(leak_strings("", list(inherited), written)) | set(fresh))
+    guarded = set(inherited) | set(leak_strings(out["final_answer"], out["key_values"]))
+    return problem_text, without_written(sorted(guarded), written)
 
 
 def _checked(
     out: dict, model: str, problem_text: str | None, leaks: list[str], limits: tuple[int, int], fallback: str
 ) -> ComposedHint:
-    speech = to_reading(out["speech"].strip())
+    written_speech = out["speech"].strip()
+    speech = to_reading(written_speech)
     display = out["display"].strip()
     stuck_point = out["stuck_point"] if out["stuck_point"] in STUCK_POINTS else STUCK_POINTS[-1]
     if any(contains_leak(text, leaks) for text in (speech, display)):
         return fixed_hint(fallback, "fallback", LeakCheck(ok=False, fallback=True), leaks)
     speech_limit, display_limit = limits
-    if not speech or not display or len(speech) > speech_limit or len(display) > display_limit:
+    if not speech or not display or len(written_speech) > speech_limit or len(display) > display_limit:
         return fixed_hint(fallback, "fallback", LeakCheck(ok=True, fallback=False), leaks)
     return ComposedHint(speech, display, stuck_point, "gpt", model, LeakCheck(ok=True, fallback=False), problem_text, leaks)
 
@@ -206,7 +207,7 @@ def asks_if_correct(utterance: str) -> bool:
 
 
 def check_reply(known_leaks: list[str]) -> ComposedHint:
-    return fixed_hint(CHECK_REPLY, "fallback", LeakCheck(ok=True, fallback=False), known_leaks)
+    return ComposedHint(CHECK_REPLY, CHECK_REPLY, "答えの確認", "fallback", None, LeakCheck(ok=True, fallback=False), None, known_leaks)
 
 
 def answer_fallback(known_leaks: list[str]) -> ComposedHint:

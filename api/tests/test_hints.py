@@ -109,6 +109,18 @@ def test_speech_is_normalized_for_reading_before_the_leak_check() -> None:
     assert compose(FakeAI(ai_hint("x = -5 にしてみて"))).leak_check == LeakCheck(ok=False, fallback=True)
 
 
+def test_speech_length_is_measured_before_symbols_are_spelled_out() -> None:
+    reply = ai_hint("3行目の 2x-7=4x+3 の左辺の -7 を見てみて、そのあと右辺も")
+    assert len(reply["speech"]) <= 60
+    assert compose(FakeAI(reply)).source == "gpt"
+
+
+def test_inherited_short_values_stay_guarded() -> None:
+    reply = ai_hint("エックス は マイナス 5 だよ")
+    reply.update(final_answer="", key_values=[])
+    assert compose(FakeAI(reply), known_leaks=["-5", "x=-5"]).leak_check == LeakCheck(ok=False, fallback=True)
+
+
 def test_values_already_on_the_paper_may_be_quoted() -> None:
     reply = ai_hint("マイナス2エックス イコール 10 の両辺を見てみて")
     reply["written_lines"] = ["2x - 7 = 4x + 3", "-2x = 10"]

@@ -1,6 +1,6 @@
 import pytest
 
-from app.leak import contains_leak, leak_strings, normalize
+from app.leak import contains_leak, leak_strings, normalize, without_written
 from app.reading import to_reading
 
 
@@ -44,7 +44,14 @@ def test_single_digit_answer_is_caught_only_in_an_answering_phrase() -> None:
 
 
 def test_values_the_learner_already_wrote_are_not_guarded() -> None:
-    assert leak_strings("x = -5", ["-2x = 10", "2x - 4x = 3 + 7"], ["2x-7=4x+3", "-2x = 10"]) == ["-5", "2x-4x=3+7", "x=-5"]
+    strings = leak_strings("x = -5", ["-2x = 10", "2x - 4x = 3 + 7"])
+    assert without_written(strings, ["2x-7=4x+3", "-2x = 10"]) == ["-5", "2x-4x=3+7", "x=-5"]
+    assert without_written(strings, ["x = -5"]) == ["-2x=10", "2x-4x=3+7"]
+
+
+def test_a_digit_inside_a_written_line_does_not_unguard_the_answer() -> None:
+    assert without_written(leak_strings("x = 3", []), ["2x-7=4x+3"]) == ["3", "x=3"]
+    assert without_written(leak_strings("x = -5", []), ["3x=-5+2x"]) == ["-5", "x=-5"]
 
 
 def test_contains_leak_matches_after_normalization() -> None:
@@ -60,6 +67,8 @@ def test_contains_leak_matches_after_normalization() -> None:
     [
         ("2x = -4", "2エックス イコール マイナス 4"),
         ("三行目の x + 5", "3行目の エックス プラス 5"),
+        ("2行目の - エックス を見て", "2行目の マイナス エックス を見て"),
+        ("6 ÷ 3", "6 わる 3"),
         ("ニ行目の４", "2行目の4"),
         ("3 × 4 を計算して", "3 かける 4 を計算して"),
         ("エックスの係数", "エックスの係数"),
@@ -68,3 +77,7 @@ def test_contains_leak_matches_after_normalization() -> None:
 )
 def test_to_reading(raw: str, reading: str) -> None:
     assert to_reading(raw) == reading
+
+
+def test_reading_folds_back_to_the_symbols_the_leak_check_uses() -> None:
+    assert normalize(to_reading("6 ÷ 3 = 2")) == "6÷3=2"

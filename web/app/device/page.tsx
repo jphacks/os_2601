@@ -21,6 +21,8 @@ const FIXED_CAPTIONS: Partial<Record<State, string>> = {
 };
 const CAMERA_DENIED_CAPTION = "設定からカメラを許可してね。LINE などの中のブラウザなら Safari か Chrome で開いてね";
 const END_CONFIRM = "おわる？";
+// 平均輝度がこれ未満なら「明るさが足りません」を重ねる（docs/tasks/b.md の B1-4）
+const DARK_BRIGHTNESS = 60;
 
 // ApiError は画面に何も出さない。それ以外はコンソールにだけ残す
 function ignoreError(error: unknown) {
@@ -31,6 +33,7 @@ function Device() {
   const params = useSearchParams();
   const sessionId = params.get("s") ?? "";
   const token = params.get("t") ?? "";
+  const debug = params.get("debug") === "1";
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const stopRef = useRef<(() => void) | null>(null);
@@ -41,6 +44,9 @@ function Device() {
   const [caption, setCaption] = useState(FIXED_CAPTIONS.created ?? "");
   const [stuckSeconds, setStuckSeconds] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [brightness, setBrightness] = useState<number | null>(null);
+  const [stillSeconds, setStillSeconds] = useState(0);
+  const [connected, setConnected] = useState(true);
 
   useEffect(() => {
     if (!sessionId || !token) return;
@@ -98,12 +104,15 @@ function Device() {
     }
     await patching;
     stopRef.current = startSession(video, sessionId, token, {
-      onState: (signal) => applyState(signal.state, signal.current_problem_no),
+      onState: (signal) => {
+        applyState(signal.state, signal.current_problem_no);
+        setStillSeconds(signal.still_seconds);
+      },
       onHint: (hint) => {
         if (hint.speech !== null) setCaption(hint.display);
       },
-      onBrightness: () => {},
-      onConnection: () => {},
+      onBrightness: setBrightness,
+      onConnection: setConnected,
       onHeard: () => {},
     });
     setBusy(false);
@@ -173,9 +182,14 @@ function Device() {
           worksheetTitle={session.worksheet_title}
           problemNo={problemNo}
           problemCount={session.problem_count}
+          connected={connected}
         />
       )}
-      <VideoFrame videoRef={videoRef}>
+      <VideoFrame
+        videoRef={videoRef}
+        dark={brightness !== null && brightness < DARK_BRIGHTNESS}
+        debugText={debug ? `輝度 ${brightness === null ? "-" : Math.round(brightness)} / 静止 ${stillSeconds} 秒` : null}
+      >
         <StateBadge state={state} />
       </VideoFrame>
       <div className="flex flex-col gap-4 p-4">

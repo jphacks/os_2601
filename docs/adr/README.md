@@ -55,7 +55,7 @@
 | 0012 | [signals の必須項目は force_stuck の有無で変える](0012-signal-required-fields.md) | 提案 |
 | 0013 | [読めなかった check の next_problem_no は今の番号にする](0013-unreadable-next-problem.md) | 提案 |
 | 0014 | [openapi の Error は web/lib では ApiErrorBody の名前で export する](0014-error-type-named-api-error-body.md) | 提案 |
-| 0015 | [WS-01 の正誤の固定文は 4 問とも問題専用にする](0015-ws01-problem-specific-check-text.md) | 承認 |
+| 0015 | [WS-01 の正誤の固定文は 4 問とも問題専用にする](0015-ws01-problem-specific-check-text.md) | 廃止（Superseded by 0026） |
 | 0016 | [signals 以外の応答で ended になったら onState に ended を渡す](0016-emit-ended-to-on-state.md) | 提案 |
 | 0017 | [ended になったらカメラを止める](0017-stop-camera-on-ended.md) | 提案 |
 | 0018 | [読み上げの間は聞き取りを止め、ヒントとチェックは 1 つずつ送る](0018-mute-and-serialize-requests.md) | 提案 |
@@ -66,3 +66,4 @@
 | 0023 | [Railway と Vercel は Mac から CLI でデプロイする](0023-deploy-from-mac-with-cli.md) | 承認 |
 | 0024 | [Vercel のプレビューは保護を外して公開する](0024-public-vercel-previews.md) | 承認 |
 | 0025 | [ヒントの H2 と正誤判定は Gemini API の無料枠（gemini-3.5-flash-lite）で行う](0025-gemini-free-tier.md) | 承認 |
+| 0026 | [ワークシートをやめ、初見の問題に 1 回目から AI のヒントを出す](0026-unseen-problems-ai-first.md) | 承認 |

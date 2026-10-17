@@ -72,3 +72,4 @@
 | 0029 | [ヒントは最初の誤りか次の一歩を示し、答えまで導く](0029-hint-guides-to-the-answer.md) | 承認 |
 | 0030 | [担当フォルダの線引きをなくし、事故の防止だけ残す](0030-remove-folder-ownership.md) | 承認 |
 | 0031 | [家庭教師の人格を /device で選び、ヒントの口調と固定文と正誤の読み上げを変える](0031-tutor-personas.md) | 承認 |
+| 0032 | [聞こえた文をすべて AI に渡し、問いには説明も含めて答える](0032-answer-what-the-learner-says.md) | 承認 |

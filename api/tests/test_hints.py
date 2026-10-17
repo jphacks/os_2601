@@ -1,8 +1,19 @@
 import asyncio
 
+import pytest
+
 from app.check import CORRECT_TEXT, FAILED_TEXT, judge
 from app.gemini import AIUnavailable
-from app.hints import DISPLAY_MAX_CHARS, FALLBACK_HINTS, SPEECH_MAX_CHARS, UNREADABLE_HINT, compose_hint
+from app.hints import (
+    ANSWER_FALLBACK,
+    ANSWER_SPEECH_MAX_CHARS,
+    DISPLAY_MAX_CHARS,
+    FALLBACK_HINTS,
+    SPEECH_MAX_CHARS,
+    UNREADABLE_HINT,
+    compose_answer,
+    compose_hint,
+)
 from app.state import LeakCheck
 
 FRAME = b"\xff\xd8jpeg"
@@ -111,3 +122,37 @@ def test_check_uses_fixed_texts_and_falls_back_to_unreadable() -> None:
     assert odd.speech == FAILED_TEXT
     failed = asyncio.run(judge(FakeAI(error=AIUnavailable("timeout")), MODEL, FRAME))
     assert (failed.verdict, failed.speech) == ("unreadable", FAILED_TEXT)
+
+
+def answer(ai: FakeAI | None, utterance: str = "移項って何？"):
+    return asyncio.run(compose_answer(ai, MODEL, FRAME, utterance, [], None, []))
+
+
+def ai_answer(speech: str, respond: bool = True) -> dict:
+    reply = ai_hint(speech)
+    reply.pop("readable")
+    reply["respond"] = respond
+    return reply
+
+
+def test_answer_that_gives_away_the_value_is_replaced_and_an_overlong_one_falls_back() -> None:
+    assert answer(FakeAI(ai_answer("答えは x イコール マイナス 5 だよ"))).leak_check == LeakCheck(ok=False, fallback=True)
+    assert answer(FakeAI(ai_answer("見" * ANSWER_SPEECH_MAX_CHARS))).source == "gpt"
+    assert answer(FakeAI(ai_answer("見" * (ANSWER_SPEECH_MAX_CHARS + 1)))).source == "fallback"
+
+
+def test_no_answer_when_the_ai_decides_not_to_respond() -> None:
+    assert answer(FakeAI(ai_answer("", respond=False))) is None
+
+
+def test_ai_failure_is_raised_so_the_caller_can_choose_a_fixed_reply() -> None:
+    with pytest.raises(AIUnavailable):
+        answer(FakeAI(error=AIUnavailable("timeout")))
+    with pytest.raises(AIUnavailable):
+        answer(None)
+
+
+def test_answer_with_nothing_to_check_leaks_against_is_not_used() -> None:
+    reply = ai_answer("移項は、項を反対の辺に移すことだよ")
+    reply.update(final_answer="", key_values=[])
+    assert answer(FakeAI(reply)).speech == ANSWER_FALLBACK

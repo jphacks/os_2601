@@ -233,3 +233,4 @@ def test_scripted_session_is_not_asked_for_a_frame_before_stuck() -> None:
     _, trace = send(session, [MOVING] + [STILL] * 20, start_second=0)
     assert frame_requests(trace) == []
     assert first_stuck(trace) == 21
+

@@ -1,4 +1,5 @@
 import {
+  answerUtterance,
   postAdvance,
   postCheck,
   postEnd,
@@ -40,6 +41,8 @@ type Session = {
   connected: boolean | null;
   greeted: boolean;
   requestInFlight: boolean;
+  voiceInFlight: boolean;
+  pendingUtterance: string | null;
   autoHintDone: boolean;
   prefetchedFrame: Promise<string | null> | null;
   speechesInProgress: number;
@@ -49,20 +52,8 @@ type Session = {
 const SIGNAL_INTERVAL_MS = 1000;
 const MAX_FAILED_SIGNALS = 3;
 const GREETING = "見守りを始めるよ";
-const VOICE_KEYWORDS = [
-  "わからない",
-  "わかんない",
-  "分からない",
-  "分かんない",
-  "わかりません",
-  "分かりません",
-  "ヒント",
-  "どうすれば",
-  "何をすれば",
-  "なにをすれば",
-  "教えて",
-  "おしえて",
-];
+const MIN_UTTERANCE_CHARS = 3;
+const MAX_UTTERANCE_CHARS = 200;
 const LISTEN_STATES: State[] = ["watching", "still", "cooldown"];
 
 let activeSession: Session | null = null;
@@ -150,16 +141,32 @@ async function requestAutoHint(session: Session): Promise<void> {
 async function onHeard(session: Session, text: string): Promise<void> {
   if (!session.running) return;
   session.handlers.onHeard(text);
-  if (!VOICE_KEYWORDS.some((keyword) => text.includes(keyword))) return;
-  if (!LISTEN_STATES.includes(session.state) || session.requestInFlight) return;
-  session.requestInFlight = true;
-  try {
-    deliverHint(session, await fetchHint(session, "voice"));
-  } catch (error) {
-    console.warn("[loop] 声のヒントに失敗", error);
-  } finally {
-    session.requestInFlight = false;
+  if (text.length < MIN_UTTERANCE_CHARS) return;
+  if (session.voiceInFlight) {
+    session.pendingUtterance = text;
+    return;
   }
+  await answerHeard(session, text);
+}
+
+async function answerHeard(session: Session, text: string): Promise<void> {
+  if (!session.running || !LISTEN_STATES.includes(session.state) || session.requestInFlight) return;
+  session.voiceInFlight = true;
+  try {
+    const frameId = await sendFrame(session);
+    const answer = await answerUtterance(session.id, session.token, {
+      frame_id: frameId,
+      utterance: text.slice(0, MAX_UTTERANCE_CHARS),
+    });
+    if (answer) deliverHint(session, answer);
+  } catch (error) {
+    console.warn("[loop] 声への答えに失敗", error);
+  } finally {
+    session.voiceInFlight = false;
+  }
+  const next = session.pendingUtterance;
+  session.pendingUtterance = null;
+  if (next) await answerHeard(session, next);
 }
 
 function handleSignal(session: Session, signal: SignalResponse): void {
@@ -238,6 +245,8 @@ export function startSession(
     connected: null,
     greeted: false,
     requestInFlight: false,
+    voiceInFlight: false,
+    pendingUtterance: null,
     autoHintDone: false,
     prefetchedFrame: null,
     speechesInProgress: 0,

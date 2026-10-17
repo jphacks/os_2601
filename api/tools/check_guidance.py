@@ -1,15 +1,13 @@
 import asyncio
-import io
 import os
 import sys
 import time
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.gemini import Gemini  # noqa: E402
+from photos import photo  # noqa: E402
 from app.hints import compose_hint  # noqa: E402
 
 MODEL = os.environ.get("HINT_MODEL", "gemini-3.5-flash-lite")
@@ -20,17 +18,6 @@ SCENARIOS = {
     "誤りが直らない": [ERROR, ERROR, ERROR],
     "誤りなし・途中で止まる": [["3(x - 2) = 9", "3x - 6 = 9"]] * 3,
 }
-
-
-def photo(lines: list[str]) -> bytes:
-    image = Image.new("RGB", (1024, 576), "white")
-    draw = ImageDraw.Draw(image)
-    font = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", 60)
-    for index, line in enumerate(lines):
-        draw.text((60, 50 + index * 120), line, fill="black", font=font)
-    buffer = io.BytesIO()
-    image.save(buffer, "JPEG", quality=70)
-    return buffer.getvalue()
 
 
 async def main() -> None:

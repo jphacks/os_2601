@@ -54,3 +54,9 @@
 | 0011 | [存在しない worksheet_id は 422 にする](0011-unknown-worksheet-422.md) | 提案 |
 | 0012 | [signals の必須項目は force_stuck の有無で変える](0012-signal-required-fields.md) | 提案 |
 | 0013 | [読めなかった check の next_problem_no は今の番号にする](0013-unreadable-next-problem.md) | 提案 |
+| 0014 | [openapi の Error は web/lib では ApiErrorBody の名前で export する](0014-error-type-named-api-error-body.md) | 提案 |
+| 0015 | [WS-01 の正誤の固定文は 4 問とも問題専用にする](0015-ws01-problem-specific-check-text.md) | 承認 |
+| 0016 | [signals 以外の応答で ended になったら onState に ended を渡す](0016-emit-ended-to-on-state.md) | 提案 |
+| 0017 | [ended になったらカメラを止める](0017-stop-camera-on-ended.md) | 提案 |
+| 0018 | [読み上げの間は聞き取りを止め、ヒントとチェックは 1 つずつ送る](0018-mute-and-serialize-requests.md) | 提案 |
+| 0019 | [end() は postEnd が失敗しても手元のループとカメラを止める](0019-end-stops-locally-on-failure.md) | 提案 |

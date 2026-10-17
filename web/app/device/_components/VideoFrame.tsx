@@ -1,25 +1,26 @@
-import type { ReactNode, Ref } from "react";
+import type { Ref } from "react";
 
 type Props = {
   videoRef: Ref<HTMLVideoElement>;
   dark: boolean;
   debugText: string | null;
-  children?: ReactNode;
 };
 
-export function VideoFrame({ videoRef, dark, debugText, children }: Props) {
+// 映像は右上に小さく出す。動きの計算は video 要素の表示の大きさに関係しない
+export function VideoFrame({ videoRef, dark, debugText }: Props) {
   return (
-    <div className="relative aspect-video w-full overflow-hidden bg-black">
-      <video ref={videoRef} className="h-full w-full object-cover" muted playsInline autoPlay />
+    <div className="flex w-28 shrink-0 flex-col gap-1">
+      <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-slate-900 shadow-md ring-2 ring-white">
+        <video ref={videoRef} className="h-full w-full object-cover" muted playsInline autoPlay />
+      </div>
       {dark && (
-        <p className="absolute inset-x-0 top-1/2 -translate-y-1/2 bg-black/60 py-2 text-center text-lg font-bold text-white">
+        <p className="rounded-full bg-slate-900/70 px-2 py-0.5 text-center text-[10px] font-bold text-white">
           明るさが足りません
         </p>
       )}
       {debugText && (
-        <p className="absolute top-2 right-2 rounded bg-black/60 px-2 py-1 font-mono text-xs text-white">{debugText}</p>
+        <p className="rounded-lg bg-slate-900/70 px-2 py-0.5 font-mono text-[10px] text-white">{debugText}</p>
       )}
-      <div className="absolute bottom-3 left-3">{children}</div>
     </div>
   );
 }

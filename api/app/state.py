@@ -28,6 +28,10 @@ class Thresholds:
     speech_seconds_per_char: float
     speech_seconds_base: float
 
+    def __post_init__(self) -> None:
+        if self.motion_exit_threshold < self.motion_threshold:
+            raise ValueError("motion_exit_threshold は motion_threshold 以上にする（下回ると still と watching を毎秒行き来する）")
+
 
 @dataclass
 class SessionSettings:

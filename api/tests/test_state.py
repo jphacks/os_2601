@@ -84,7 +84,7 @@ def speak_hint(session: Session, second: float) -> tuple[Session, int]:
         ("書き続けている", [MOVING] * 60, None, "watching"),
         ("20 秒止まる", [MOVING] * 5 + [STILL] * 20, 25, "stuck"),
         ("19 秒で動き出す", [MOVING] + [STILL] * 19 + [MOVING], None, "watching"),
-        ("一瞬の揺れ", [STILL] * 10 + [0.03] + [STILL] * 15, None, "still"),
+        ("一瞬の揺れ", [STILL] * 10 + [MOVING] + [STILL] * 15, None, "still"),
     ],
 )
 def test_stillness_turns_into_stuck_only_after_stuck_seconds(
@@ -97,8 +97,25 @@ def test_stillness_turns_into_stuck_only_after_stuck_seconds(
 
 
 def test_brief_motion_resets_the_stillness_count() -> None:
-    _, trace = send(new_session(), [STILL] * 10 + [0.03] + [STILL] * 15, start_second=0)
+    _, trace = send(new_session(), [STILL] * 10 + [MOVING] + [STILL] * 15, start_second=0)
     assert trace[10][0] == "watching"
+
+
+def test_motion_between_the_two_thresholds_does_not_start_stillness() -> None:
+    _, trace = send(new_session(), [0.025] * 10, start_second=0)
+    assert {state for state, _ in trace} == {"watching"}
+
+
+def test_exit_threshold_below_the_entry_threshold_is_rejected() -> None:
+    with pytest.raises(ValueError):
+        Thresholds(
+            motion_threshold=0.05,
+            motion_exit_threshold=0.045,
+            signal_timeout_seconds=5,
+            prefetch_lead_seconds=3,
+            speech_seconds_per_char=0.15,
+            speech_seconds_base=1.0,
+        )
 
 
 def test_signal_gap_resets_stillness() -> None:

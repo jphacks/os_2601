@@ -16,7 +16,7 @@ import {
 import { captureFrame, stopCamera } from "./camera";
 import { startMotionLoop } from "./motion";
 import { speak, stopSpeaking } from "./speech";
-import { startListening, stopListening } from "./voice";
+import { startListening, stopListening, voiceStatus } from "./voice";
 
 export type SessionHandlers = {
   onState: (signal: SignalResponse) => void;
@@ -188,7 +188,8 @@ async function sendSignal(session: Session): Promise<void> {
       ? { ts: new Date().toISOString(), camera_ok: session.cameraOk }
       : { ts: new Date().toISOString(), motion: session.latestScore, camera_ok: session.cameraOk };
   try {
-    const signal = await postSignal(session.id, { token: session.token }, body);
+    const debugNote = new URLSearchParams(window.location.search).get("debug") === "1" ? voiceStatus() : undefined;
+    const signal = await postSignal(session.id, { token: session.token }, body, debugNote);
     if (!session.running) return;
     session.failedSignals = 0;
     setConnection(session, true);

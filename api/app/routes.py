@@ -29,8 +29,8 @@ from app.state import (
     Signal,
     Thresholds,
     Tick,
+    auto_hint_level,
     cooldown_remaining,
-    next_auto_hint_level,
     step,
     still_seconds,
 )
@@ -49,8 +49,8 @@ MODE_DEFAULT = "live"
 @dataclass
 class Prefetch:
     problem_no: int
-    level: int
-    hint: asyncio.Task[ComposedHint]
+    stuck_count: int
+    composing: asyncio.Task[ComposedHint]
 
 
 @dataclass
@@ -196,23 +196,32 @@ async def _compose(context: AppContext, problem: Problem, level: int, frame: byt
     )
 
 
-def _prefetch_wanted(session: Session) -> bool:
-    return session.state == "stuck" or (session.state == "still" and session.prefetch_requested)
+async def _compose_ahead(context: AppContext, session_id: str, problem: Problem, level: int, frame: bytes) -> ComposedHint:
+    started = time.monotonic()
+    composed = await _compose(context, problem, level, frame)
+    logger.info(
+        "prefetch session=%s level=%s source=%s ai_ms=%s",
+        session_id,
+        level,
+        composed.source,
+        int((time.monotonic() - started) * 1000),
+    )
+    return composed
 
 
 def _discard_prefetch(context: AppContext, session_id: str) -> None:
     prefetch = context.prefetches.pop(session_id, None)
     if prefetch:
-        prefetch.hint.cancel()
+        prefetch.composing.cancel()
 
 
-def _take_prefetch(context: AppContext, session: Session, level: int) -> asyncio.Task[ComposedHint] | None:
+def _take_prefetch(context: AppContext, session: Session) -> asyncio.Task[ComposedHint] | None:
     prefetch = context.prefetches.pop(session.session_id, None)
     if prefetch is None:
         return None
-    if (prefetch.problem_no, prefetch.level) == (session.current_problem_no, level):
-        return prefetch.hint
-    prefetch.hint.cancel()
+    if (prefetch.problem_no, prefetch.stuck_count) == (session.current_problem_no, session.current_problem.stuck_count):
+        return prefetch.composing
+    prefetch.composing.cancel()
     return None
 
 
@@ -226,7 +235,8 @@ def _find_session(context: AppContext, session_id: str) -> Session:
 def _apply(context: AppContext, session: Session, event: Event, now: datetime) -> tuple[Session, Accepted]:
     next_session, result = step(session, event, now, context.thresholds)
     context.store.put(next_session)
-    if not _prefetch_wanted(next_session):
+    keeps_prefetch = next_session.state == "stuck" or (next_session.state == "still" and next_session.prefetch_requested)
+    if not keeps_prefetch:
         _discard_prefetch(context, next_session.session_id)
     if next_session.state == "ended":
         context.frames.pop(next_session.session_id, None)
@@ -412,21 +422,17 @@ async def post_frame(
     data = await frame.read(MAX_FRAME_BYTES + 1)
     if len(data) > MAX_FRAME_BYTES:
         _fail(413, f"フレームは {MAX_FRAME_BYTES // 1024} KB まで")
-    session = _find_session(context, session_id)
+    session, _ = _apply(context, _find_session(context, session_id), Tick(), _now())
     if session.state == "ended":
         _fail(409, "終了したセッションにはフレームを送れない")
     frame_id = _new_id("frm")
     context.frames[session.session_id] = (frame_id, data)
-    if (
-        session.mode == "live"
-        and session.state == "still"
-        and session.prefetch_requested
-        and session.session_id not in context.prefetches
-    ):
-        level = next_auto_hint_level(session)
-        context.prefetches[session.session_id] = Prefetch(
-            session.current_problem_no, level, asyncio.create_task(_compose(context, session.current_problem, level, data))
-        )
+    if session.state == "still" and session.prefetch_requested and session.session_id not in context.prefetches:
+        problem = session.current_problem
+        stuck_count = problem.stuck_count + 1
+        level = auto_hint_level(stuck_count, session.settings)
+        composing = asyncio.create_task(_compose_ahead(context, session.session_id, problem, level, data))
+        context.prefetches[session.session_id] = Prefetch(session.current_problem_no, stuck_count, composing)
     return {"frame_id": frame_id, "received_at": _iso(_now()), "bytes": len(data)}
 
 
@@ -441,11 +447,11 @@ async def request_hint(
     session, accepted = _apply(context, session, HintRequested(body.trigger), now)
     problem_no = session.current_problem_no
     problem = session.current_problem
-    prefetched = _take_prefetch(context, session, accepted.level) if body.trigger == "auto" else None
+    composing = _take_prefetch(context, session) if body.trigger == "auto" else None
     if session.mode == "scripted":
         composed = fixed_hint(accepted.level, "scripted", LeakCheck(ok=True, fallback=False), problem.leak_strings)
-    elif prefetched:
-        composed = await prefetched
+    elif composing:
+        composed = await composing
     else:
         composed = await _compose(context, problem, accepted.level, _latest_frame(context, session_id))
     session, _ = _apply(context, _find_session(context, session_id), HintIssued(len(composed.speech)), _now())
@@ -476,7 +482,7 @@ async def request_hint(
         hint.trigger,
         hint.level,
         hint.source,
-        prefetched is not None,
+        composing is not None,
         hint.latency_ms,
     )
     return {

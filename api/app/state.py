@@ -182,8 +182,8 @@ def still_seconds(session: Session, now: datetime) -> int:
     return int((now - session.still_since).total_seconds())
 
 
-def next_auto_hint_level(session: Session) -> int:
-    return min(session.current_problem.stuck_count + 1, session.settings.max_level)
+def auto_hint_level(stuck_count: int, settings: SessionSettings) -> int:
+    return min(stuck_count, settings.max_level)
 
 
 def cooldown_remaining(session: Session, now: datetime) -> int:
@@ -280,7 +280,7 @@ def _on_signal(session: Session, signal: Signal, now: datetime, thresholds: Thre
             prefetch_from = session.settings.stuck_seconds - thresholds.prefetch_lead_seconds
             if still_for >= session.settings.stuck_seconds:
                 _enter_stuck(session)
-            elif still_for >= prefetch_from and not session.prefetch_requested:
+            elif session.mode == "live" and still_for >= prefetch_from and not session.prefetch_requested:
                 session.prefetch_requested = True
                 return Accepted(next_action=SEND_FRAME_ACTION)
     return Accepted(next_action=NEXT_ACTION if session.state == "stuck" else None)
@@ -303,7 +303,7 @@ def _on_hint_requested(session: Session, request: HintRequested, now: datetime) 
     if request.trigger == "auto":
         if session.state != "stuck":
             return Rejected()
-        level = min(problem.stuck_count, session.settings.max_level)
+        level = auto_hint_level(problem.stuck_count, session.settings)
     elif session.state not in HINTABLE_STATES:
         return Rejected()
     else:

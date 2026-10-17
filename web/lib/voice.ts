@@ -1,5 +1,7 @@
 const LANG = "ja-JP";
 const RESTART_DELAY_MS = 0;
+const QUICK_END_MS = 500;
+const QUICK_END_RETRY_DELAY_MS = 1000;
 const RETRY_DELAY_MS = 3000;
 const MIC_BUSY_RETRY_DELAY_MS = 30000;
 const NEEDS_GESTURE_ERROR = "not-allowed";
@@ -28,7 +30,11 @@ let onHeard: (text: string) => void = () => {};
 let wanted = false;
 let running = false;
 let blocked = false;
+let micBusy = false;
 let waitingForTap = false;
+let startedAt = 0;
+let heardSinceStart = false;
+let notBefore = 0;
 let nextBeginDelayMs = RESTART_DELAY_MS;
 let restartTimer: ReturnType<typeof setTimeout> | undefined;
 const events: string[] = ["未開始"];
@@ -54,6 +60,7 @@ function createRecognizer(): Recognizer | null {
   created.interimResults = true;
   created.onresult = (event) => {
     if (!wanted) return;
+    heardSinceStart = true;
     for (let i = event.resultIndex; i < event.results.length; i += 1) {
       const text = event.results[i][0].transcript.trim();
       if (!text) continue;
@@ -75,8 +82,11 @@ function createRecognizer(): Recognizer | null {
       blocked = true;
       wanted = false;
     } else if (event.error === MIC_BUSY_ERROR) {
-      console.warn("[voice] マイクを取れない（通話中など）。30 秒待って再開");
+      console.warn(`[voice] マイクを取れない（通話中など）。${MIC_BUSY_RETRY_DELAY_MS / 1000} 秒待って再開`);
+      micBusy = true;
+      running = false;
       nextBeginDelayMs = MIC_BUSY_RETRY_DELAY_MS;
+      scheduleBegin(MIC_BUSY_RETRY_DELAY_MS);
     } else if (!QUIET_ERRORS.has(event.error)) {
       console.warn("[voice] 聞き取りのエラー。少し待って再開", event.error);
       nextBeginDelayMs = RETRY_DELAY_MS;
@@ -85,7 +95,9 @@ function createRecognizer(): Recognizer | null {
   created.onend = () => {
     running = false;
     note("end");
-    if (wanted && !waitingForTap) scheduleBegin(nextBeginDelayMs);
+    const endedQuickly = !heardSinceStart && Date.now() - startedAt < QUICK_END_MS;
+    const delayMs = endedQuickly ? Math.max(nextBeginDelayMs, QUICK_END_RETRY_DELAY_MS) : nextBeginDelayMs;
+    if (wanted && !waitingForTap) scheduleBegin(delayMs);
     nextBeginDelayMs = RESTART_DELAY_MS;
   };
   window.addEventListener("pointerdown", () => {
@@ -99,14 +111,19 @@ function createRecognizer(): Recognizer | null {
 
 function scheduleBegin(delayMs: number): void {
   clearTimeout(restartTimer);
+  notBefore = Date.now() + delayMs;
   restartTimer = setTimeout(begin, delayMs);
 }
 
 function begin(): void {
   if (!wanted || running || blocked || waitingForTap || !recognizer) return;
+  if (Date.now() < notBefore) return;
   try {
     recognizer.start();
     running = true;
+    micBusy = false;
+    startedAt = Date.now();
+    heardSinceStart = false;
     note("start");
   } catch (error) {
     console.warn("[voice] 聞き取りを始められない。少し待って再開", error);
@@ -130,6 +147,10 @@ export function startListening(handler: (text: string) => void): () => void {
 
 export function primeListening(): void {
   startListening(() => {});
+}
+
+export function isMicBusy(): boolean {
+  return micBusy;
 }
 
 export function voiceStatus(): string {

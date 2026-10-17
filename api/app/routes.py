@@ -2,7 +2,7 @@ import secrets
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
-from typing import Literal, NoReturn
+from typing import Annotated, Literal, NoReturn
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -53,11 +53,16 @@ class AppContext:
     frames: dict[str, tuple[str, bytes]] = field(default_factory=dict)
 
 
+StuckSeconds = Annotated[int, Field(ge=5, le=1200)]
+CooldownSeconds = Annotated[int, Field(ge=0, le=300)]
+MaxLevel = Annotated[int, Field(ge=1, le=2)]
+
+
 class SettingsInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    stuck_seconds: int | None = Field(default=None, ge=5, le=1200)
-    cooldown_seconds: int | None = Field(default=None, ge=0, le=300)
-    max_level: int | None = Field(default=None, ge=1, le=2)
+    stuck_seconds: StuckSeconds | None = None
+    cooldown_seconds: CooldownSeconds | None = None
+    max_level: MaxLevel | None = None
 
 
 class SessionCreateRequest(BaseModel):
@@ -69,8 +74,8 @@ class SessionCreateRequest(BaseModel):
 
 class SettingsPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    stuck_seconds: int | None = Field(default=None, ge=5, le=1200)
-    cooldown_seconds: int | None = Field(default=None, ge=0, le=300)
+    stuck_seconds: StuckSeconds | None = None
+    cooldown_seconds: CooldownSeconds | None = None
 
     @model_validator(mode="after")
     def require_one(self) -> "SettingsPatch":
@@ -169,19 +174,11 @@ def _find_session(context: AppContext, session_id: str) -> Session:
 def _apply(context: AppContext, session: Session, event: Event, now: datetime) -> tuple[Session, Accepted]:
     next_session, result = step(session, event, now, context.thresholds)
     context.store.put(next_session)
+    if next_session.state == "ended":
+        context.frames.pop(next_session.session_id, None)
     if isinstance(result, Rejected):
         _fail(409, f"今の状態（{next_session.state}）では受理できない")
     return next_session, result
-
-
-def _signal_body(session: Session, next_action: str | None, now: datetime) -> dict:
-    return {
-        "state": session.state,
-        "still_seconds": still_seconds(session, now),
-        "current_problem_no": session.current_problem_no,
-        "next_action": next_action,
-        "cooldown_remaining": cooldown_remaining(session, now),
-    }
 
 
 def _seconds_spent(problem: Problem, session: Session, now: datetime) -> int:
@@ -336,7 +333,13 @@ async def post_signal(
     now = _now()
     event = Signal(motion=body.motion, camera_ok=bool(body.camera_ok), force_stuck=body.force_stuck)
     session, result = _apply(context, session, event, now)
-    return _signal_body(session, result.next_action, now)
+    return {
+        "state": session.state,
+        "still_seconds": still_seconds(session, now),
+        "current_problem_no": session.current_problem_no,
+        "next_action": result.next_action,
+        "cooldown_remaining": cooldown_remaining(session, now),
+    }
 
 
 @router.post("/sessions/{session_id}/frames")
@@ -347,7 +350,7 @@ async def post_frame(
     _require_device(request, context, session)
     if session.state == "ended":
         _fail(409, "終了したセッションにはフレームを送れない")
-    data = await frame.read()
+    data = await frame.read(MAX_FRAME_BYTES + 1)
     if len(data) > MAX_FRAME_BYTES:
         _fail(413, f"フレームは {MAX_FRAME_BYTES // 1024} KB まで")
     frame_id = _new_id("frm")
@@ -449,7 +452,6 @@ async def post_end(session_id: str, request: Request, context: AppContext = Depe
     session = _find_session(context, session_id)
     _require_device_or_operator(request, context, session)
     session, _ = _apply(context, session, End(), _now())
-    context.frames.pop(session.session_id, None)
     context.store.save()
     return {"state": session.state, "ended_at": _iso(session.ended_at)}
 

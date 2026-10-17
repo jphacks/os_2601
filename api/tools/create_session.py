@@ -23,8 +23,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="セッションを作り、/device と /log の URL を印字する")
     parser.add_argument("--worksheet", default="WS-01")
     parser.add_argument("--mode", choices=["live", "scripted"], default="live")
-    parser.add_argument("--stuck", type=int, default=20)
-    parser.add_argument("--cooldown", type=int, default=60)
+    parser.add_argument("--stuck", type=int, help="省略すると api/settings.yaml の既定")
+    parser.add_argument("--cooldown", type=int, help="省略すると api/settings.yaml の既定")
     parser.add_argument("--count", type=int, default=1)
     parser.add_argument("--label", default="デモ")
     args = parser.parse_args()
@@ -35,11 +35,12 @@ def main() -> int:
         return 1
     api_base, operator_key, web_base = (os.environ[name].rstrip("/") for name in REQUIRED_ENV)
 
+    settings = {"stuck_seconds": args.stuck, "cooldown_seconds": args.cooldown}
     body = {
         "worksheet_id": args.worksheet,
         "mode": args.mode,
         "learner_label": args.label,
-        "settings": {"stuck_seconds": args.stuck, "cooldown_seconds": args.cooldown},
+        "settings": {name: value for name, value in settings.items() if value is not None},
     }
     for number in range(1, args.count + 1):
         try:

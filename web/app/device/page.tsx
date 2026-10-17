@@ -9,6 +9,8 @@ import { unlockSpeech } from "@/lib/speech";
 import { Buttons } from "./_components/Buttons";
 import { Caption, HeardBubble } from "./_components/Caption";
 import { Character } from "./_components/Character";
+import { CharacterPicker } from "./_components/CharacterPicker";
+import { DEFAULT_CHARACTER, type CharacterId, type Mood } from "./_components/characters";
 import { Header } from "./_components/Header";
 import { nearestChoice, SecondsPicker } from "./_components/SecondsPicker";
 import { StateBadge } from "./_components/StateBadge";
@@ -26,6 +28,20 @@ const END_CONFIRM = "おわる？";
 const DARK_BRIGHTNESS = 60;
 // 聞き取った文字を字幕の下に出しておく時間（docs/06 の「声のトリガー」）
 const HEARD_MS = 3000;
+// 表情を変えたら、次に変えるまで最低これだけ見せる（ころころ変わらないように）
+const MOOD_HOLD_MS = 5000;
+
+// 状態ごとの表情。stuck は心配、hint を話すときは楽しそうに、始まりと終わりは喜ぶ
+const STATE_MOODS: Record<State, Mood> = {
+  created: "joy",
+  watching: "normal",
+  still: "normal",
+  stuck: "sad",
+  speaking: "fun",
+  cooldown: "normal",
+  checking: "normal",
+  ended: "joy",
+};
 
 // ApiError は画面に何も出さない。それ以外はコンソールにだけ残す
 function ignoreError(error: unknown) {
@@ -46,6 +62,10 @@ function Device() {
   const [problemNo, setProblemNo] = useState(1);
   const [caption, setCaption] = useState(FIXED_CAPTIONS.created ?? "");
   const [stuckSeconds, setStuckSeconds] = useState<number | null>(null);
+  const [characterId, setCharacterId] = useState<CharacterId>(DEFAULT_CHARACTER);
+  // check の結果（正解は喜、不正解・読めないは哀）。状態が変わるまで続ける
+  const [verdictMood, setVerdictMood] = useState<Mood | null>(null);
+  const [cameraDenied, setCameraDenied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [brightness, setBrightness] = useState<number | null>(null);
   const [stillSeconds, setStillSeconds] = useState(0);
@@ -84,10 +104,26 @@ function Device() {
 
   function applyState(next: State, nextProblemNo: number) {
     setState(next);
+    setVerdictMood(null);
     setProblemNo(nextProblemNo);
     const fixed = FIXED_CAPTIONS[next];
     if (fixed) setCaption(fixed);
   }
+
+  // 見えない・つながらないときは怒り顔。それ以外は check の結果、なければ状態の表情
+  const mood: Mood = cameraDenied || !connected ? "anger" : (verdictMood ?? STATE_MOODS[state]);
+
+  const [shownMood, setShownMood] = useState<Mood>(mood);
+  const shownAtRef = useRef(0);
+  useEffect(() => {
+    if (mood === shownMood) return;
+    const wait = Math.max(0, shownAtRef.current + MOOD_HOLD_MS - Date.now());
+    const timer = setTimeout(() => {
+      shownAtRef.current = Date.now();
+      setShownMood(mood);
+    }, wait);
+    return () => clearTimeout(timer);
+  }, [mood, shownMood]);
 
   const defaultSeconds = session ? nearestChoice(session.settings.stuck_seconds) : null;
   const selectedSeconds = stuckSeconds ?? defaultSeconds;
@@ -107,9 +143,11 @@ function Device() {
     unlockSpeech();
     try {
       await startCamera(video);
+      setCameraDenied(false);
     } catch (error) {
       console.warn("[device] startCamera に失敗", error);
       setCaption(CAMERA_DENIED_CAPTION);
+      setCameraDenied(true);
       setBusy(false);
       startingRef.current = false;
       return;
@@ -151,6 +189,7 @@ function Device() {
     try {
       const check = await requestCheck();
       applyState(check.state, check.next_problem_no ?? check.problem_no);
+      setVerdictMood(check.verdict === "correct" ? "joy" : "sad");
       if (!FIXED_CAPTIONS[check.state]) setCaption(check.display);
     } catch (error) {
       ignoreError(error);
@@ -218,15 +257,16 @@ function Device() {
           />
         </div>
         {/* 真ん中：キャラクターを左下に大きく、吹き出しを右に重ねる（Tolan の会話画面の並び） */}
-        <div className="relative flex min-h-80 flex-1 items-end">
-          <Character state={state} className="absolute bottom-0 -left-4 h-[95%] max-h-[28rem] w-auto" />
-          <div className="relative ml-[38%] flex w-[62%] flex-col gap-3 self-center">
+        <div className="relative flex min-h-[30rem] flex-1 items-end">
+          <Character state={state} id={characterId} mood={shownMood} className="absolute bottom-0 -left-4 h-full max-h-[52rem] w-auto" />
+          <div className="relative ml-[56%] flex w-[44%] flex-col gap-3 self-center">
             {heard && <HeardBubble text={heard.text} />}
             <Caption text={caption} />
           </div>
         </div>
         {/* 下：入力欄の位置にボタン */}
         <div className="relative flex flex-col gap-3 rounded-[2rem] bg-white/70 p-3 shadow-lg backdrop-blur">
+          {state === "created" && <CharacterPicker value={characterId} onChange={setCharacterId} />}
           {state === "created" && selectedSeconds !== null && (
             <SecondsPicker value={selectedSeconds} onChange={setStuckSeconds} />
           )}

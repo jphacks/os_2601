@@ -3,7 +3,7 @@ import unicodedata
 
 MIN_LEAK_CHARS = 3
 MIN_ANSWER_VALUE_CHARS = 2
-SPOKEN_SYMBOLS = {"エックス": "x", "イコール": "=", "マイナス": "-"}
+SPOKEN_SYMBOLS = {"エックス": "x", "イコール": "=", "マイナス": "-", "プラス": "+", "かける": "*"}
 
 
 def normalize(text: str) -> str:

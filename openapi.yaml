@@ -819,7 +819,7 @@ components:
                       $ref: "#/components/schemas/Trigger"
                     display:
                       type: string
-                      maxLength: 60
+                      maxLength: 80
                     stuck_point:
                       type: string
                       description: H1 では典型ミスの 1 つ目
@@ -969,11 +969,11 @@ components:
           $ref: "#/components/schemas/Trigger"
         speech:
           type: [string, "null"]
-          maxLength: 40
+          maxLength: 60
           description: 読み上げ用。Hack Day 版で null になることは無いが、null なら読まない
         display:
           type: string
-          maxLength: 60
+          maxLength: 80
           description: 字幕用。そのまま出す
         stuck_point:
           type: string

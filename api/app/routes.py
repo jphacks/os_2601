@@ -36,7 +36,7 @@ from app.state import (
 )
 from app.check import CORRECT_TEXT, Judgement, judge
 from app.gemini import Gemini
-from app.hints import ComposedHint, compose_hint, fixed_hint
+from app.hints import FALLBACK_HINTS, ComposedHint, compose_hint, fixed_hint
 from app.store import SessionStore
 from app.worksheets import PRINT_LAYOUT, Worksheet
 
@@ -190,7 +190,7 @@ async def _compose(context: AppContext, problem: Problem, level: int, frame: byt
         context.hint_model,
         frame,
         level,
-        [hint.display for hint in problem.hints],
+        [hint.display for hint in problem.hints if hint.source == "gpt"],
         problem.problem_text,
         problem.leak_strings,
     )
@@ -449,7 +449,7 @@ async def request_hint(
     problem = session.current_problem
     composing = _take_prefetch(context, session) if body.trigger == "auto" else None
     if session.mode == "scripted":
-        composed = fixed_hint(accepted.level, "scripted", LeakCheck(ok=True, fallback=False), problem.leak_strings)
+        composed = fixed_hint(FALLBACK_HINTS[accepted.level], "scripted", LeakCheck(ok=True, fallback=False), problem.leak_strings)
     elif composing:
         composed = await composing
     else:

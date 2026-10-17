@@ -2,7 +2,7 @@ import asyncio
 
 from app.check import CORRECT_TEXT, FAILED_TEXT, judge
 from app.gemini import AIUnavailable
-from app.hints import FALLBACK_HINTS, compose_hint
+from app.hints import DISPLAY_MAX_CHARS, FALLBACK_HINTS, SPEECH_MAX_CHARS, UNREADABLE_HINT, compose_hint
 from app.state import LeakCheck
 
 FRAME = b"\xff\xd8jpeg"
@@ -64,7 +64,7 @@ def test_answer_from_an_earlier_hint_still_blocks_a_leak() -> None:
 def test_unreadable_or_empty_hint_falls_back_to_a_fixed_question() -> None:
     unreadable = ai_hint("見てみて")
     unreadable["readable"] = False
-    assert compose(FakeAI(unreadable)).speech == FALLBACK_HINTS[1]
+    assert compose(FakeAI(unreadable)).speech == UNREADABLE_HINT
     assert compose(FakeAI(ai_hint("   "))).source == "fallback"
 
 
@@ -75,11 +75,26 @@ def test_leak_strings_of_a_different_problem_are_dropped() -> None:
     assert "x=-5" not in hint.leak_strings
 
 
-def test_hint_a_little_over_the_requested_length_is_read_whole_and_a_runaway_one_falls_back() -> None:
-    sentence = "2行目の左辺のプラス5を右辺に移項するとき、数字と符号がそれぞれどう変わるかを確かめてみて"
-    assert len(sentence) > 40
-    assert compose(FakeAI(ai_hint(sentence))).speech == sentence
-    assert compose(FakeAI(ai_hint(sentence * 3))).source == "fallback"
+def test_hint_over_the_requested_length_is_read_whole_up_to_the_limit_and_falls_back_beyond_it() -> None:
+    at_limit = "見" * SPEECH_MAX_CHARS
+    assert compose(FakeAI(ai_hint(at_limit))).speech == at_limit
+    assert compose(FakeAI(ai_hint(at_limit + "て"))).source == "fallback"
+    long_display = ai_hint("2行目を見てみて")
+    long_display["display"] = "見" * (DISPLAY_MAX_CHARS + 1)
+    assert compose(FakeAI(long_display)).source == "fallback"
+
+
+def test_label_that_contains_the_answer_is_blocked_like_the_hint_text() -> None:
+    reply = ai_hint("2行目の右辺を見てみて")
+    reply["stuck_point"] = "x=-5 の確認"
+    hint = compose(FakeAI(reply))
+    assert (hint.source, hint.leak_check) == ("fallback", LeakCheck(ok=False, fallback=True))
+
+
+def test_earlier_hints_are_listed_one_per_line_in_order() -> None:
+    ai = FakeAI(ai_hint("2行目を見てみて"))
+    asyncio.run(compose_hint(ai, MODEL, FRAME, 1, ["1 つ目", "2 つ目"], None, []))
+    assert "1. 1 つ目\n2. 2 つ目" in ai.requests[0]
 
 
 def test_ai_failure_or_missing_frame_falls_back_to_a_fixed_question() -> None:

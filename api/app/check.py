@@ -11,6 +11,7 @@ REQUEST_TEXT = "写真の問題を自分で解き、学習者の最終の答え�
 
 SYSTEM_PROMPT = """画像は、学習者が紙で問題を解いた答案の写真です。
 写っている問題を自分で解き、学習者が書いた最終の答えと比べてください。
+紙に問題が複数あるときは、問題文が渡されていればその問題を、無ければ答案が最後の行まで書かれている問題を見てください。
 正しければ correct、間違っていれば incorrect、答案の最終行が読めなければ unreadable を verdict に入れてください。
 文は作らないでください。"""
 
@@ -33,11 +34,12 @@ class Judgement:
     speech: str
 
 
-async def judge(ai: Gemini | None, model: str, frame: bytes | None) -> Judgement:
+async def judge(ai: Gemini | None, model: str, frame: bytes | None, known_problem: str | None) -> Judgement:
     if ai is None or frame is None:
         return Judgement("unreadable", FAILED_TEXT)
+    request = REQUEST_TEXT if known_problem is None else f"{REQUEST_TEXT}\n見る問題：{known_problem}"
     try:
-        out = await ai.generate_json(model, SYSTEM_PROMPT, REQUEST_TEXT, frame, CHECK_SCHEMA)
+        out = await ai.generate_json(model, SYSTEM_PROMPT, request, frame, CHECK_SCHEMA)
         verdict = out["verdict"]
         return Judgement(verdict, SPEECH_BY_VERDICT[verdict])
     except (AIUnavailable, KeyError, TypeError):

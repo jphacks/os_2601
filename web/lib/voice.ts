@@ -25,6 +25,7 @@ let wanted = false;
 let running = false;
 let blocked = false;
 let nextBeginDelayMs = RESTART_DELAY_MS;
+let status = "未開始";
 let restartTimer: ReturnType<typeof setTimeout> | undefined;
 
 function createRecognizer(): Recognizer | null {
@@ -33,7 +34,10 @@ function createRecognizer(): Recognizer | null {
     webkitSpeechRecognition?: RecognizerClass;
   };
   const Recognizer = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
-  if (!Recognizer) return null;
+  if (!Recognizer) {
+    status = "このブラウザは非対応";
+    return null;
+  }
   const created = new Recognizer();
   created.lang = LANG;
   created.continuous = false;
@@ -42,16 +46,20 @@ function createRecognizer(): Recognizer | null {
     if (!wanted) return;
     for (let i = event.resultIndex; i < event.results.length; i += 1) {
       const text = event.results[i][0].transcript.trim();
-      if (event.results[i].isFinal && text) onHeard(text);
+      if (!event.results[i].isFinal || !text) continue;
+      status = `聞こえた：${text}`;
+      onHeard(text);
     }
   };
   created.onerror = (event) => {
     if (FATAL_ERRORS.has(event.error)) {
       console.warn("[voice] 聞き取りをやめる", event.error);
+      status = `やめた：${event.error}`;
       blocked = true;
       wanted = false;
     } else if (!QUIET_ERRORS.has(event.error)) {
       console.warn("[voice] 聞き取りのエラー。少し待って再開", event.error);
+      status = `エラー：${event.error}`;
       nextBeginDelayMs = RETRY_DELAY_MS;
     }
   };
@@ -73,8 +81,10 @@ function begin(): void {
   try {
     recognizer.start();
     running = true;
+    status = "聞いている";
   } catch (error) {
     console.warn("[voice] 聞き取りを始められない。少し待って再開", error);
+    status = `始められない：${error instanceof Error ? error.name : String(error)}`;
     scheduleBegin(RETRY_DELAY_MS);
   }
 }
@@ -82,7 +92,10 @@ function begin(): void {
 export function startListening(handler: (text: string) => void): () => void {
   onHeard = handler;
   if (typeof window === "undefined" || blocked) return stopListening;
-  if (new URLSearchParams(window.location.search).get("voice") === "0") return stopListening;
+  if (new URLSearchParams(window.location.search).get("voice") === "0") {
+    status = "オフ（voice=0）";
+    return stopListening;
+  }
   recognizer ??= createRecognizer();
   wanted = true;
   begin();
@@ -91,6 +104,10 @@ export function startListening(handler: (text: string) => void): () => void {
 
 export function primeListening(): void {
   startListening(() => {});
+}
+
+export function voiceStatus(): string {
+  return status;
 }
 
 export function stopListening(): void {

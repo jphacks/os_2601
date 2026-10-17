@@ -6,7 +6,7 @@ import { ApiError, getSession, patchSettings, type SessionDetail, type State } f
 import { startCamera, stopCamera } from "@/lib/camera";
 import { advance, end, requestCheck, requestManualHint, startSession } from "@/lib/loop";
 import { unlockSpeech } from "@/lib/speech";
-import { primeListening, stopListening } from "@/lib/voice";
+import { primeListening, stopListening, voiceStatus } from "@/lib/voice";
 import { Buttons } from "./_components/Buttons";
 import { Caption } from "./_components/Caption";
 import { Header } from "./_components/Header";
@@ -208,7 +208,7 @@ function Device() {
           <VideoFrame
             videoRef={videoRef}
             dark={brightness !== null && brightness < DARK_BRIGHTNESS}
-            debugText={debug ? `輝度 ${brightness === null ? "-" : Math.round(brightness)} / 静止 ${stillSeconds} 秒` : null}
+            debugText={debug ? `輝度 ${brightness === null ? "-" : Math.round(brightness)} / 静止 ${stillSeconds} 秒 / 声 ${voiceStatus()}` : null}
           >
             <StateBadge state={state} />
           </VideoFrame>

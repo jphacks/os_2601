@@ -98,9 +98,10 @@ function Device() {
     startingRef.current = true;
     setBusy(true);
     // patchSettings は先に送り出すが、await は unlockSpeech の後にする（クリック直後でないと iOS で音が出ない）
+    // 学習者が選んだときだけ送る。選択肢に無い秒数（/ops で 12 秒など）を一番近い選択肢で上書きしない
     const patching =
-      selectedSeconds !== null && selectedSeconds !== session?.settings.stuck_seconds
-        ? patchSettings(sessionId, token, { stuck_seconds: selectedSeconds }).catch(ignoreError)
+      stuckSeconds !== null && stuckSeconds !== session?.settings.stuck_seconds
+        ? patchSettings(sessionId, token, { stuck_seconds: stuckSeconds }).catch(ignoreError)
         : null;
     unlockSpeech();
     try {
@@ -186,16 +187,18 @@ function Device() {
 
   return (
     <main className="flex flex-1 flex-col">
-      {session && (
-        <Header
-          worksheetId={session.worksheet_id}
-          worksheetTitle={session.worksheet_title}
-          problemNo={problemNo}
-          problemCount={session.problem_count}
-          mode={session.mode}
-          connected={connected}
-        />
-      )}
+      <Header
+        info={
+          session && {
+            worksheetId: session.worksheet_id,
+            worksheetTitle: session.worksheet_title,
+            problemNo,
+            problemCount: session.problem_count,
+            mode: session.mode,
+          }
+        }
+        connected={connected}
+      />
       {/* スマホ縦持ちは縦に積む。PC 横持ちは映像を左、字幕とボタンを右（docs/06 の「画面の配置」） */}
       <div className="flex flex-1 flex-col md:flex-row md:items-start">
         <div className="md:w-3/5">

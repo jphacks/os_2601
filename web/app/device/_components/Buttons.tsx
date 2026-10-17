@@ -14,8 +14,10 @@ type Props = {
   onEnd: () => void;
 };
 
-const PRIMARY = "min-h-14 flex-1 rounded-lg bg-blue-600 px-6 text-lg font-bold text-white disabled:opacity-40";
-const SECONDARY = "min-h-11 flex-1 rounded-lg border border-gray-400 px-4 text-base disabled:opacity-40";
+const PRIMARY =
+  "min-h-14 flex-1 rounded-full bg-sky-500 px-6 text-lg font-bold text-white shadow-md transition active:scale-95 disabled:opacity-40 disabled:shadow-none";
+const SECONDARY =
+  "min-h-11 flex-1 rounded-full bg-white px-4 text-base font-bold text-slate-600 shadow-sm transition active:scale-95 disabled:opacity-40";
 
 export function Buttons({ state, busy, onStart, onHint, onCheck, onNext, onEnd }: Props) {
   if (state === "created") {

@@ -24,7 +24,7 @@ type Props = {
 export function SecondsPicker({ value, onChange }: Props) {
   return (
     <fieldset className="flex flex-col gap-2">
-      <legend className="mb-2 text-base font-bold">止まったと判定する秒数</legend>
+      <legend className="mb-2 text-base font-bold text-slate-700">止まったと判定する秒数</legend>
       <div className="flex flex-wrap gap-2">
         {CHOICES.map(({ seconds, label }) => (
           <button
@@ -32,8 +32,8 @@ export function SecondsPicker({ value, onChange }: Props) {
             type="button"
             onClick={() => onChange(seconds)}
             aria-pressed={value === seconds}
-            className={`min-h-11 rounded-lg border px-3 text-base ${
-              value === seconds ? "border-blue-600 bg-blue-600 text-white" : "border-gray-400"
+            className={`min-h-11 rounded-full px-4 text-base font-bold shadow-sm transition active:scale-95 ${
+              value === seconds ? "bg-sky-500 text-white" : "bg-white text-slate-600"
             }`}
           >
             {label}

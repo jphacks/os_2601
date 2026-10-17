@@ -75,6 +75,13 @@ def test_leak_strings_of_a_different_problem_are_dropped() -> None:
     assert "x=-5" not in hint.leak_strings
 
 
+def test_hint_a_little_over_the_requested_length_is_read_whole_and_a_runaway_one_falls_back() -> None:
+    sentence = "2行目の左辺のプラス5を右辺に移項するとき、数字と符号がそれぞれどう変わるかを確かめてみて"
+    assert len(sentence) > 40
+    assert compose(FakeAI(ai_hint(sentence))).speech == sentence
+    assert compose(FakeAI(ai_hint(sentence * 3))).source == "fallback"
+
+
 def test_ai_failure_or_missing_frame_falls_back_to_a_fixed_question() -> None:
     assert compose(FakeAI(error=AIUnavailable("timeout"))).speech == FALLBACK_HINTS[1]
     assert compose(FakeAI({"speech": "欠けた応答"})).source == "fallback"

@@ -49,7 +49,20 @@ type Session = {
 const SIGNAL_INTERVAL_MS = 1000;
 const MAX_FAILED_SIGNALS = 3;
 const GREETING = "見守りを始めるよ";
-const VOICE_KEYWORDS = ["わからない", "わかんない", "分からない", "分かんない", "わかりません", "分かりません", "ヒント"];
+const VOICE_KEYWORDS = [
+  "わからない",
+  "わかんない",
+  "分からない",
+  "分かんない",
+  "わかりません",
+  "分かりません",
+  "ヒント",
+  "どうすれば",
+  "何をすれば",
+  "なにをすれば",
+  "教えて",
+  "おしえて",
+];
 const LISTEN_STATES: State[] = ["watching", "still", "cooldown"];
 
 let activeSession: Session | null = null;

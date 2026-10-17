@@ -60,3 +60,5 @@
 | 0017 | [ended になったらカメラを止める](0017-stop-camera-on-ended.md) | 提案 |
 | 0018 | [読み上げの間は聞き取りを止め、ヒントとチェックは 1 つずつ送る](0018-mute-and-serialize-requests.md) | 提案 |
 | 0019 | [end() は postEnd が失敗しても手元のループとカメラを止める](0019-end-stops-locally-on-failure.md) | 提案 |
+| 0020 | [静止の始まりは、静止に入る直前の signals の時刻にする](0020-still-since-from-previous-signal.md) | 提案 |
+| 0021 | [存在しない session id は認可より先に 404 を返す](0021-not-found-before-auth.md) | 提案 |

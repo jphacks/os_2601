@@ -41,6 +41,7 @@ type Session = {
   greeted: boolean;
   requestInFlight: boolean;
   autoHintDone: boolean;
+  prefetchedFrame: Promise<string | null> | null;
   listening: boolean;
   speechesInProgress: number;
   stop: () => void;
@@ -113,8 +114,12 @@ async function sendFrame(session: Session): Promise<string> {
   return (await postFrame(session.id, session.token, frame)).frame_id;
 }
 
-async function fetchHint(session: Session, trigger: Trigger): Promise<HintResponse> {
-  const frameId = await sendFrame(session);
+async function fetchHint(
+  session: Session,
+  trigger: Trigger,
+  prefetchedFrame: Promise<string | null> | null = null,
+): Promise<HintResponse> {
+  const frameId = (await prefetchedFrame) ?? (await sendFrame(session));
   return requestHint(session.id, session.token, { trigger, frame_id: frameId });
 }
 
@@ -126,8 +131,10 @@ function deliverHint(session: Session, hint: HintResponse): void {
 
 async function requestAutoHint(session: Session): Promise<void> {
   session.requestInFlight = true;
+  const prefetchedFrame = session.prefetchedFrame;
+  session.prefetchedFrame = null;
   try {
-    const hint = await fetchHint(session, "auto");
+    const hint = await fetchHint(session, "auto", prefetchedFrame);
     session.autoHintDone = true;
     deliverHint(session, hint);
   } catch (error) {
@@ -165,6 +172,13 @@ function handleSignal(session: Session, signal: SignalResponse): void {
     say(session, GREETING);
   }
   if (signal.state !== "stuck") session.autoHintDone = false;
+  if (signal.state !== "still" && signal.state !== "stuck") session.prefetchedFrame = null;
+  if (signal.next_action === "send_frame") {
+    session.prefetchedFrame = sendFrame(session).catch((error) => {
+      console.warn("[loop] 先読みのフレーム送信に失敗", error);
+      return null;
+    });
+  }
   if (signal.next_action === "send_frame_and_request_hint" && !session.autoHintDone && !session.requestInFlight) {
     void requestAutoHint(session);
   }
@@ -221,6 +235,7 @@ export function startSession(
     greeted: false,
     requestInFlight: false,
     autoHintDone: false,
+    prefetchedFrame: null,
     listening: false,
     speechesInProgress: 0,
     stop: () => {},

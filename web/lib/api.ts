@@ -269,7 +269,7 @@ export async function patchSettings(
   return request(sessionPath(id, "/settings"), jsonInit("PATCH", { token }, body));
 }
 
-export async function postSignal(id: string, auth: Auth, body: SignalRequest): Promise<SignalResponse> {
+export async function postSignal(id: string, auth: Auth, body: SignalRequest, debugNote?: string): Promise<SignalResponse> {
   if (USE_MOCK) {
     if (mockEnded) return signalsEndedMock as SignalResponse;
     if (body.force_stuck) return signalsStuckMock as SignalResponse;
@@ -279,7 +279,8 @@ export async function postSignal(id: string, auth: Auth, body: SignalRequest): P
   }
   const timeout = new AbortController();
   setTimeout(() => timeout.abort(), SIGNAL_TIMEOUT_MS);
-  return request(sessionPath(id, "/signals"), { ...jsonInit("POST", auth, body), signal: timeout.signal });
+  const query = debugNote ? `?note=${encodeURIComponent(debugNote)}` : "";
+  return request(sessionPath(id, `/signals${query}`), { ...jsonInit("POST", auth, body), signal: timeout.signal });
 }
 
 export async function postFrame(id: string, token: string, blob: Blob): Promise<FrameReceived> {

@@ -6,6 +6,7 @@ import { ApiError, getSession, patchSettings, type SessionDetail, type State } f
 import { startCamera, stopCamera } from "@/lib/camera";
 import { advance, end, requestCheck, requestManualHint, startSession } from "@/lib/loop";
 import { unlockSpeech } from "@/lib/speech";
+import { primeListening, stopListening, voiceStatus } from "@/lib/voice";
 import { Buttons } from "./_components/Buttons";
 import { Caption, HeardBubble } from "./_components/Caption";
 import { Character } from "./_components/Character";
@@ -105,10 +106,12 @@ function Device() {
         ? patchSettings(sessionId, token, { stuck_seconds: stuckSeconds }).catch(ignoreError)
         : null;
     unlockSpeech();
+    primeListening();
     try {
       await startCamera(video);
     } catch (error) {
       console.warn("[device] startCamera に失敗", error);
+      stopListening();
       setCaption(CAMERA_DENIED_CAPTION);
       setBusy(false);
       startingRef.current = false;
@@ -214,7 +217,7 @@ function Device() {
           <VideoFrame
             videoRef={videoRef}
             dark={brightness !== null && brightness < DARK_BRIGHTNESS}
-            debugText={debug ? `輝度 ${brightness === null ? "-" : Math.round(brightness)} / 静止 ${stillSeconds} 秒` : null}
+            debugText={debug ? `輝度 ${brightness === null ? "-" : Math.round(brightness)} / 静止 ${stillSeconds} 秒 / 声 ${voiceStatus()}` : null}
           />
         </div>
         {/* 真ん中：キャラクターを左下に大きく、吹き出しを右に重ねる（Tolan の会話画面の並び） */}

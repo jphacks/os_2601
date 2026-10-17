@@ -16,7 +16,7 @@ import {
 import { captureFrame, stopCamera } from "./camera";
 import { startMotionLoop } from "./motion";
 import { speak, stopSpeaking } from "./speech";
-import { startListening, stopListening } from "./voice";
+import { startListening, stopListening, voiceStatus } from "./voice";
 
 export type SessionHandlers = {
   onState: (signal: SignalResponse) => void;
@@ -42,7 +42,6 @@ type Session = {
   requestInFlight: boolean;
   autoHintDone: boolean;
   prefetchedFrame: Promise<string | null> | null;
-  listening: boolean;
   speechesInProgress: number;
   stop: () => void;
 };
@@ -50,7 +49,20 @@ type Session = {
 const SIGNAL_INTERVAL_MS = 1000;
 const MAX_FAILED_SIGNALS = 3;
 const GREETING = "見守りを始めるよ";
-const VOICE_KEYWORDS = ["わからない", "わかんない", "ヒント"];
+const VOICE_KEYWORDS = [
+  "わからない",
+  "わかんない",
+  "分からない",
+  "分かんない",
+  "わかりません",
+  "分かりません",
+  "ヒント",
+  "どうすれば",
+  "何をすれば",
+  "なにをすれば",
+  "教えて",
+  "おしえて",
+];
 const LISTEN_STATES: State[] = ["watching", "still", "cooldown"];
 
 let activeSession: Session | null = null;
@@ -60,28 +72,19 @@ function requireSession(): Session {
   return activeSession;
 }
 
-function pauseListening(session: Session): void {
-  if (!session.listening) return;
-  stopListening();
-  session.listening = false;
-}
-
 function updateState(session: Session, state: State, problemNo: number): void {
   session.state = state;
   session.problemNo = problemNo;
   if (!LISTEN_STATES.includes(state)) {
-    pauseListening(session);
+    stopListening();
     return;
   }
-  if (session.running && !session.listening && session.speechesInProgress === 0) {
-    startListening((text) => void onHeard(session, text));
-    session.listening = true;
-  }
+  if (session.running && session.speechesInProgress === 0) startListening((text) => void onHeard(session, text));
 }
 
 function say(session: Session, text: string | null): void {
   if (!text) return;
-  pauseListening(session);
+  stopListening();
   session.speechesInProgress += 1;
   speak(text)
     .catch((error) => console.warn("[loop] 読み上げに失敗", error))
@@ -166,11 +169,11 @@ function handleSignal(session: Session, signal: SignalResponse): void {
     stopCamera();
     return;
   }
-  updateState(session, signal.state, signal.current_problem_no);
   if (signal.state === "watching" && !session.greeted) {
     session.greeted = true;
     say(session, GREETING);
   }
+  updateState(session, signal.state, signal.current_problem_no);
   if (signal.state !== "stuck") session.autoHintDone = false;
   if (signal.state !== "still" && signal.state !== "stuck") session.prefetchedFrame = null;
   if (signal.next_action === "send_frame") {
@@ -198,7 +201,8 @@ async function sendSignal(session: Session): Promise<void> {
       ? { ts: new Date().toISOString(), camera_ok: session.cameraOk }
       : { ts: new Date().toISOString(), motion: session.latestScore, camera_ok: session.cameraOk };
   try {
-    const signal = await postSignal(session.id, { token: session.token }, body);
+    const debugNote = new URLSearchParams(window.location.search).get("debug") === "1" ? voiceStatus() : undefined;
+    const signal = await postSignal(session.id, { token: session.token }, body, debugNote);
     if (!session.running) return;
     session.failedSignals = 0;
     setConnection(session, true);
@@ -236,7 +240,6 @@ export function startSession(
     requestInFlight: false,
     autoHintDone: false,
     prefetchedFrame: null,
-    listening: false,
     speechesInProgress: 0,
     stop: () => {},
   };
@@ -252,7 +255,7 @@ export function startSession(
     session.running = false;
     clearInterval(timer);
     stopMotion();
-    pauseListening(session);
+    stopListening();
     if (activeSession === session) activeSession = null;
   };
   activeSession = session;

@@ -7,7 +7,8 @@ import { startCamera, stopCamera } from "@/lib/camera";
 import { advance, end, requestCheck, requestManualHint, startSession } from "@/lib/loop";
 import { unlockSpeech } from "@/lib/speech";
 import { Buttons } from "./_components/Buttons";
-import { Caption } from "./_components/Caption";
+import { Caption, HeardBubble } from "./_components/Caption";
+import { Character } from "./_components/Character";
 import { Header } from "./_components/Header";
 import { nearestChoice, SecondsPicker } from "./_components/SecondsPicker";
 import { StateBadge } from "./_components/StateBadge";
@@ -186,33 +187,46 @@ function Device() {
   }
 
   return (
-    <main className="flex flex-1 flex-col">
-      <Header
-        info={
-          session && {
-            worksheetId: session.worksheet_id,
-            worksheetTitle: session.worksheet_title,
-            problemNo,
-            problemCount: session.problem_count,
-            mode: session.mode,
-          }
-        }
-        connected={connected}
+    <main className="relative isolate flex flex-1 flex-col overflow-hidden bg-linear-to-b from-sky-400 via-sky-200 to-cyan-100 text-slate-800">
+      {/* 下の丘（飾り） */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -inset-x-1/2 -bottom-1/3 -z-10 h-1/2 rounded-[50%] bg-linear-to-b from-lime-300 to-green-600"
       />
-      {/* スマホ縦持ちは縦に積む。PC 横持ちは映像を左、字幕とボタンを右（docs/06 の「画面の配置」） */}
-      <div className="flex flex-1 flex-col md:flex-row md:items-start">
-        <div className="md:w-3/5">
+      <div className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-3 p-4">
+        {/* 上：ヘッダとバッジを真ん中、映像は右上に小さく（映像は常に表示する。docs/06） */}
+        <div className="flex items-start gap-3">
+          <div className="flex min-w-0 flex-1 flex-col items-center gap-2">
+            <Header
+              info={
+                session && {
+                  worksheetId: session.worksheet_id,
+                  worksheetTitle: session.worksheet_title,
+                  problemNo,
+                  problemCount: session.problem_count,
+                  mode: session.mode,
+                }
+              }
+              connected={connected}
+            />
+            <StateBadge state={state} />
+          </div>
           <VideoFrame
             videoRef={videoRef}
             dark={brightness !== null && brightness < DARK_BRIGHTNESS}
             debugText={debug ? `輝度 ${brightness === null ? "-" : Math.round(brightness)} / 静止 ${stillSeconds} 秒` : null}
-          >
-            <StateBadge state={state} />
-          </VideoFrame>
+          />
         </div>
-        <div className="flex flex-col gap-4 p-4 md:w-2/5">
-          <Caption text={caption} />
-          {heard && <p className="text-sm text-gray-500">聞こえた：{heard.text}</p>}
+        {/* 真ん中：キャラクターを左下に大きく、吹き出しを右に重ねる（Tolan の会話画面の並び） */}
+        <div className="relative flex min-h-80 flex-1 items-end">
+          <Character state={state} className="absolute bottom-0 -left-4 h-[95%] max-h-[28rem] w-auto" />
+          <div className="relative ml-[38%] flex w-[62%] flex-col gap-3 self-center">
+            {heard && <HeardBubble text={heard.text} />}
+            <Caption text={caption} />
+          </div>
+        </div>
+        {/* 下：入力欄の位置にボタン */}
+        <div className="relative flex flex-col gap-3 rounded-[2rem] bg-white/70 p-3 shadow-lg backdrop-blur">
           {state === "created" && selectedSeconds !== null && (
             <SecondsPicker value={selectedSeconds} onChange={setStuckSeconds} />
           )}

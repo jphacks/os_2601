@@ -20,7 +20,9 @@ const BADGES: Record<State, { label: string; color: string }> = {
 export function StateBadge({ state }: { state: State }) {
   const { label, color } = BADGES[state];
   return (
-    <span className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-base font-bold ${color}`}>
+    <span
+      className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-base font-bold shadow-md ring-2 ring-white ${color}`}
+    >
       <span aria-hidden>●</span>
       {label}
     </span>

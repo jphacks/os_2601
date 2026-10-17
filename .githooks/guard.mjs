@@ -2,20 +2,12 @@ import { readFileSync, existsSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { resolve, relative, sep } from "node:path";
 
-const CONTRACT_REQUESTS = /^CONTRACT_REQUESTS\.md$/;
+const ROLES = ["takahashi", "b", "c", "d"];
 
-const ROLES = {
-  takahashi: [/^/],
-  b: [/^web\/app\/device\//, /^web\/app\/ops\//, CONTRACT_REQUESTS],
-  c: [/^web\/app\/log\//, /^README\.md$/, CONTRACT_REQUESTS],
-  d: [/^web\/app\/page\.tsx$/, /^docs\/pitch\//, /^docs\/video\//, CONTRACT_REQUESTS],
-};
-
-const PROTECTED = [
-  /^web\/lib\//, /^api\//, /^openapi\.yaml$/,
+const TAKAHASHI_ONLY = [
   /^\.github\//, /^\.githooks\//, /^\.claude\//, /^team\.json$/,
   /^package\.json$/, /^web\/package\.json$/, /^pnpm-lock\.yaml$/, /^pnpm-workspace\.yaml$/,
-  /^CLAUDE\.md$/, /^AGENTS\.md$/, /^RUNBOOK\.md$/,
+  /^CLAUDE\.md$/, /^AGENTS\.md$/,
 ];
 
 const BASH_DENY_ALL = [
@@ -46,18 +38,14 @@ function readRole() {
   const bytes = readFileSync(f);
   const encoding = bytes[0] === 0xff && bytes[1] === 0xfe ? "utf16le" : "utf8";
   const role = bytes.toString(encoding).replace(/^﻿/, "").trim().toLowerCase();
-  if (!ROLES[role]) fail(`役割 '${role}' は不明。.role.local は b / c / d / takahashi のどれか。`);
+  if (!ROLES.includes(role)) fail(`役割 '${role}' は不明。.role.local は b / c / d / takahashi のどれか。`);
   return role;
 }
 
 function checkPaths(role, files) {
-  const bad = [];
-  for (const f of files) {
-    const rel = f.split(sep).join("/");
-    if (role !== "takahashi" && PROTECTED.some((re) => re.test(rel))) bad.push(`${rel}（契約・web/lib・api・設定は高橋だけ）`);
-    else if (!ROLES[role].some((re) => re.test(rel))) bad.push(`${rel}（役割 '${role}' の担当外）`);
-  }
-  if (bad.length) fail(`次のファイルは触れない。担当は docs/11_claude_code_guide.md の表。変えたいことは Slack で高橋に。\n  ${bad.join("\n  ")}`);
+  if (role === "takahashi") return;
+  const bad = files.map((f) => f.split(sep).join("/")).filter((rel) => TAKAHASHI_ONLY.some((re) => re.test(rel)));
+  if (bad.length) fail(`次のファイル（ハーネスと依存）は高橋だけが変える。変えたいことは Slack で高橋に。\n  ${bad.join("\n  ")}`);
 }
 
 function git(cmd) {
@@ -100,12 +88,12 @@ if (mode === "--ci") {
   const team = JSON.parse(readFileSync(resolve(root, "team.json"), "utf8"));
   const role = Object.entries(team).find(([login]) => login.toLowerCase() === author)?.[1];
   if (!role) {
-    process.stdout.write(`[となり guard] ${author} は team.json に無いので担当の検査は省略\n`);
+    process.stdout.write(`[となり guard] ${author} は team.json に無いので保護ファイルの検査は省略\n`);
     process.exit(0);
   }
   const files = git(`diff --name-only --no-renames origin/${base}...HEAD`).split("\n").filter(Boolean);
   checkPaths(role, files);
-  process.stdout.write(`[となり guard] ${author}（${role}）の変更 ${files.length} 件は担当内\n`);
+  process.stdout.write(`[となり guard] ${author}（${role}）の変更 ${files.length} 件に保護ファイルは無い\n`);
   process.exit(0);
 }
 

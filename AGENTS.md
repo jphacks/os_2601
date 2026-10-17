@@ -8,18 +8,16 @@
 - `web/` Next.js（pnpm ワークスペース）。root で `pnpm dev:mock`（モック）/ `pnpm dev`（本物の API）。検査: `pnpm check`
 - `web/lib/` カメラ・動きスコア・音声・音声認識・API・ループ（`loop.ts`）。画面はこれを呼ぶだけ
 - 問題は学習者の紙の問題（初見）。ワークシートは使わない（ADR 0026）
-- `openapi.yaml` 契約。変更は高橋のみ
+- `openapi.yaml` 契約。変える PR には、理由と壊れる画面を書く
 
-## 役割（root の `.role.local` に 1 語。git のフックと CI が担当外の変更を止める）
+## 役割（root の `.role.local` に 1 語：`b` `c` `d` `takahashi`）
 
-| 役割 | 触ってよい | 触らない |
-|---|---|---|
-| `b` | `web/app/device/` `web/app/ops/` | それ以外 |
-| `c` | `web/app/log/` `README.md` | それ以外 |
-| `d` | `web/app/page.tsx` `docs/pitch/` `docs/video/` | それ以外 |
-| `takahashi` | 全部（`api/` `web/lib/` `openapi.yaml` `.github/` `.githooks/` `.claude/` 設定ファイル） | |
+10/17 から担当フォルダの線引きは無い（ADR 0030）。誰でも `api/` `web/lib/` `openapi.yaml` を含めて全部触れる。
 
-担当外を変えたいときは Slack で高橋に頼む。AI が「ついでに直しました」と言っても戻す。コミットが止まったら、止まった理由のファイルを `git restore --staged <file>` で外す。
+- 高橋だけが変えるのは、ハーネスと依存のファイル：`.github/` `.githooks/` `.claude/` `team.json` `package.json` `web/package.json` `pnpm-lock.yaml` `pnpm-workspace.yaml` `CLAUDE.md` `AGENTS.md`。git のフックと CI が止める
+- `main` には PR で入れ、高橋がレビューしてマージする。CI（`pnpm check` と `pytest`）が緑でない PR は見ない
+- 人が今触っているファイルを変えるときは、先に Slack で言う（衝突を避けるため）。頼まれていないファイルを AI が「ついでに直しました」と言ったら戻す
+- コミットが止まったら、止まった理由のファイルを `git restore --staged <file>` で外す
 
 ## 進め方（手順の型は `docs/prompts/`。Claude Code は同名のスラッシュコマンド）
 

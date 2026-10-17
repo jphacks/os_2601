@@ -1,6 +1,6 @@
 # 11 非開発者向け AI 開発ガイド（Claude Code / Codex）
 
-B・C・D 向け。読めば「自分の担当フォルダで、バックエンドと `web/lib` を壊さずに、AI と一緒に画面やデータを作れる」状態になるための手引き。Claude Code でも Codex でも同じ。
+B・C・D 向け。読めば「バックエンドと `web/lib` を壊さずに、AI と一緒に画面やデータを作れる」状態になるための手引き。10/17 から担当フォルダの線引きは無い（ADR 0030）。Claude Code でも Codex でも同じ。
 
 ## ハーネス（リポジトリに入っている仕組み。`tonari/harness/` を当日コピー）
 
@@ -8,25 +8,22 @@ B・C・D 向け。読めば「自分の担当フォルダで、バックエン�
 |---|---|---|
 | `AGENTS.md` / `CLAUDE.md` | AI が最初に読む決まり（担当、禁止、守ること）。中身は同じ | Codex / Claude Code |
 | `.role.local` | root に自分の役割を 1 語（`b` `c` `d` `takahashi`）。git には入れない | 全員 |
-| `.githooks/`（`pre-commit` `pre-push`） | 担当外・保護ファイルを含むコミット、`main` への push、force push を止める。`git config core.hooksPath .githooks` で有効化 | 全員（どのツールでも） |
-| CI（`.github/workflows/check.yml`） | `pnpm check` と、PR の変更が `team.json` の役割の担当内かの検査 | 全員 |
+| `.githooks/`（`pre-commit` `pre-push`） | ハーネスと依存のファイルを含むコミット（高橋以外）、`main` への push、force push を止める。`git config core.hooksPath .githooks` で有効化 | 全員（どのツールでも） |
+| CI（`.github/workflows/check.yml`） | `pnpm check`、API の `pytest`、PR がハーネスと依存のファイルを変えていないかの検査（`team.json` で作者を見る） | 全員 |
 | `docs/prompts/`（`start` `check` `pr` `sync`） | 手順の型。Codex はファイルの中身を貼る。Claude Code は `/start` `/check` `/pr` `/sync` | 全員 |
 | `.claude/settings.json` | 編集前・コマンド前に同じ guard を走らせて早めに止める。`pnpm` と `git` の確認を減らす許可リスト。`.env` を読まない | Claude Code だけ |
 | `.github/pull_request_template.md` | PR に書く項目（役割、確認したこと、スクリーンショット、AI に頼んだ文） | 全員 |
 
-予行で 1 回だけやる設定（root で、1 行ずつ）：`echo b > .role.local`（自分の役割）、`git config core.hooksPath .githooks`。止まったら「[となり guard]」の文を読む。担当外のファイルが混ざっていたら `git restore --staged <file>` で外す。
+予行で 1 回だけやる設定（root で、1 行ずつ）：`echo b > .role.local`（自分の役割）、`git config core.hooksPath .githooks`。止まったら「[となり guard]」の文を読む。止められたファイルは `git restore --staged <file>` で外す。
 
-## 自分の担当
+## 触ってよいもの（10/17 から、ADR 0030）
 
-| 人 | 触ってよいフォルダ | 触らないもの |
-|---|---|---|
-| B | `web/app/device/**` `web/app/ops/**` | `web/lib/**`、`api/**`、`openapi.yaml` |
-| C | `web/app/log/**` `web/app/sheets/**` `worksheets/*.json` `worksheets/README.md` `README.md` | `worksheets/schema.json`、`web/lib/**`、`api/**` |
-| D | `web/app/page.tsx`（Day 1 午前のトップページだけ） `docs/pitch/**` `docs/video/**` | それ以外のコード全般。テストで見つけた不具合は Slack に書く |
+誰でも全部触れる。ただし次の 2 つは守る。
 
-高橋が触るのは `api/**`（`api/tools/` を含む）、`web/lib/**`、`openapi.yaml`、`worksheets/schema.json`、CI、`CLAUDE.md`、`RUNBOOK.md`。
+- ハーネスと依存のファイル（`.github/` `.githooks/` `.claude/` `team.json` `package.json` `web/package.json` `pnpm-lock.yaml` `pnpm-workspace.yaml` `CLAUDE.md` `AGENTS.md`）は高橋だけ。変えたいことは Slack で頼む
+- 人が今触っているファイル（`api/` と `web/lib/` は高橋が触っていることが多い）を変えるときは、先に Slack で言う
 
-担当外の変更が必要になったら、`CONTRACT_REQUESTS.md` に「何を・なぜ」を書くか、Slack で高橋に頼む。自分で直さない。
+主な持ち場は今までどおり（B は `/device`・`/ops`、C は `/log`・README・人格、D はトップページ・ピッチ・動画）。
 
 ## Windows の人へ（B・C・D）
 
@@ -71,8 +68,8 @@ B・C・D 向け。読めば「自分の担当フォルダで、バックエン�
 
 - `git push --force`、`main` への直接 push、他人のブランチへの push。
 - `.env`・API キー・オペレータキー・`session_token` をコードやコミットに書く。
-- `openapi.yaml`、`web/lib/**`、`api/**`、`worksheets/schema.json` を編集する（AI が「ついでに直しました」と言っても戻す）。
-- API の形を勝手に変える（必要なら `CONTRACT_REQUESTS.md`）。
+- 頼んでいないファイルを AI に直させる（AI が「ついでに直しました」と言ったら戻す）。
+- API の形（`openapi.yaml`）を、理由と壊れる画面を PR に書かずに変える。
 - **カメラのフレームを `web/lib` を通さずにどこかへ送る**コードを書く（映像の扱いは 1 箇所に閉じる）。
 - **正答や `leak_strings` を画面に出す**コードを書く（API からは来ないはずだが、モックに混ぜない）。
 - 「全部作って」「いい感じにして」と頼む。

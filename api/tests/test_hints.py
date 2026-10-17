@@ -116,11 +116,13 @@ def test_ai_failure_or_missing_frame_falls_back_to_a_fixed_question() -> None:
 
 
 def test_check_uses_fixed_texts_and_falls_back_to_unreadable() -> None:
-    correct = asyncio.run(judge(FakeAI({"readable": True, "final_answer_seen": "x=-5", "verdict": "correct"}), MODEL, FRAME))
+    ai = FakeAI({"readable": True, "final_answer_seen": "x=-5", "verdict": "correct"})
+    correct = asyncio.run(judge(ai, MODEL, FRAME, "2x - 7 = 4x + 3"))
     assert (correct.verdict, correct.speech) == ("correct", CORRECT_TEXT)
-    odd = asyncio.run(judge(FakeAI({"verdict": "maybe"}), MODEL, FRAME))
+    assert "見る問題：2x - 7 = 4x + 3" in ai.requests[0]
+    odd = asyncio.run(judge(FakeAI({"verdict": "maybe"}), MODEL, FRAME, None))
     assert odd.speech == FAILED_TEXT
-    failed = asyncio.run(judge(FakeAI(error=AIUnavailable("timeout")), MODEL, FRAME))
+    failed = asyncio.run(judge(FakeAI(error=AIUnavailable("timeout")), MODEL, FRAME, None))
     assert (failed.verdict, failed.speech) == ("unreadable", FAILED_TEXT)
 
 

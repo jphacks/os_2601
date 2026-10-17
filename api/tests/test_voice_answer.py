@@ -4,7 +4,7 @@ import pytest
 from conftest import OPERATOR_KEY, Device
 
 from app.gemini import AIUnavailable
-from app.hints import ANSWER_FALLBACK
+from app.hints import ANSWER_FALLBACK, CHECK_REPLY
 
 ANSWER = "移項は、項を反対の辺に移すこと。符号が変わるよ"
 
@@ -78,6 +78,12 @@ def test_when_the_ai_is_down_only_a_call_for_help_gets_a_fixed_reply(device: Dev
     assert ask(device, frame_id, "お母さん、ご飯まだ？").status_code == 204
     reply = ask(device, frame_id, "これ分からない")
     assert (reply.json()["speech"], reply.json()["source"]) == (ANSWER_FALLBACK, "fallback")
+
+
+def test_asking_if_it_is_correct_gets_the_fixed_reply_without_calling_the_ai(device: Device, ai: ListeningAI) -> None:
+    reply = ask(device, start_watching(device), "これで合ってる？")
+    assert (reply.json()["speech"], reply.json()["state"]) == (CHECK_REPLY, "speaking")
+    assert ai.requests == []
 
 
 def test_scripted_session_does_not_answer_what_it_hears(device: Device, ai: ListeningAI) -> None:

@@ -36,7 +36,17 @@ from app.state import (
 )
 from app.check import CORRECT_TEXT, Judgement, judge
 from app.gemini import AIUnavailable, Gemini
-from app.hints import FALLBACK_HINTS, ComposedHint, answer_fallback, asks_for_help, compose_answer, compose_hint, fixed_hint
+from app.hints import (
+    FALLBACK_HINTS,
+    ComposedHint,
+    answer_fallback,
+    asks_for_help,
+    asks_if_correct,
+    check_reply,
+    compose_answer,
+    compose_hint,
+    fixed_hint,
+)
 from app.store import SessionStore
 from app.worksheets import PRINT_LAYOUT, Worksheet
 
@@ -498,12 +508,25 @@ def _issue_hint(
 async def _answer_utterance(context: AppContext, session: Session, utterance: str) -> dict | Response:
     started = time.monotonic()
     now = _now()
-    if isinstance(step(session, HintRequested("voice"), now, context.thresholds)[1], Rejected):
+    _, acceptable = step(session, HintRequested("voice"), now, context.thresholds)
+    if isinstance(acceptable, Rejected):
         _fail(409, f"今の状態（{session.state}）では受理できない")
     if session.mode == "scripted":
         return Response(status_code=204)
     problem_no = session.current_problem_no
     problem = session.current_problem
+    if asks_if_correct(utterance):
+        return _issue_hint(
+            context,
+            session.session_id,
+            problem_no=problem_no,
+            level=acceptable.level,
+            trigger="voice",
+            composed=check_reply(problem.leak_strings),
+            started=started,
+            requested_at=now,
+            prefetched=False,
+        )
     try:
         composed = await compose_answer(
             context.ai,
@@ -580,7 +603,7 @@ async def post_check(
     if session.mode == "scripted":
         judgement = Judgement("correct", CORRECT_TEXT)
     else:
-        judgement = await judge(context.ai, context.check_model, _latest_frame(context, session_id))
+        judgement = await judge(context.ai, context.check_model, _latest_frame(context, session_id), problem.problem_text)
     session, _ = _apply(
         context, _find_session(context, session_id), CheckDone(judgement.verdict, len(judgement.speech)), _now()
     )

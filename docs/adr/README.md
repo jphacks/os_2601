@@ -62,3 +62,4 @@
 | 0019 | [end() は postEnd が失敗しても手元のループとカメラを止める](0019-end-stops-locally-on-failure.md) | 提案 |
 | 0020 | [静止の始まりは、静止に入る直前の signals の時刻にする](0020-still-since-from-previous-signal.md) | 提案 |
 | 0021 | [存在しない session id は認可より先に 404 を返す](0021-not-found-before-auth.md) | 提案 |
+| 0022 | [正解の読み上げ中の「次へ」は、読み上げを止めるだけにする](0022-advance-after-correct-only-stops-speech.md) | 提案 |

@@ -91,6 +91,7 @@ class Session:
     speaking_until: datetime | None = None
     cooldown_until: datetime | None = None
     last_signal_at: datetime | None = None
+    speaking_after_correct: bool = False
 
     @property
     def current_problem(self) -> Problem:
@@ -175,10 +176,6 @@ def cooldown_remaining(session: Session, now: datetime) -> int:
     return max(0, math.ceil((session.cooldown_until - now).total_seconds()))
 
 
-def _speech_duration(chars: int, thresholds: Thresholds) -> timedelta:
-    return timedelta(seconds=chars * thresholds.speech_seconds_per_char + thresholds.speech_seconds_base)
-
-
 def _enter_stuck(session: Session) -> None:
     session.state = "stuck"
     session.still_since = None
@@ -188,7 +185,18 @@ def _enter_stuck(session: Session) -> None:
 def _enter_speaking(session: Session, now: datetime, speech_chars: int, thresholds: Thresholds) -> None:
     session.state = "speaking"
     session.still_since = None
-    session.speaking_until = now + _speech_duration(speech_chars, thresholds)
+    session.speaking_after_correct = False
+    session.speaking_until = now + timedelta(
+        seconds=speech_chars * thresholds.speech_seconds_per_char + thresholds.speech_seconds_base
+    )
+
+
+def _return_to_watching(session: Session) -> None:
+    session.state = "watching"
+    session.still_since = None
+    session.speaking_until = None
+    session.cooldown_until = None
+    session.speaking_after_correct = False
 
 
 def _start_problem(session: Session, problem_no: int, now: datetime) -> None:
@@ -215,6 +223,7 @@ def _apply_clock(session: Session, now: datetime, thresholds: Thresholds) -> Non
     if session.state == "speaking" and session.speaking_until is not None and now >= session.speaking_until:
         session.state = "cooldown"
         session.speaking_until = None
+        session.speaking_after_correct = False
         session.cooldown_until = now + timedelta(seconds=session.settings.cooldown_seconds)
     if session.state == "cooldown" and session.cooldown_until is not None and now >= session.cooldown_until:
         session.state = "watching"
@@ -231,6 +240,8 @@ def _on_signal(session: Session, signal: Signal, now: datetime, thresholds: Thre
         return Accepted(next_action=NEXT_ACTION)
 
     previous_signal_at = session.last_signal_at
+    if previous_signal_at and (now - previous_signal_at).total_seconds() >= thresholds.signal_timeout_seconds:
+        previous_signal_at = None
     session.last_signal_at = now
     if session.state == "created":
         session.state = "watching"
@@ -279,6 +290,9 @@ def _on_check_done(session: Session, done: CheckDone, now: datetime, thresholds:
             _end_session(session, now)
             return Accepted()
         _start_problem(session, session.current_problem_no + 1, now)
+        _enter_speaking(session, now, done.speech_chars, thresholds)
+        session.speaking_after_correct = True
+        return Accepted()
     _enter_speaking(session, now, done.speech_chars, thresholds)
     return Accepted()
 
@@ -286,6 +300,9 @@ def _on_check_done(session: Session, done: CheckDone, now: datetime, thresholds:
 def _on_advance(session: Session, now: datetime) -> Result:
     if session.state not in ADVANCEABLE_STATES:
         return Rejected()
+    if session.speaking_after_correct:
+        _return_to_watching(session)
+        return Accepted()
     problem = session.current_problem
     if problem.status != "done":
         problem.status = "skipped"
@@ -294,10 +311,7 @@ def _on_advance(session: Session, now: datetime) -> Result:
         _end_session(session, now)
         return Accepted()
     _start_problem(session, session.current_problem_no + 1, now)
-    session.state = "watching"
-    session.still_since = None
-    session.speaking_until = None
-    session.cooldown_until = None
+    _return_to_watching(session)
     return Accepted()
 
 

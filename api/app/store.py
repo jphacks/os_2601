@@ -6,7 +6,7 @@ from typing import Any
 
 from app.state import Check, Hint, LeakCheck, Problem, Session, SessionSettings
 
-RUNTIME_FIELDS = ("still_since", "speaking_until", "cooldown_until", "last_signal_at")
+RUNTIME_FIELDS = ("still_since", "speaking_until", "cooldown_until", "last_signal_at", "speaking_after_correct")
 
 
 def _encode(value: Any) -> Any:

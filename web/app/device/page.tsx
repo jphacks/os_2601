@@ -2,12 +2,14 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { getSession, type SessionDetail, type State } from "@/lib/api";
+import { ApiError, getSession, patchSettings, type SessionDetail, type State } from "@/lib/api";
 import { startCamera } from "@/lib/camera";
-import { startSession } from "@/lib/loop";
+import { advance, end, requestCheck, requestManualHint, startSession } from "@/lib/loop";
 import { unlockSpeech } from "@/lib/speech";
+import { Buttons } from "./_components/Buttons";
 import { Caption } from "./_components/Caption";
 import { Header } from "./_components/Header";
+import { nearestChoice, SecondsPicker } from "./_components/SecondsPicker";
 import { StateBadge } from "./_components/StateBadge";
 import { VideoFrame } from "./_components/VideoFrame";
 
@@ -17,6 +19,13 @@ const FIXED_CAPTIONS: Partial<Record<State, string>> = {
   checking: "見てるよ…",
   ended: "今日はここまで。記録を見てみよう",
 };
+const CAMERA_DENIED_CAPTION = "設定からカメラを許可してね。LINE などの中のブラウザなら Safari か Chrome で開いてね";
+const END_CONFIRM = "おわる？";
+
+// ApiError は画面に何も出さない。それ以外はコンソールにだけ残す
+function ignoreError(error: unknown) {
+  if (!(error instanceof ApiError)) console.warn("[device] 操作に失敗", error);
+}
 
 function Device() {
   const params = useSearchParams();
@@ -29,6 +38,8 @@ function Device() {
   const [state, setState] = useState<State>("created");
   const [problemNo, setProblemNo] = useState(1);
   const [caption, setCaption] = useState(FIXED_CAPTIONS.created ?? "");
+  const [stuckSeconds, setStuckSeconds] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!sessionId || !token) return;
@@ -47,24 +58,37 @@ function Device() {
 
   useEffect(() => () => stopRef.current?.(), []);
 
-  // 仮のボタン。本物の「はじめる」は次の部品（Buttons）で作る
+  function applyState(next: State, nextProblemNo: number) {
+    setState(next);
+    setProblemNo(nextProblemNo);
+    const fixed = FIXED_CAPTIONS[next];
+    if (fixed) setCaption(fixed);
+  }
+
+  const defaultSeconds = session ? nearestChoice(session.settings.stuck_seconds) : null;
+  const selectedSeconds = stuckSeconds ?? defaultSeconds;
+
   async function handleStart() {
     const video = videoRef.current;
     if (!video || stopRef.current) return;
+    setBusy(true);
+    // patchSettings は先に送り出すが、await は unlockSpeech の後にする（クリック直後でないと iOS で音が出ない）
+    const patching =
+      selectedSeconds !== null && selectedSeconds !== session?.settings.stuck_seconds
+        ? patchSettings(sessionId, token, { stuck_seconds: selectedSeconds }).catch(ignoreError)
+        : null;
     unlockSpeech();
     try {
       await startCamera(video);
     } catch (error) {
       console.warn("[device] startCamera に失敗", error);
+      setCaption(CAMERA_DENIED_CAPTION);
+      setBusy(false);
       return;
     }
+    await patching;
     stopRef.current = startSession(video, sessionId, token, {
-      onState: (signal) => {
-        setState(signal.state);
-        setProblemNo(signal.current_problem_no);
-        const fixed = FIXED_CAPTIONS[signal.state];
-        if (fixed) setCaption(fixed);
-      },
+      onState: (signal) => applyState(signal.state, signal.current_problem_no),
       onHint: (hint) => {
         if (hint.display) setCaption(hint.display);
       },
@@ -72,6 +96,62 @@ function Device() {
       onConnection: () => {},
       onHeard: () => {},
     });
+    setBusy(false);
+  }
+
+  async function handleHint() {
+    setBusy(true);
+    try {
+      const hint = await requestManualHint();
+      if (hint.speech !== null) setCaption(hint.display);
+      applyState(hint.state, hint.problem_no);
+    } catch (error) {
+      ignoreError(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleCheck() {
+    const before = { state, problemNo, caption };
+    setBusy(true);
+    applyState("checking", problemNo);
+    try {
+      const check = await requestCheck();
+      applyState(check.state, check.next_problem_no ?? check.problem_no);
+      if (!FIXED_CAPTIONS[check.state]) setCaption(check.display);
+    } catch (error) {
+      ignoreError(error);
+      setState(before.state);
+      setCaption(before.caption);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleNext() {
+    setBusy(true);
+    try {
+      const response = await advance();
+      applyState(response.state, response.current_problem_no);
+    } catch (error) {
+      ignoreError(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleEnd() {
+    if (!window.confirm(END_CONFIRM)) return;
+    setBusy(true);
+    try {
+      await end();
+    } catch (error) {
+      ignoreError(error);
+    } finally {
+      stopRef.current = null;
+      setBusy(false);
+    }
   }
 
   return (
@@ -89,14 +169,18 @@ function Device() {
       </VideoFrame>
       <div className="flex flex-col gap-4 p-4">
         <Caption text={caption} />
-        <button
-          type="button"
-          onClick={handleStart}
-          disabled={state !== "created"}
-          className="min-h-14 rounded-lg bg-blue-600 px-6 text-lg font-bold text-white disabled:opacity-40"
-        >
-          はじめる
-        </button>
+        {state === "created" && selectedSeconds !== null && (
+          <SecondsPicker value={selectedSeconds} onChange={setStuckSeconds} />
+        )}
+        <Buttons
+          state={state}
+          busy={busy}
+          onStart={handleStart}
+          onHint={handleHint}
+          onCheck={handleCheck}
+          onNext={handleNext}
+          onEnd={handleEnd}
+        />
       </div>
     </main>
   );

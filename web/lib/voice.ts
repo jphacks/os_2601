@@ -41,12 +41,16 @@ function createRecognizer(): Recognizer | null {
   const created = new Recognizer();
   created.lang = LANG;
   created.continuous = false;
-  created.interimResults = false;
+  created.interimResults = true;
   created.onresult = (event) => {
     if (!wanted) return;
     for (let i = event.resultIndex; i < event.results.length; i += 1) {
       const text = event.results[i][0].transcript.trim();
-      if (!event.results[i].isFinal || !text) continue;
+      if (!text) continue;
+      if (!event.results[i].isFinal) {
+        status = `聞き取り中：${text}`;
+        continue;
+      }
       status = `聞こえた：${text}`;
       onHeard(text);
     }
@@ -57,7 +61,9 @@ function createRecognizer(): Recognizer | null {
       status = `やめた：${event.error}`;
       blocked = true;
       wanted = false;
-    } else if (!QUIET_ERRORS.has(event.error)) {
+    } else if (QUIET_ERRORS.has(event.error)) {
+      status = `静か：${event.error}`;
+    } else {
       console.warn("[voice] 聞き取りのエラー。少し待って再開", event.error);
       status = `エラー：${event.error}`;
       nextBeginDelayMs = RETRY_DELAY_MS;
@@ -65,6 +71,7 @@ function createRecognizer(): Recognizer | null {
   };
   created.onend = () => {
     running = false;
+    status = `再開待ち（${status}）`;
     if (wanted) scheduleBegin(nextBeginDelayMs);
     nextBeginDelayMs = RESTART_DELAY_MS;
   };

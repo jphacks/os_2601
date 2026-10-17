@@ -49,20 +49,7 @@ type Session = {
 const SIGNAL_INTERVAL_MS = 1000;
 const MAX_FAILED_SIGNALS = 3;
 const GREETING = "見守りを始めるよ";
-const VOICE_KEYWORDS = [
-  "わからない",
-  "わかんない",
-  "分からない",
-  "分かんない",
-  "わかりません",
-  "分かりません",
-  "ヒント",
-  "どうすれば",
-  "何をすれば",
-  "なにをすれば",
-  "教えて",
-  "おしえて",
-];
+const MIN_UTTERANCE_CHARS = 2;
 const LISTEN_STATES: State[] = ["watching", "still", "cooldown"];
 
 let activeSession: Session | null = null;
@@ -120,10 +107,10 @@ async function sendFrame(session: Session): Promise<string> {
 async function fetchHint(
   session: Session,
   trigger: Trigger,
-  prefetchedFrame: Promise<string | null> | null = null,
+  options: { prefetchedFrame?: Promise<string | null> | null; utterance?: string } = {},
 ): Promise<HintResponse> {
-  const frameId = (await prefetchedFrame) ?? (await sendFrame(session));
-  return requestHint(session.id, session.token, { trigger, frame_id: frameId });
+  const frameId = (await options.prefetchedFrame) ?? (await sendFrame(session));
+  return requestHint(session.id, session.token, { trigger, frame_id: frameId, utterance: options.utterance });
 }
 
 function deliverHint(session: Session, hint: HintResponse): void {
@@ -137,7 +124,7 @@ async function requestAutoHint(session: Session): Promise<void> {
   const prefetchedFrame = session.prefetchedFrame;
   session.prefetchedFrame = null;
   try {
-    const hint = await fetchHint(session, "auto", prefetchedFrame);
+    const hint = await fetchHint(session, "auto", { prefetchedFrame });
     session.autoHintDone = true;
     deliverHint(session, hint);
   } catch (error) {
@@ -150,13 +137,13 @@ async function requestAutoHint(session: Session): Promise<void> {
 async function onHeard(session: Session, text: string): Promise<void> {
   if (!session.running) return;
   session.handlers.onHeard(text);
-  if (!VOICE_KEYWORDS.some((keyword) => text.includes(keyword))) return;
+  if (text.length < MIN_UTTERANCE_CHARS) return;
   if (!LISTEN_STATES.includes(session.state) || session.requestInFlight) return;
   session.requestInFlight = true;
   try {
-    deliverHint(session, await fetchHint(session, "voice"));
+    deliverHint(session, await fetchHint(session, "voice", { utterance: text }));
   } catch (error) {
-    console.warn("[loop] 声のヒントに失敗", error);
+    console.warn("[loop] 声への答えに失敗", error);
   } finally {
     session.requestInFlight = false;
   }

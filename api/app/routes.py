@@ -21,6 +21,7 @@ from app.state import (
     Hint,
     HintIssued,
     HintRequested,
+    HintSkipped,
     LeakCheck,
     Problem,
     Rejected,
@@ -36,13 +37,14 @@ from app.state import (
 )
 from app.check import CORRECT_TEXT, Judgement, judge
 from app.gemini import Gemini
-from app.hints import FALLBACK_HINTS, ComposedHint, compose_hint, fixed_hint
+from app.hints import FALLBACK_HINTS, ComposedHint, compose_answer, compose_hint, fixed_hint
 from app.store import SessionStore
 from app.worksheets import PRINT_LAYOUT, Worksheet
 
 logger = logging.getLogger(__name__)
 
 MAX_FRAME_BYTES = 600 * 1024
+MAX_UTTERANCE_CHARS = 200
 MODE_DEFAULT = "live"
 
 
@@ -115,6 +117,7 @@ class SignalRequest(BaseModel):
 class HintRequest(BaseModel):
     trigger: Literal["auto", "manual", "voice"]
     frame_id: str
+    utterance: str | None = Field(default=None, max_length=MAX_UTTERANCE_CHARS)
 
 
 class CheckRequest(BaseModel):
@@ -184,15 +187,19 @@ def _latest_frame(context: AppContext, session_id: str) -> bytes | None:
     return latest[1] if latest else None
 
 
+def _ai_hints(problem: Problem) -> list[str]:
+    return [hint.display for hint in problem.hints if hint.source == "gpt"]
+
+
 async def _compose(context: AppContext, problem: Problem, level: int, frame: bytes | None) -> ComposedHint:
     return await compose_hint(
-        context.ai,
-        context.hint_model,
-        frame,
-        level,
-        [hint.display for hint in problem.hints if hint.source == "gpt"],
-        problem.problem_text,
-        problem.leak_strings,
+        context.ai, context.hint_model, frame, level, _ai_hints(problem), problem.problem_text, problem.leak_strings
+    )
+
+
+async def _answer(context: AppContext, problem: Problem, utterance: str, frame: bytes | None) -> ComposedHint | None:
+    return await compose_answer(
+        context.ai, context.hint_model, frame, utterance, _ai_hints(problem), problem.problem_text, problem.leak_strings
     )
 
 
@@ -448,12 +455,31 @@ async def request_hint(
     problem_no = session.current_problem_no
     problem = session.current_problem
     composing = _take_prefetch(context, session) if body.trigger == "auto" else None
+    answering = body.trigger == "voice" and bool(body.utterance)
     if session.mode == "scripted":
         composed = fixed_hint(FALLBACK_HINTS[accepted.level], "scripted", LeakCheck(ok=True, fallback=False), problem.leak_strings)
     elif composing:
         composed = await composing
+    elif answering:
+        composed = await _answer(context, problem, body.utterance, _latest_frame(context, session_id))
     else:
         composed = await _compose(context, problem, accepted.level, _latest_frame(context, session_id))
+    if composed is None:
+        session, _ = _apply(context, _find_session(context, session_id), HintSkipped(), _now())
+        logger.info("hint session=%s trigger=voice answered=False", session.session_id)
+        return {
+            "hint_id": _new_id("hnt"),
+            "problem_no": problem_no,
+            "level": accepted.level,
+            "trigger": body.trigger,
+            "speech": None,
+            "display": "",
+            "stuck_point": "",
+            "leak_check": {"ok": True, "fallback": False},
+            "source": "gpt",
+            "latency_ms": int((time.monotonic() - started) * 1000),
+            "state": session.state,
+        }
     session, _ = _apply(context, _find_session(context, session_id), HintIssued(len(composed.speech)), _now())
     hint = Hint(
         hint_id=_new_id("hnt"),

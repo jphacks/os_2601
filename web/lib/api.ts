@@ -115,7 +115,7 @@ export type SignalResponse = {
 
 export type FrameReceived = { frame_id: string; received_at: string; bytes: number };
 
-export type HintRequest = { trigger: Trigger; frame_id: string };
+export type HintRequest = { trigger: Trigger; frame_id: string; utterance?: string };
 
 export type HintResponse = {
   hint_id: string;

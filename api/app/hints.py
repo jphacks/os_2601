@@ -6,6 +6,8 @@ from app.state import LeakCheck
 
 SPEECH_MAX_CHARS = 60
 DISPLAY_MAX_CHARS = 80
+ANSWER_SPEECH_MAX_CHARS = 100
+ANSWER_DISPLAY_MAX_CHARS = 120
 STUCK_POINT_MAX_CHARS = 12
 UNREADABLE_HINT = "途中の式を、1 行ずつ声に出して読んでみて"
 FALLBACK_HINTS = {1: "今、何を求めようとしてる？", 2: UNREADABLE_HINT}
@@ -42,6 +44,42 @@ LEVEL_INSTRUCTIONS = {
     ),
 }
 
+ANSWER_PROMPT = """あなたは中学生の隣に座っている家庭教師です。画像は、学習者が紙で問題を解いている手元の写真です。
+学習者が何か言いました。その文を渡します（音声認識の結果なので、誤字や途切れがあります）。
+
+1. 写真から、学習者がいま解いている問題の文を読み取り、problem_text に書いてください。
+2. その問題を自分で解き、最終の答えを final_answer に、途中の決定的な値や式を key_values に書いてください。これらは学習者には見せません。
+3. その文が、あなた（家庭教師）への問いか、勉強で助けを求める発話かを決めて respond に書いてください。独り言、問題文や式の読み上げ、周りの人との会話、勉強と関係ない話なら false。
+4. respond が true なら、問いに答えてください。
+   - 答案を見て、問いに沿って答える。言葉の意味（「移項って何？」）や、一般的なやり方の説明はしてよい。
+   - 説明に例を使うときは、この問題と違う数字を使う。
+   - 「答えを教えて」には、答えは言わずにやんわり断り、見る所か次の一歩を 1 つ示す。
+5. 問いの内容を、数学の言葉で stuck_point に 12 文字以内で書いてください（例：移項の意味、係数で割る）。
+6. 答えを speech と display に書いてください。
+   - speech は読み上げ用。60 文字以内、1〜2 文。数字は算用数字のまま、記号は言葉にする（= はイコール、- はマイナス、x はエックス）。
+   - display は字幕用。80 文字以内。数式は半角。speech と同じ内容。
+   - respond が false なら、speech と display は空にする。
+
+絶対に守ること：
+- この問題の答えの値、途中の決定的な値、正しい式の完成形を書かない。この問題を解いて見せない。
+- 学習者が正しく書いた式や値は、読み上げずに行と位置で指す（「最後の行の左辺」）。
+- 命令形でなく、提案形（「見てみて」「やってみて」）か問いかけ。「惜しい」「違う」は使わない。名前は呼ばない。"""
+
+ANSWER_SCHEMA = {
+    "type": "OBJECT",
+    "propertyOrdering": ["problem_text", "final_answer", "key_values", "respond", "stuck_point", "speech", "display"],
+    "properties": {
+        "problem_text": {"type": "STRING"},
+        "final_answer": {"type": "STRING"},
+        "key_values": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "respond": {"type": "BOOLEAN"},
+        "stuck_point": {"type": "STRING"},
+        "speech": {"type": "STRING"},
+        "display": {"type": "STRING"},
+    },
+    "required": ["problem_text", "final_answer", "key_values", "respond", "stuck_point", "speech", "display"],
+}
+
 HINT_SCHEMA = {
     "type": "OBJECT",
     "propertyOrdering": ["problem_text", "final_answer", "key_values", "readable", "stuck_point", "speech", "display"],
@@ -74,14 +112,21 @@ def fixed_hint(text: str, source: str, leak_check: LeakCheck, known_leaks: list[
     return ComposedHint(text, text, FALLBACK_STUCK_POINT, source, None, leak_check, None, known_leaks)
 
 
-def _request_text(level: int, previous: list[str], known_problem: str | None) -> str:
-    lines = [LEVEL_INSTRUCTIONS[level]]
+def _context_lines(previous: list[str], known_problem: str | None) -> list[str]:
+    lines = []
     if known_problem:
         lines.append(f"前に読み取った問題文：{known_problem}（写真の問題が違えば、前のヒントは使わない）")
     if previous:
         lines.append("この問題で既に出したヒント（古い順）：")
         lines.extend(f"{number}. {text}" for number, text in enumerate(previous, start=1))
-    return "\n".join(lines)
+    return lines
+
+
+def _read_problem(out: dict, known_problem: str | None, known_leaks: list[str]) -> tuple[str | None, list[str]]:
+    problem_text = out["problem_text"] or None
+    same_problem = bool(known_problem and problem_text) and normalize(known_problem) == normalize(problem_text)
+    inherited = known_leaks if same_problem or not problem_text else []
+    return problem_text, sorted(set(inherited) | set(leak_strings(out["final_answer"], out["key_values"])))
 
 
 async def compose_hint(
@@ -96,11 +141,9 @@ async def compose_hint(
     if ai is None or frame is None:
         return fixed_hint(FALLBACK_HINTS[level], "fallback", LeakCheck(ok=True, fallback=False), known_leaks)
     try:
-        out = await ai.generate_json(model, SYSTEM_PROMPT, _request_text(level, previous, known_problem), frame, HINT_SCHEMA)
-        problem_text = out["problem_text"] or None
-        same_problem = bool(known_problem and problem_text) and normalize(known_problem) == normalize(problem_text)
-        inherited = known_leaks if same_problem or not problem_text else []
-        leaks = sorted(set(inherited) | set(leak_strings(out["final_answer"], out["key_values"])))
+        request = "\n".join([LEVEL_INSTRUCTIONS[level], *_context_lines(previous, known_problem)])
+        out = await ai.generate_json(model, SYSTEM_PROMPT, request, frame, HINT_SCHEMA)
+        problem_text, leaks = _read_problem(out, known_problem, known_leaks)
         speech = out["speech"].strip()
         display = out["display"].strip()
         readable = out["readable"] is True
@@ -114,6 +157,46 @@ async def compose_hint(
         return fixed_hint(UNREADABLE_HINT, "fallback", LeakCheck(ok=True, fallback=False), leaks)
     if not speech or not display or len(speech) > SPEECH_MAX_CHARS or len(display) > DISPLAY_MAX_CHARS:
         return fixed_hint(FALLBACK_HINTS[level], "fallback", LeakCheck(ok=True, fallback=False), leaks)
+    return ComposedHint(
+        speech=speech,
+        display=display,
+        stuck_point=stuck_point,
+        source="gpt",
+        model=model,
+        leak_check=LeakCheck(ok=True, fallback=False),
+        problem_text=problem_text,
+        leak_strings=leaks,
+    )
+
+
+async def compose_answer(
+    ai: Gemini | None,
+    model: str,
+    frame: bytes | None,
+    utterance: str,
+    previous: list[str],
+    known_problem: str | None,
+    known_leaks: list[str],
+) -> ComposedHint | None:
+    if ai is None or frame is None:
+        return None
+    try:
+        request = "\n".join([f"学習者の発話：「{utterance}」", *_context_lines(previous, known_problem)])
+        out = await ai.generate_json(model, ANSWER_PROMPT, request, frame, ANSWER_SCHEMA)
+        problem_text, leaks = _read_problem(out, known_problem, known_leaks)
+        respond = out["respond"] is True
+        speech = out["speech"].strip()
+        display = out["display"].strip()
+        stuck_point = out["stuck_point"].strip()[:STUCK_POINT_MAX_CHARS] or FALLBACK_STUCK_POINT
+    except (AIUnavailable, KeyError, TypeError, AttributeError):
+        return None
+
+    if not respond:
+        return None
+    if any(contains_leak(text, leaks) for text in (speech, display, stuck_point)):
+        return fixed_hint(FALLBACK_HINTS[1], "fallback", LeakCheck(ok=False, fallback=True), leaks)
+    if not speech or not display or len(speech) > ANSWER_SPEECH_MAX_CHARS or len(display) > ANSWER_DISPLAY_MAX_CHARS:
+        return fixed_hint(FALLBACK_HINTS[1], "fallback", LeakCheck(ok=True, fallback=False), leaks)
     return ComposedHint(
         speech=speech,
         display=display,

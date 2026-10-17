@@ -1,0 +1,80 @@
+{
+  "session_id": "ses_mock_ended",
+  "worksheet_id": "WS-01",
+  "worksheet_title": "一次方程式",
+  "problem_count": 4,
+  "learner_label": "学習者",
+  "mode": "live",
+  "state": "ended",
+  "current_problem_no": 4,
+  "still_seconds": 0,
+  "settings": { "stuck_seconds": 20, "cooldown_seconds": 60, "max_level": 2 },
+  "problems": [
+    {
+      "problem_no": 1,
+      "status": "done",
+      "stuck_count": 0,
+      "max_level": 0,
+      "seconds_spent": 110,
+      "hints": [],
+      "check": { "verdict": "correct", "display": "正解。移項の符号、ばっちり", "created_at": "2026-10-17T00:51:50Z" }
+    },
+    {
+      "problem_no": 2,
+      "status": "done",
+      "stuck_count": 2,
+      "max_level": 2,
+      "seconds_spent": 260,
+      "hints": [
+        {
+          "hint_id": "hnt_mock_e1",
+          "level": 1,
+          "trigger": "auto",
+          "display": "今、何を求めようとしてる？",
+          "stuck_point": "移項で符号を変え忘れる",
+          "source": "fallback",
+          "leak_check": { "ok": true, "fallback": false },
+          "latency_ms": 2,
+          "created_at": "2026-10-17T00:53:10Z"
+        },
+        {
+          "hint_id": "hnt_mock_e2",
+          "level": 2,
+          "trigger": "auto",
+          "display": "右辺に移したときの符号、もう一回見てみて",
+          "stuck_point": "移項の符号",
+          "source": "gpt",
+          "leak_check": { "ok": true, "fallback": false },
+          "latency_ms": 2180,
+          "created_at": "2026-10-17T00:54:00Z"
+        }
+      ],
+      "check": { "verdict": "correct", "display": "正解。符号の直し方、ばっちり", "created_at": "2026-10-17T00:56:10Z" }
+    },
+    {
+      "problem_no": 3,
+      "status": "skipped",
+      "stuck_count": 0,
+      "max_level": 0,
+      "seconds_spent": 75,
+      "hints": [],
+      "check": null
+    },
+    {
+      "problem_no": 4,
+      "status": "done",
+      "stuck_count": 0,
+      "max_level": 0,
+      "seconds_spent": 150,
+      "hints": [],
+      "check": { "verdict": "correct", "display": "正解。3 のかけ方、ばっちり", "created_at": "2026-10-17T00:59:55Z" }
+    }
+  ],
+  "stuck_points": [
+    { "label": "移項で符号を変え忘れる", "count": 1 },
+    { "label": "移項の符号", "count": 1 }
+  ],
+  "leak_blocked_count": 0,
+  "created_at": "2026-10-17T00:50:00Z",
+  "ended_at": "2026-10-17T01:00:00Z"
+}

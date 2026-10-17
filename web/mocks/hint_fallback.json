@@ -1,0 +1,13 @@
+{
+  "hint_id": "hnt_mock_3",
+  "problem_no": 2,
+  "level": 2,
+  "trigger": "auto",
+  "speech": "右辺に移したときの符号、もう一回見てみて",
+  "display": "右辺に移したときの符号、もう一回見てみて",
+  "stuck_point": "移項で符号を変え忘れる",
+  "leak_check": { "ok": false, "fallback": true },
+  "source": "fallback",
+  "latency_ms": 2450,
+  "state": "speaking"
+}

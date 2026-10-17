@@ -1,0 +1,9 @@
+{
+  "check_id": "chk_mock",
+  "problem_no": 2,
+  "verdict": "correct",
+  "speech": "正解。符号の直し方、ばっちり",
+  "display": "正解。符号の直し方、ばっちり",
+  "next_problem_no": 3,
+  "state": "speaking"
+}

@@ -1,0 +1,13 @@
+{
+  "hint_id": "hnt_mock_1",
+  "problem_no": 2,
+  "level": 1,
+  "trigger": "auto",
+  "speech": "今、何を求めようとしてる？",
+  "display": "今、何を求めようとしてる？",
+  "stuck_point": "移項で符号を変え忘れる",
+  "leak_check": { "ok": true, "fallback": false },
+  "source": "fallback",
+  "latency_ms": 3,
+  "state": "speaking"
+}

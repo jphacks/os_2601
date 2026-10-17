@@ -1,0 +1,28 @@
+{
+  "sessions": [
+    {
+      "session_id": "ses_mock",
+      "worksheet_id": "WS-01",
+      "learner_label": "デモ",
+      "mode": "live",
+      "state": "watching",
+      "problem_done": 1,
+      "problem_count": 4,
+      "stuck_total": 3,
+      "created_at": "2026-10-17T01:30:00Z",
+      "ended_at": null
+    },
+    {
+      "session_id": "ses_mock_ended",
+      "worksheet_id": "WS-01",
+      "learner_label": "学習者",
+      "mode": "live",
+      "state": "ended",
+      "problem_done": 3,
+      "problem_count": 4,
+      "stuck_total": 2,
+      "created_at": "2026-10-17T00:50:00Z",
+      "ended_at": "2026-10-17T01:00:00Z"
+    }
+  ]
+}

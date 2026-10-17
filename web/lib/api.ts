@@ -193,6 +193,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 const USE_MOCK = process.env.NEXT_PUBLIC_MOCK === "1";
 
 const SIGNAL_TIMEOUT_MS = 3000;
+const FRAME_TIMEOUT_MS = 5000;
 const SIGNALS_PER_STATE = 5;
 const SIGNAL_CYCLE = [
   signalsWatchingMock,
@@ -285,7 +286,14 @@ export async function postFrame(id: string, token: string, blob: Blob): Promise<
   if (USE_MOCK) return frameReceivedMock;
   const form = new FormData();
   form.append("frame", blob, "frame.jpg");
-  return request(sessionPath(id, "/frames"), { method: "POST", headers: authHeaders({ token }), body: form });
+  const timeout = new AbortController();
+  setTimeout(() => timeout.abort(), FRAME_TIMEOUT_MS);
+  return request(sessionPath(id, "/frames"), {
+    method: "POST",
+    headers: authHeaders({ token }),
+    body: form,
+    signal: timeout.signal,
+  });
 }
 
 export async function requestHint(id: string, token: string, body: HintRequest): Promise<HintResponse> {

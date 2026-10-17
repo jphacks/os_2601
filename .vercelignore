@@ -1,0 +1,8 @@
+.env*
+**/.env*
+api
+docs
+out
+**/.venv
+**/node_modules
+**/.next

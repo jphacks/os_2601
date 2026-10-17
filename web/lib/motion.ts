@@ -27,10 +27,13 @@ function mean(values: Float32Array): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
-function meanAbsoluteDifference(a: Float32Array, b: Float32Array): number {
+type Frame = { gray: Float32Array; brightness: number };
+
+function differenceIgnoringBrightness(current: Frame, previous: Frame): number {
+  const shift = current.brightness - previous.brightness;
   let sum = 0;
-  for (let i = 0; i < a.length; i += 1) sum += Math.abs(a[i] - b[i]);
-  return sum / a.length;
+  for (let i = 0; i < current.gray.length; i += 1) sum += Math.abs(current.gray[i] - previous.gray[i] - shift);
+  return sum / current.gray.length;
 }
 
 function median(values: number[]): number {
@@ -41,7 +44,7 @@ function median(values: number[]): number {
 export function startMotionLoop(video: HTMLVideoElement, onScore: MotionScoreHandler): () => void {
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d", { willReadFrequently: true });
-  let previous: Float32Array | null = null;
+  let previous: Frame | null = null;
   let recentDiffs: number[] = [];
 
   const measure = () => {
@@ -56,12 +59,13 @@ export function startMotionLoop(video: HTMLVideoElement, onScore: MotionScoreHan
     canvas.height = portrait ? SAMPLE_LONG_SIDE : SAMPLE_SHORT_SIDE;
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
     const gray = toGrayscale(context.getImageData(0, 0, canvas.width, canvas.height).data);
-    if (previous && previous.length === gray.length) {
-      recentDiffs = [...recentDiffs, meanAbsoluteDifference(gray, previous) / MAX_LUMA].slice(-MEDIAN_WINDOW);
+    const current: Frame = { gray, brightness: mean(gray) };
+    if (previous && previous.gray.length === gray.length) {
+      recentDiffs = [...recentDiffs, differenceIgnoringBrightness(current, previous) / MAX_LUMA].slice(-MEDIAN_WINDOW);
     }
-    previous = gray;
+    previous = current;
     const score = recentDiffs.length === MEDIAN_WINDOW ? median(recentDiffs) : null;
-    onScore(score, mean(gray), true);
+    onScore(score, current.brightness, true);
   };
 
   const timer = setInterval(measure, INTERVAL_MS);

@@ -21,6 +21,7 @@ PENDING_SECONDS = 12
 @dataclass(frozen=True)
 class Thresholds:
     motion_threshold: float
+    motion_exit_threshold: float
     signal_timeout_seconds: float
     speech_seconds_per_char: float
     speech_seconds_base: float
@@ -254,7 +255,8 @@ def _on_signal(session: Session, signal: Signal, now: datetime, thresholds: Thre
     if session.state == "created":
         session.state = "watching"
     elif session.state in ("watching", "still"):
-        moving = not signal.camera_ok or signal.motion is None or signal.motion >= thresholds.motion_threshold
+        threshold = thresholds.motion_exit_threshold if session.state == "still" else thresholds.motion_threshold
+        moving = not signal.camera_ok or signal.motion is None or signal.motion >= threshold
         if moving:
             session.state = "watching"
             session.still_since = None

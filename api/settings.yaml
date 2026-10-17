@@ -1,4 +1,5 @@
 motion_threshold: 0.03      # τ。T0-2 と Day 1 の計測で更新する
+motion_exit_threshold: 0.045  # 静止を抜ける境目。τ より高くして小さな震えで途切れないようにする（ADR 0027）
 warmup_seconds: 3
 stuck_seconds: 20           # セッション作成時と /device の選択で上書き可（5〜1200）
 cooldown_seconds: 60        # 同上（0〜300）

@@ -205,7 +205,6 @@ async function sendSignal(session: Session): Promise<void> {
     handleSignal(session, signal);
   } catch (error) {
     if (!session.running) return;
-    session.prefetchedFrame = null;
     session.failedSignals += 1;
     if (session.failedSignals >= MAX_FAILED_SIGNALS) setConnection(session, false);
     console.warn("[loop] signals に失敗", error);

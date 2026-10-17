@@ -2,7 +2,7 @@
 
 ## 原則
 
-- 映像は毎秒ブラウザの中で処理し、動きの大きさ（数値）だけをサーバに送る。映像そのものは詰まったときとボタンを押したときの 1 枚しか送らない。
+- 映像は毎秒ブラウザの中で処理し、動きの大きさ（数値）だけをサーバに送る。映像そのものは、手が止まって `stuck_seconds − 3` 秒（既定 17 秒）たったときと、ボタンを押したときの 1 枚しか送らない（ADR 0028）。
 - 「詰まった」の判定はサーバの状態機械が行う。判定 `step(session, event, now, settings) -> (session, actions)` は副作用のない関数にし、表駆動のテストを書く（`api/tests/test_state.py`）。しきい値は `settings.yaml` に置く。
 - 検知しているのは「手元の動きがない」ことだけ。考えているのか、詰まっているのか、ぼんやりしているのかは区別しない。だから最初の声は問い返し（H1）にし、間違って声をかけても害が小さいようにする。
 - 手の検出モデルは使わない。フレーム差分だけ。理由は、2 日で確実に動くこと、スマホの CPU で 1 秒 1 回なら十分なこと、の 2 つ。不在（`away`）の判定は Hack Day 版では作らない。
@@ -12,17 +12,17 @@
 ```mermaid
 flowchart LR
   CAM["video 要素<br/>1280×720"] --> DS["縮小<br/>64×36 グレースケール"]
-  DS --> DIFF["前フレームとの差<br/>|a−b| の平均 / 255"]
+  DS --> DIFF["前フレームとの差<br/>|a−b−m| の平均 / 255<br/>m は画素ごとの差の中央値"]
   DIFF --> SM["平滑化<br/>直近 3 回の中央値"]
   SM --> SIG["motion（0〜1）<br/>1 秒ごとに POST /signals"]
-  CAM -->|"next_action 時・ボタン時"| JPG["JPEG 長辺 1024<br/>POST /frames"]
+  CAM -->|"send_frame 時・ボタン時"| JPG["JPEG 長辺 1024<br/>POST /frames"]
 ```
 
 ### 計算手順（`web/lib/motion.ts`、高橋が書く）
 
 1. `requestVideoFrameCallback` か `setInterval(1000)` で 1 秒に 1 回、`video` を `canvas` に 64×36 で描く（`drawImage` の縮小で足りる。アスペクト比は 16:9 前提。縦持ちなら 36×64）。
 2. `getImageData` でピクセルを取り、グレースケール（`0.299R + 0.587G + 0.114B`）の `Uint8Array` にする。
-3. 前回の配列との差の絶対値を全ピクセルで平均し、255 で割って 0〜1 にする。これが生の差分。10/17 から、差を取る前に 2 枚の平均の明るさの差を引き、自動露出やちらつきで全体が明るく・暗くなる分を除く（ADR 0027）。
+3. 前回の配列との差の絶対値を全ピクセルで平均し、255 で割って 0〜1 にする。これが生の差分。10/17 から、画素ごとの差 `a−b` の中央値 `m` を求め、`|a−b−m|` を平均する。自動露出やちらつきで全体が明るく・暗くなる分を除き、手や影のように画面の一部だけが変わった分はそのまま数える（ADR 0027）。
 4. 直近 3 回の生の差分の中央値を `motion` とする（1 フレームの自動露出の揺れを消す）。
 5. 最初の 3 秒（3 回）は `motion` を送らず、`camera_ok: true` だけ送る（ウォームアップ）。
 6. `video.readyState < 2` やカメラが止まっていれば `camera_ok: false` を送る。サーバはこのとき `still_seconds` を増やさない。
@@ -45,7 +45,7 @@ flowchart LR
 ```mermaid
 stateDiagram-v2
   watching --> still: motion < τ
-  still --> watching: motion ≥ τ
+  still --> watching: motion ≥ motion_exit_threshold
   still --> stuck: still_seconds ≥ stuck_seconds
   stuck --> speaking: hints 要求を受理
   speaking --> cooldown: 読み上げ推定時間 経過
@@ -95,8 +95,8 @@ stateDiagram-v2
 ## 設定（settings.yaml）
 
 ```yaml
-motion_threshold: 0.02      # τ。T0-2 と Day 1 の計測で更新する（10/17 に 0.03）
-motion_exit_threshold: 0.045  # 静止を抜ける境目（10/17 に追加、ADR 0027）
+motion_threshold: 0.03      # τ。T0-2 と Day 1 の計測で更新する（10/17 に 0.02 から変更）
+motion_exit_threshold: 0.045  # 静止を抜ける境目。τ 以上でないと起動しない（10/17 に追加、ADR 0027）
 warmup_seconds: 3
 stuck_seconds: 20           # セッション作成時と /device の選択で上書き可（5〜1200）
 cooldown_seconds: 60        # 同上（0〜300）
@@ -116,9 +116,9 @@ min_brightness: 60
 | ケース | 入力列 | 期待 |
 |---|---|---|
 | 書き続けている | motion 0.05 を 60 回 | ずっと `watching`、ヒントなし |
-| 20 秒止まる | 0.05 ×5、0.01 ×20 | 20 回目で `stuck` と `next_action` |
+| 20 秒止まる | 0.05 ×5、0.01 ×20 | 17 秒目で 1 回だけ `next_action: send_frame`、20 回目で `stuck` と `next_action: send_frame_and_request_hint` |
 | 19 秒で動き出す | 0.01 ×19、0.05 | `watching`、ヒントなし |
-| 一瞬の揺れ | 0.01 ×10、0.03、0.01 ×15 | 11 回目で `watching`、その後 15 秒では `stuck` にならない（カウントがやり直し） |
+| 一瞬の揺れ | 0.01 ×10、0.05、0.01 ×15 | 11 回目で `watching`、その後 15 秒では `stuck` にならない（カウントがやり直し） |
 | 回線断 | 0.01 ×10、5 秒空く、0.01 ×10 | 空いた時点で `watching`、再開後 10 秒では `stuck` にならない |
 | 詰まり中に動く | `stuck` で 0.05 ×3 | `stuck` のまま、`next_action` が 3 回とも付く |
 | 強制 stuck | `watching` で `force_stuck: true` | 即 `stuck`、`stuck_count` が 1 増える |

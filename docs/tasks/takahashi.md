@@ -195,7 +195,7 @@ docs/05_hint_policy.md を全部読んでください。app/leak.py と app/hint
 - `web/lib/voice.ts` を本物にする（`webkitSpeechRecognition`、`lang: ja-JP`、`continuous: true`、`interimResults: false`、結果の文字列を `onHeard` に渡す。終了イベントで自動再開。非対応ブラウザでは何もしない）。`loop.ts` は T1-2 で呼び方まで書いてあるので、`speaking`・`checking` 中に止めて `watching`/`cooldown` で再開することを本番 iPhone と Mac で確認する。「わからない」と言うと `trigger: voice` の H1（または現在の段階）が鳴る。
 - `advance`・`end`・`/demo/reset` の仕上げ。C のワークシート JSON、B の `/device` と `/ops`、C の `/log` の PR を取り込む。
 - 18:30：中間発表を版 A・B・C のどれでやるか決めて D に伝える。
-- 19:10：中間発表の操作。会場の照明で τ を再計測し `settings.yaml` に書く。
+- 19:10：中間発表の操作。会場の照明で τ を再計測し `settings.yaml` に書く。静止を抜ける境目 `motion_exit_threshold` も見直す（τ より低いと API が起動しない）。
 - 完了条件：本番 iPhone で「わからない」と言うとヒントが鳴り、`/log` に `trigger: voice` が載る。間に合わなければ落とす（切り捨ての順番の 2 番目）。
 
 ## Day 2

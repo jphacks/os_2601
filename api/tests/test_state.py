@@ -78,27 +78,49 @@ def speak_hint(session: Session, second: float) -> tuple[Session, int]:
     return session, accepted.level
 
 
+def frame_requests(trace: list[tuple[str, str | None]]) -> list[int]:
+    return [index for index, (_, next_action) in enumerate(trace) if next_action == SEND_FRAME_ACTION]
+
+
 @pytest.mark.parametrize(
-    ("name", "motions", "stuck_at", "last_state"),
+    ("name", "motions", "stuck_at", "last_state", "frame_requested_at"),
     [
-        ("書き続けている", [MOVING] * 60, None, "watching"),
-        ("20 秒止まる", [MOVING] * 5 + [STILL] * 20, 25, "stuck"),
-        ("19 秒で動き出す", [MOVING] + [STILL] * 19 + [MOVING], None, "watching"),
-        ("一瞬の揺れ", [STILL] * 10 + [0.03] + [STILL] * 15, None, "still"),
+        ("書き続けている", [MOVING] * 60, None, "watching", []),
+        ("20 秒止まる", [MOVING] * 5 + [STILL] * 20, 25, "stuck", [21]),
+        ("19 秒で動き出す", [MOVING] + [STILL] * 19 + [MOVING], None, "watching", [17]),
+        ("一瞬の揺れ", [STILL] * 10 + [MOVING] + [STILL] * 15, None, "still", []),
     ],
 )
 def test_stillness_turns_into_stuck_only_after_stuck_seconds(
-    name: str, motions: list[float], stuck_at: int | None, last_state: str
+    name: str, motions: list[float], stuck_at: int | None, last_state: str, frame_requested_at: list[int]
 ) -> None:
     _, trace = send(new_session(), motions, start_second=0)
     assert first_stuck(trace) == stuck_at, name
     assert trace[-1][0] == last_state, name
     assert all((next_action == NEXT_ACTION) == (state == "stuck") for state, next_action in trace), name
+    assert frame_requests(trace) == frame_requested_at, name
 
 
 def test_brief_motion_resets_the_stillness_count() -> None:
-    _, trace = send(new_session(), [STILL] * 10 + [0.03] + [STILL] * 15, start_second=0)
+    _, trace = send(new_session(), [STILL] * 10 + [MOVING] + [STILL] * 15, start_second=0)
     assert trace[10][0] == "watching"
+
+
+def test_motion_between_the_two_thresholds_does_not_start_stillness() -> None:
+    _, trace = send(new_session(), [0.025] * 10, start_second=0)
+    assert {state for state, _ in trace} == {"watching"}
+
+
+def test_exit_threshold_below_the_entry_threshold_is_rejected() -> None:
+    with pytest.raises(ValueError):
+        Thresholds(
+            motion_threshold=0.05,
+            motion_exit_threshold=0.045,
+            signal_timeout_seconds=5,
+            prefetch_lead_seconds=3,
+            speech_seconds_per_char=0.15,
+            speech_seconds_base=1.0,
+        )
 
 
 def test_signal_gap_resets_stillness() -> None:
@@ -200,17 +222,14 @@ def test_small_tremor_while_still_does_not_restart_the_count() -> None:
     assert all(state != "watching" for state, _ in trace[1:20])
 
 
-def frame_requests(trace: list[tuple[str, str | None]]) -> list[int]:
-    return [index for index, (_, next_action) in enumerate(trace) if next_action == SEND_FRAME_ACTION]
-
-
-def test_frame_is_requested_once_three_seconds_before_stuck() -> None:
-    _, trace = send(new_session(), [MOVING] + [STILL] * 20, start_second=0)
-    assert frame_requests(trace) == [17]
-    assert trace[17][0] == "still"
-    assert first_stuck(trace) == 21
-
-
 def test_frame_is_requested_again_in_the_next_stillness() -> None:
     _, trace = send(new_session(), [MOVING] + [STILL] * 18 + [MOVING] + [STILL] * 20, start_second=0)
     assert frame_requests(trace) == [17, 36]
+
+
+def test_scripted_session_is_not_asked_for_a_frame_before_stuck() -> None:
+    session = new_session()
+    session.mode = "scripted"
+    _, trace = send(session, [MOVING] + [STILL] * 20, start_second=0)
+    assert frame_requests(trace) == []
+    assert first_stuck(trace) == 21

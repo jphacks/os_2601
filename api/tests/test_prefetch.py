@@ -55,6 +55,12 @@ class Device:
         body = {"ts": self.now.isoformat(), "motion": motion, "camera_ok": True}
         return self.client.post(f"/sessions/{self.session_id}/signals", json=body, headers=self.headers).json()
 
+    def force_stuck(self, second: int) -> dict:
+        self.now = START + timedelta(seconds=second)
+        body = {"ts": self.now.isoformat(), "force_stuck": True}
+        operator = {"X-Operator-Key": OPERATOR_KEY}
+        return self.client.post(f"/sessions/{self.session_id}/signals", json=body, headers=operator).json()
+
     def frame(self) -> str:
         files = {"frame": ("frame.jpg", b"\xff\xd8jpeg", "image/jpeg")}
         return self.client.post(f"/sessions/{self.session_id}/frames", files=files, headers=self.headers).json()["frame_id"]
@@ -130,3 +136,18 @@ def test_hint_prepared_before_a_signal_gap_is_dropped_when_the_next_stillness_st
     signal = device.signal(15, STILL)
     assert (signal["state"], signal["still_seconds"]) == ("still", 0)
     wait_until(lambda: ai.cancelled == 1)
+
+
+def test_hint_prepared_for_an_earlier_stuck_is_not_used_for_the_next_one(device: Device, ai: SlowAI) -> None:
+    stay_still_until_frame_is_requested(device)
+    device.signal(11, STILL)
+    assert device.auto_hint(device.frame())["level"] == 1
+    device.signal(15, MOVING)
+    assert [device.signal(second, STILL)["next_action"] for second in range(16, 23)][-1] == "send_frame"
+    frame_id = device.frame()
+    wait_until(lambda: ai.started == 2)
+    assert [device.signal(second, STILL)["state"] for second in range(23, 26)][-1] == "stuck"
+    assert device.force_stuck(31)["state"] == "stuck"
+    hint = device.auto_hint(frame_id)
+    assert (hint["level"], hint["source"]) == (2, "gpt")
+    assert ai.started == 3

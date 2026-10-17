@@ -27,19 +27,18 @@ function mean(values: Float32Array): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
-type Frame = { gray: Float32Array; brightness: number };
-
-function differenceIgnoringBrightness(current: Frame, previous: Frame): number {
-  const shift = current.brightness - previous.brightness;
-  let sum = 0;
-  for (let i = 0; i < current.gray.length; i += 1) sum += Math.abs(current.gray[i] - previous.gray[i] - shift);
-  return sum / current.gray.length;
-}
-
-function median(values: number[]): number {
-  const sorted = [...values].sort((a, b) => a - b);
+function median(values: ArrayLike<number>): number {
+  const sorted = Array.from(values).sort((a, b) => a - b);
   return sorted[Math.floor(sorted.length / 2)];
 }
+
+function differenceIgnoringBrightness(current: Float32Array, previous: Float32Array): number {
+  const differences = current.map((value, i) => value - previous[i]);
+  const shift = median(differences);
+  return differences.reduce((sum, difference) => sum + Math.abs(difference - shift), 0) / differences.length;
+}
+
+type Frame = { gray: Float32Array; portrait: boolean };
 
 export function startMotionLoop(video: HTMLVideoElement, onScore: MotionScoreHandler): () => void {
   const canvas = document.createElement("canvas");
@@ -59,13 +58,12 @@ export function startMotionLoop(video: HTMLVideoElement, onScore: MotionScoreHan
     canvas.height = portrait ? SAMPLE_LONG_SIDE : SAMPLE_SHORT_SIDE;
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
     const gray = toGrayscale(context.getImageData(0, 0, canvas.width, canvas.height).data);
-    const current: Frame = { gray, brightness: mean(gray) };
-    if (previous && previous.gray.length === gray.length) {
-      recentDiffs = [...recentDiffs, differenceIgnoringBrightness(current, previous) / MAX_LUMA].slice(-MEDIAN_WINDOW);
+    if (previous && previous.portrait === portrait) {
+      recentDiffs = [...recentDiffs, differenceIgnoringBrightness(gray, previous.gray) / MAX_LUMA].slice(-MEDIAN_WINDOW);
     }
-    previous = current;
+    previous = { gray, portrait };
     const score = recentDiffs.length === MEDIAN_WINDOW ? median(recentDiffs) : null;
-    onScore(score, current.brightness, true);
+    onScore(score, mean(gray), true);
   };
 
   const timer = setInterval(measure, INTERVAL_MS);

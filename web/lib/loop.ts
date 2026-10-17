@@ -3,12 +3,14 @@ import checkCorrectMock from "@/mocks/check_correct.json";
 import hintLevel1Mock from "@/mocks/hint_level1.json";
 import hintLevel2Mock from "@/mocks/hint_level2.json";
 import signalsCooldownMock from "@/mocks/signals_cooldown.json";
+import signalsEndedMock from "@/mocks/signals_ended.json";
 import signalsSpeakingMock from "@/mocks/signals_speaking.json";
 import signalsStillMock from "@/mocks/signals_still.json";
 import signalsStuckMock from "@/mocks/signals_stuck.json";
 import signalsWatchingMock from "@/mocks/signals_watching.json";
 
 import type { AdvanceResponse, CheckResponse, HintResponse, SignalResponse } from "./api";
+import { stopCamera } from "./camera";
 import { speak } from "./speech";
 
 export type SessionHandlers = {
@@ -28,6 +30,8 @@ const STATE_CYCLE = [
   signalsSpeakingMock,
   signalsCooldownMock,
 ] as SignalResponse[];
+
+let activeSession: { handlers: SessionHandlers; stop: () => void } | null = null;
 
 export function startSession(
   video: HTMLVideoElement,
@@ -50,7 +54,12 @@ export function startSession(
   handlers.onConnection(true);
   emitNextState();
   const timer = setInterval(emitNextState, STATE_INTERVAL_MS);
-  return () => clearInterval(timer);
+  const stop = () => {
+    clearInterval(timer);
+    activeSession = null;
+  };
+  activeSession = { handlers, stop };
+  return stop;
 }
 
 export async function requestManualHint(): Promise<HintResponse> {
@@ -66,5 +75,8 @@ export async function advance(): Promise<AdvanceResponse> {
 }
 
 export async function end(): Promise<void> {
-  console.log("[loop] end（空実装。本物は T1-2）");
+  const session = activeSession;
+  session?.stop();
+  stopCamera();
+  session?.handlers.onState(signalsEndedMock as SignalResponse);
 }

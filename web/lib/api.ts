@@ -182,8 +182,9 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly code: ErrorCode | "UNKNOWN",
+    detail = "",
   ) {
-    super(`API ${status} ${code}`);
+    super(detail ? `API ${status} ${code}: ${detail}` : `API ${status} ${code}`);
     this.name = "ApiError";
   }
 }
@@ -206,6 +207,17 @@ let mockHintCount = 0;
 let mockAdvanceCount = 0;
 let mockEnded = false;
 
+function resetMockState(): void {
+  mockSignalCount = 0;
+  mockHintCount = 0;
+  mockAdvanceCount = 0;
+  mockEnded = false;
+}
+
+function sessionPath(id: string, action = ""): string {
+  return `/sessions/${encodeURIComponent(id)}${action}`;
+}
+
 function authHeaders(auth: Auth): Record<string, string> {
   return "token" in auth ? { Authorization: `Bearer ${auth.token}` } : { "X-Operator-Key": auth.operatorKey };
 }
@@ -219,16 +231,20 @@ function jsonInit(method: string, auth: Auth, body?: unknown): RequestInit {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  if (!API_BASE) throw new Error("NEXT_PUBLIC_API_BASE が無い。web/.env.local か Vercel の環境変数に入れる");
   const response = await fetch(`${API_BASE}${path}`, init);
   if (!response.ok) {
     const body: ApiErrorBody | null = await response.json().catch(() => null);
-    throw new ApiError(response.status, body?.error?.code ?? "UNKNOWN");
+    throw new ApiError(response.status, body?.error?.code ?? "UNKNOWN", body?.error?.message);
   }
   return response.json() as Promise<T>;
 }
 
 export async function createSession(body: SessionCreateRequest, operatorKey: string): Promise<SessionCreated> {
-  if (USE_MOCK) return sessionCreatedMock as SessionCreated;
+  if (USE_MOCK) {
+    resetMockState();
+    return sessionCreatedMock as SessionCreated;
+  }
   return request("/sessions", jsonInit("POST", { operatorKey }, body));
 }
 
@@ -239,7 +255,7 @@ export async function listSessions(operatorKey: string): Promise<SessionList> {
 
 export async function getSession(id: string, auth: Auth): Promise<SessionDetail> {
   if (USE_MOCK) return (id === "ses_mock_ended" ? sessionEndedMock : sessionActiveMock) as SessionDetail;
-  return request(`/sessions/${id}`, { headers: authHeaders(auth) });
+  return request(sessionPath(id), { headers: authHeaders(auth) });
 }
 
 export async function patchSettings(
@@ -248,7 +264,7 @@ export async function patchSettings(
   body: SettingsPatch,
 ): Promise<{ settings: Settings; state: State }> {
   if (USE_MOCK) return { settings: { ...(sessionCreatedMock as SessionCreated).settings, ...body }, state: "created" };
-  return request(`/sessions/${id}/settings`, jsonInit("PATCH", { token }, body));
+  return request(sessionPath(id, "/settings"), jsonInit("PATCH", { token }, body));
 }
 
 export async function postSignal(id: string, auth: Auth, body: SignalRequest): Promise<SignalResponse> {
@@ -259,14 +275,14 @@ export async function postSignal(id: string, auth: Auth, body: SignalRequest): P
     mockSignalCount += 1;
     return signal;
   }
-  return request(`/sessions/${id}/signals`, jsonInit("POST", auth, body));
+  return request(sessionPath(id, "/signals"), jsonInit("POST", auth, body));
 }
 
 export async function postFrame(id: string, token: string, blob: Blob): Promise<FrameReceived> {
   if (USE_MOCK) return frameReceivedMock;
   const form = new FormData();
   form.append("frame", blob, "frame.jpg");
-  return request(`/sessions/${id}/frames`, { method: "POST", headers: authHeaders({ token }), body: form });
+  return request(sessionPath(id, "/frames"), { method: "POST", headers: authHeaders({ token }), body: form });
 }
 
 export async function requestHint(id: string, token: string, body: HintRequest): Promise<HintResponse> {
@@ -274,12 +290,12 @@ export async function requestHint(id: string, token: string, body: HintRequest):
     mockHintCount += 1;
     return (mockHintCount === 1 ? hintLevel1Mock : hintLevel2Mock) as HintResponse;
   }
-  return request(`/sessions/${id}/hints`, jsonInit("POST", { token }, body));
+  return request(sessionPath(id, "/hints"), jsonInit("POST", { token }, body));
 }
 
 export async function postCheck(id: string, token: string, body: CheckRequest): Promise<CheckResponse> {
   if (USE_MOCK) return checkCorrectMock as CheckResponse;
-  return request(`/sessions/${id}/check`, jsonInit("POST", { token }, body));
+  return request(sessionPath(id, "/check"), jsonInit("POST", { token }, body));
 }
 
 export async function postAdvance(id: string, token: string): Promise<AdvanceResponse> {
@@ -291,7 +307,7 @@ export async function postAdvance(id: string, token: string): Promise<AdvanceRes
     }
     return { ...(advanceMock as AdvanceResponse), current_problem_no: mockAdvanceCount + 1 };
   }
-  return request(`/sessions/${id}/advance`, jsonInit("POST", { token }, { reason: "skip" }));
+  return request(sessionPath(id, "/advance"), jsonInit("POST", { token }, { reason: "skip" }));
 }
 
 export async function postEnd(id: string, token: string): Promise<EndResponse> {
@@ -299,7 +315,7 @@ export async function postEnd(id: string, token: string): Promise<EndResponse> {
     mockEnded = true;
     return endMock as EndResponse;
   }
-  return request(`/sessions/${id}/end`, { method: "POST", headers: authHeaders({ token }) });
+  return request(sessionPath(id, "/end"), { method: "POST", headers: authHeaders({ token }) });
 }
 
 export async function getWorksheets(): Promise<WorksheetList> {
@@ -309,10 +325,13 @@ export async function getWorksheets(): Promise<WorksheetList> {
 
 export async function getWorksheet(id: string): Promise<WorksheetDetail> {
   if (USE_MOCK) return worksheetWs01Mock;
-  return request(`/worksheets/${id}`);
+  return request(`/worksheets/${encodeURIComponent(id)}`);
 }
 
 export async function demoReset(operatorKey: string): Promise<DemoReset> {
-  if (USE_MOCK) return demoResetMock as DemoReset;
+  if (USE_MOCK) {
+    resetMockState();
+    return demoResetMock as DemoReset;
+  }
   return request("/demo/reset", { method: "POST", headers: authHeaders({ operatorKey }) });
 }

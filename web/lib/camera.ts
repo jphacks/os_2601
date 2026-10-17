@@ -4,6 +4,7 @@ const JPEG_QUALITY = 0.7;
 let stream: MediaStream | null = null;
 
 export async function startCamera(video: HTMLVideoElement): Promise<void> {
+  stopCamera();
   try {
     stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
   } catch (cause) {
@@ -17,7 +18,12 @@ export async function startCamera(video: HTMLVideoElement): Promise<void> {
   video.muted = true;
   video.playsInline = true;
   video.srcObject = stream;
-  await video.play();
+  try {
+    await video.play();
+  } catch (error) {
+    stopCamera();
+    throw error;
+  }
 }
 
 export function captureFrame(): Promise<Blob> {

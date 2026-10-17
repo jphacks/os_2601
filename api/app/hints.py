@@ -1,17 +1,39 @@
+import logging
 from dataclasses import dataclass
 
 from app.gemini import AIUnavailable, Gemini
 from app.leak import contains_leak, leak_strings, normalize
+from app.reading import to_reading
 from app.state import LeakCheck
 
 SPEECH_MAX_CHARS = 60
 DISPLAY_MAX_CHARS = 80
 ANSWER_SPEECH_MAX_CHARS = 100
 ANSWER_DISPLAY_MAX_CHARS = 120
-STUCK_POINT_MAX_CHARS = 12
+STUCK_POINTS = (
+    "移項の符号",
+    "移項の数字",
+    "かっこを外す",
+    "係数で割る",
+    "分数の計算",
+    "同類項をまとめる",
+    "計算ミス",
+    "式の読み違い",
+    "次の一歩",
+    "言葉の意味",
+    "答えの確認",
+    "その他",
+)
 UNREADABLE_HINT = "途中の式を、1 行ずつ声に出して読んでみて"
+UNREADABLE_HINTS = {
+    "dark": "もう少し明るいところで見せてみて",
+    "blurry": "スマホを少し離して、ピントを合わせてみて",
+    "out_of_frame": "紙を枠の中に入れてみて",
+    "hidden": "手やペンをどけて、式が見えるようにしてみて",
+}
 FALLBACK_HINTS = {1: "今、何を求めようとしてる？", 2: UNREADABLE_HINT}
 FALLBACK_STUCK_POINT = "読み取れず"
+logger = logging.getLogger(__name__)
 
 PROBLEM_PICK_RULE = (
     "紙に問題が複数あるときは、答案が途中の問題（最後の行が答えに達していない）を選ぶ。"
@@ -30,8 +52,9 @@ SYSTEM_PROMPT = """あなたは中学生の隣に座っている家庭教師で�
    - 誤りのある行があれば、いちばん最初の誤りの行を示す。その後の行が正しく見えても、最初の誤りを先に示す。
    - 誤りが無ければ、最後に書いた行から答えまでの、次の一歩を示す。
    - 前に出したヒントが示した所が、答案で直っていれば、そこは示さず、次の誤りか次の一歩に進む。直っていなければ、同じ所をもう少し具体的に示す。前と同じ文は繰り返さない。
-4. 示す所を、数学の内容で stuck_point に 12 文字以内で書いてください（例：移項の数字、係数で割る、かっこを外す）。「手が止まっている」「次の一手」のような様子は書かない。
-5. ヒントを 1 つだけ、speech と display に書いてください。
+4. 示す所を stuck_point に、一覧から 1 つ選んで書いてください。
+5. 学習者が紙に書いた答案の行を、上から順に written_lines に書いてください（読めた分だけ）。
+6. ヒントを 1 つだけ、speech と display に書いてください。
    - speech は読み上げ用。35 文字以内の 1 文。数字は算用数字のまま、記号は言葉にする（= はイコール、- はマイナス、x はエックス）。漢字は普通に使う。
    - display は字幕用。50 文字以内。数式は半角。speech と同じ内容。
 
@@ -40,7 +63,7 @@ SYSTEM_PROMPT = """あなたは中学生の隣に座っている家庭教師で�
 """ + POINTING_RULES + """
 - 次の一歩を示すときは、段階 1 では問いかけにする（「エックスだけにするには、どうする？」）。操作の結果の値は言わない。
 - 命令形でなく、提案形（「見てみて」「やってみて」）か問いかけ。「惜しい」「違う」「答えは」は使わない。名前は呼ばない。
-- 答案が読めないときは readable を false にし、ヒントは「途中の式を、1 行ずつ声に出して読んでみて」にする。"""
+- 答案が読めないときは readable を false にし、理由を unreadable_reason に書く（dark：暗い、blurry：ぼやけている、out_of_frame：紙が枠の外、hidden：手やペンで隠れている、other：その他）。読めるときは none。"""
 
 LEVEL_INSTRUCTIONS = {
     1: "段階 1：学習者が自分で気づけるよう、示す所を、行と場所を指すか問いかけで示してください。",
@@ -81,7 +104,8 @@ respond が true なら：
    - 答案を見て、問いに沿って答える。言葉の意味（「移項って何？」）や、一般的なやり方の説明はしてよい。
    - 説明に例を使うときは、この問題と違う数字を使う。
    - 「答えを教えて」には、答えは言わずにやんわり断り、見る所か次の一歩を 1 つ示す。
-4. 問いの内容を、数学の言葉で stuck_point に 12 文字以内で書いてください（例：移項の意味、係数で割る）。
+4. 問いの内容を stuck_point に、一覧から 1 つ選んで書いてください。学習者が紙に書いた答案の行を、上から順に written_lines に書いてください。
+   - 同じ問いが続いたら、前より具体的に答える（する操作を 1 つ言う。結果の値は言わない）。
 5. 答えを speech と display に書いてください。
    - speech は読み上げ用。60 文字以内、1〜2 文。数字は算用数字のまま、記号は言葉にする（= はイコール、- はマイナス、x はエックス）。
    - display は字幕用。80 文字以内。数式は半角。speech と同じ内容。
@@ -98,23 +122,30 @@ SHARED_PROPERTIES = {
     "problem_text": {"type": "STRING"},
     "final_answer": {"type": "STRING"},
     "key_values": {"type": "ARRAY", "items": {"type": "STRING"}},
-    "stuck_point": {"type": "STRING"},
+    "written_lines": {"type": "ARRAY", "items": {"type": "STRING"}},
+    "stuck_point": {"type": "STRING", "enum": list(STUCK_POINTS)},
     "speech": {"type": "STRING"},
     "display": {"type": "STRING"},
 }
 
 
-def _schema(ordering: list[str], flag: str) -> dict:
+def _schema(ordering: list[str], extra: dict) -> dict:
     return {
         "type": "OBJECT",
         "propertyOrdering": ordering,
-        "properties": {**SHARED_PROPERTIES, flag: {"type": "BOOLEAN"}},
+        "properties": {**SHARED_PROPERTIES, **extra},
         "required": ordering,
     }
 
 
-HINT_SCHEMA = _schema(["problem_text", "final_answer", "key_values", "readable", "stuck_point", "speech", "display"], "readable")
-ANSWER_SCHEMA = _schema(["respond", "problem_text", "final_answer", "key_values", "stuck_point", "speech", "display"], "respond")
+HINT_SCHEMA = _schema(
+    ["problem_text", "final_answer", "key_values", "written_lines", "readable", "unreadable_reason", "stuck_point", "speech", "display"],
+    {"readable": {"type": "BOOLEAN"}, "unreadable_reason": {"type": "STRING", "enum": ["none", *UNREADABLE_HINTS, "other"]}},
+)
+ANSWER_SCHEMA = _schema(
+    ["respond", "problem_text", "final_answer", "key_values", "written_lines", "stuck_point", "speech", "display"],
+    {"respond": {"type": "BOOLEAN"}},
+)
 
 
 @dataclass(frozen=True)
@@ -147,16 +178,18 @@ def _read_problem(out: dict, known_problem: str | None, known_leaks: list[str]) 
     problem_text = out["problem_text"] or None
     same_problem = bool(known_problem and problem_text) and normalize(known_problem) == normalize(problem_text)
     inherited = known_leaks if same_problem or not problem_text else []
-    return problem_text, sorted(set(inherited) | set(leak_strings(out["final_answer"], out["key_values"])))
+    written = out.get("written_lines") or []
+    fresh = leak_strings(out["final_answer"], out["key_values"], written)
+    return problem_text, sorted(set(leak_strings("", list(inherited), written)) | set(fresh))
 
 
 def _checked(
     out: dict, model: str, problem_text: str | None, leaks: list[str], limits: tuple[int, int], fallback: str
 ) -> ComposedHint:
-    speech = out["speech"].strip()
+    speech = to_reading(out["speech"].strip())
     display = out["display"].strip()
-    stuck_point = out["stuck_point"].strip()[:STUCK_POINT_MAX_CHARS] or FALLBACK_STUCK_POINT
-    if any(contains_leak(text, leaks) for text in (speech, display, stuck_point)):
+    stuck_point = out["stuck_point"] if out["stuck_point"] in STUCK_POINTS else STUCK_POINTS[-1]
+    if any(contains_leak(text, leaks) for text in (speech, display)):
         return fixed_hint(fallback, "fallback", LeakCheck(ok=False, fallback=True), leaks)
     speech_limit, display_limit = limits
     if not speech or not display or len(speech) > speech_limit or len(display) > display_limit:
@@ -197,10 +230,12 @@ async def compose_hint(
         problem_text, leaks = _read_problem(out, known_problem, known_leaks)
         hint = _checked(out, model, problem_text, leaks, (SPEECH_MAX_CHARS, DISPLAY_MAX_CHARS), FALLBACK_HINTS[level])
         readable = out["readable"] is True
+        reason = str(out.get("unreadable_reason", "other"))
     except (AIUnavailable, KeyError, TypeError, AttributeError):
         return fixed_hint(FALLBACK_HINTS[level], "fallback", LeakCheck(ok=True, fallback=False), known_leaks)
     if not readable and hint.leak_check.ok:
-        return fixed_hint(UNREADABLE_HINT, "fallback", LeakCheck(ok=True, fallback=False), leaks)
+        logger.info("hint unreadable reason=%s", reason)
+        return fixed_hint(UNREADABLE_HINTS.get(reason, UNREADABLE_HINT), "fallback", LeakCheck(ok=True, fallback=False), leaks)
     return hint
 
 

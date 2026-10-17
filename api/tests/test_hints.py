@@ -74,7 +74,7 @@ def test_answer_from_an_earlier_hint_still_blocks_a_leak() -> None:
 
 def test_unreadable_or_empty_hint_falls_back_to_a_fixed_question() -> None:
     unreadable = ai_hint("見てみて")
-    unreadable["readable"] = False
+    unreadable.update(readable=False, unreadable_reason="other")
     assert compose(FakeAI(unreadable)).speech == UNREADABLE_HINT
     assert compose(FakeAI(ai_hint("   "))).source == "fallback"
 
@@ -95,11 +95,30 @@ def test_hint_over_the_requested_length_is_read_whole_up_to_the_limit_and_falls_
     assert compose(FakeAI(long_display)).source == "fallback"
 
 
-def test_label_that_contains_the_answer_is_blocked_like_the_hint_text() -> None:
+def test_label_outside_the_fixed_list_becomes_other() -> None:
     reply = ai_hint("2行目の右辺を見てみて")
     reply["stuck_point"] = "x=-5 の確認"
-    hint = compose(FakeAI(reply))
-    assert (hint.source, hint.leak_check) == ("fallback", LeakCheck(ok=False, fallback=True))
+    assert compose(FakeAI(reply)).stuck_point == "その他"
+    reply["stuck_point"] = "係数で割る"
+    assert compose(FakeAI(reply)).stuck_point == "係数で割る"
+
+
+def test_speech_is_normalized_for_reading_before_the_leak_check() -> None:
+    reply = ai_hint("二行目の 4x = -4 を見てみて")
+    assert compose(FakeAI(reply)).speech == "2行目の 4エックス イコール マイナス 4 を見てみて"
+    assert compose(FakeAI(ai_hint("x = -5 にしてみて"))).leak_check == LeakCheck(ok=False, fallback=True)
+
+
+def test_values_already_on_the_paper_may_be_quoted() -> None:
+    reply = ai_hint("マイナス2エックス イコール 10 の両辺を見てみて")
+    reply["written_lines"] = ["2x - 7 = 4x + 3", "-2x = 10"]
+    assert compose(FakeAI(reply)).source == "gpt"
+
+
+def test_unreadable_reason_picks_the_fixed_text() -> None:
+    reply = ai_hint("見てみて")
+    reply.update(readable=False, unreadable_reason="out_of_frame")
+    assert compose(FakeAI(reply)).speech == "紙を枠の中に入れてみて"
 
 
 def test_earlier_hints_are_listed_one_per_line_in_order() -> None:

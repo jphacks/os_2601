@@ -307,7 +307,7 @@ def _on_hint_requested(session: Session, request: HintRequested, now: datetime) 
     elif session.state not in HINTABLE_STATES:
         return Rejected()
     else:
-        level = problem.hints[-1].level if problem.hints else 1
+        level = min(len(problem.hints) + 1, session.settings.max_level)
     session.pending_until = now + timedelta(seconds=PENDING_SECONDS)
     return Accepted(level=level)
 

@@ -162,7 +162,7 @@ Hack Day 版はヒント 2 段階（H1 固定文・H2 GPT）、SSE なし（記�
 ```
 
 - `source` は `gpt` | `fallback`（固定ヒント。H1 は常に `fallback`）| `scripted`（モードが scripted）。`model` は `gpt` のときだけ。
-- `level` は、`auto` ならその問題の `stuck_count` と `max_level` の小さい方（1 回目 H1、2 回目以降 H2）。`manual` と `voice` なら「その問題で最後に出した段階」（まだなら H1）。手動と声は段階を上げない。
+- `level` は、`auto` ならその問題の `stuck_count` と `max_level` の小さい方（1 回目 H1、2 回目以降 H2）。`manual` と `voice` なら、その問題で初めてなら 1、2 回目以降は 2（ADR 0033）。
 - `cooldown`（一度声をかけた後の沈黙）が止めるのは `auto` だけ。`manual` と `voice` は本人が頼んだので `cooldown` 中でも通る（`speaking`・`checking`・`stuck` 中は 409）。
 - `leak_check.ok: false` かつ `fallback: true` は、GPT の文が答え漏れ検査に一致したので固定 H2 に差し替えたことを示す。`leak_blocked_count` が 1 増える。
 - GPT がタイムアウト（8 秒）・エラーのときは固定 H2 で返し `source: "fallback"`、`leak_check.ok: true`。固定ヒントも読めないほど壊れていれば 503。

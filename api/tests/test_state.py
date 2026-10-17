@@ -159,13 +159,13 @@ def test_stillness_during_cooldown_waits_for_cooldown_then_counts_again() -> Non
     assert first_stuck(trace) == 82
 
 
-def test_repeated_manual_hints_do_not_raise_the_level() -> None:
+def test_second_and_later_manual_hints_are_level_two() -> None:
     session = new_session()
     levels = []
-    for round_number in range(5):
+    for round_number in range(4):
         session, level = speak_hint(session, round_number * 10)
         levels.append(level)
-    assert levels == [1, 1, 1, 1, 1]
+    assert levels == [1, 2, 2, 2]
 
 
 def test_first_signal_after_creation_starts_watching() -> None:

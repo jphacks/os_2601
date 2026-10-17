@@ -1,0 +1,23 @@
+[project]
+name = "tonari-api"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi",
+    "jsonschema",
+    "openai",
+    "pydantic",
+    "python-multipart",
+    "pyyaml",
+    "uvicorn",
+]
+
+[dependency-groups]
+dev = [
+    "httpx",
+    "pytest",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

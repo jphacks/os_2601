@@ -69,3 +69,4 @@
 | 0026 | [ワークシートをやめ、初見の問題に 1 回目から AI のヒントを出す](0026-unseen-problems-ai-first.md) | 承認 |
 | 0027 | [動きのスコアから明るさの変化を除き、静止を抜ける境目を高くする](0027-stillness-brightness-and-hysteresis.md) | 承認 |
 | 0028 | [stuck の 3 秒前にフレームを送らせ、AI のヒントを先に作っておく](0028-prefetch-hint-before-stuck.md) | 承認 |
+| 0030 | [担当フォルダの線引きをなくし、事故の防止だけ残す](0030-remove-folder-ownership.md) | 承認 |

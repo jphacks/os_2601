@@ -1,0 +1,52 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm dev:*)",
+      "Bash(pnpm check)",
+      "Bash(pnpm check:*)",
+      "Bash(pnpm install)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git restore --staged:*)",
+      "Bash(git commit:*)",
+      "Bash(git switch:*)",
+      "Bash(git pull:*)",
+      "Bash(git fetch:*)",
+      "Bash(git merge main)",
+      "Bash(git push -u origin:*)",
+      "Bash(git push origin:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(uv run:*)",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./api/.env)",
+      "Read(./web/.env.local)",
+      "Bash(curl:*)",
+      "Bash(wget:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.githooks/guard.mjs\" --claude"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,1136 @@
+openapi: 3.1.0
+info:
+  title: となり API
+  version: 0.1.0
+  description: |
+    フロント（B・C）とバック（高橋）の契約。docs/03_api_contract.md と同じ内容で、食い違ったらこのファイルを信じる。変更は高橋だけ。
+
+    - 認可は 3 系統。デバイスは `Authorization: Bearer <session_token>`、オペレータは `X-Operator-Key`、公開はヘッダなし。
+    - 鍵が無いか一致しなければ 401。鍵は正しいが系統が違えば 403（デバイス専用のエンドポイントにオペレータの鍵で来た、`force_stuck` の無い signals にオペレータの鍵で来た）。
+    - 時刻は ISO 8601（UTC、`Z` 付き）。ID は推測できない乱数で、接頭辞は `ses_`・`tok_`・`frm_`・`hnt_`・`chk_`。
+    - `speech` は読み上げ用（40 文字以内、記号なし）、`display` は字幕用（60 文字以内、数式は半角）。サーバが上限で切る。フロントは文章を組み立てず値をそのまま出す。
+    - 正答・`leak_strings`・典型ミスの一覧・固定ヒントの表は、どのエンドポイントからも返さない。
+servers:
+  - url: http://localhost:8000
+    description: ローカル。デプロイ先は NEXT_PUBLIC_API_BASE（Railway）
+
+tags:
+  - name: sessions
+  - name: signals
+  - name: hints
+  - name: worksheets
+  - name: ops
+
+paths:
+  /sessions:
+    post:
+      tags: [sessions]
+      operationId: createSession
+      summary: セッション作成
+      description: |
+        `session_token` を返すのはこの応答だけ。デバイス画面は `/device?s=ses_…&t=tok_…` で受け取る。
+        `settings` と `learner_label` は省略可（既定は settings.yaml の値と「学習者」）。作成直後の `current_problem_no` は 1、問題 1 は `working`、残りは `pending`。
+        存在しない `worksheet_id` は 422。
+      security:
+        - operator: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionCreateRequest"
+            example:
+              {"worksheet_id": "WS-01", "learner_label": "デモ", "mode": "live",
+               "settings": {"stuck_seconds": 20, "cooldown_seconds": 60, "max_level": 2}}
+      responses:
+        "201":
+          description: 作成した
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionCreated"
+              example:
+                {"session_id": "ses_7f3c…", "session_token": "tok_…", "mode": "live", "state": "created",
+                 "worksheet": {"worksheet_id": "WS-01", "title": "一次方程式", "problem_count": 4},
+                 "settings": {"stuck_seconds": 20, "cooldown_seconds": 60, "max_level": 2},
+                 "created_at": "2026-10-17T01:30:00Z"}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    get:
+      tags: [sessions]
+      operationId: listSessions
+      summary: セッション一覧（/ops・/log）
+      description: 新しい順。`session_token` は含めない。
+      security:
+        - operator: []
+      responses:
+        "200":
+          description: 一覧
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionList"
+              example:
+                {"sessions": [
+                  {"session_id": "ses_…", "worksheet_id": "WS-01", "learner_label": "デモ", "mode": "live", "state": "watching",
+                   "problem_done": 1, "problem_count": 4, "stuck_total": 2, "created_at": "…", "ended_at": null}]}
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /sessions/{id}:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    get:
+      tags: [sessions]
+      operationId: getSession
+      summary: セッションの要約と問題ごとの経過
+      description: |
+        時刻の評価（途絶 → speaking_until → cooldown_until）だけ行い、状態を進めてから返す。
+        `hints[]` に `speech` は含めない。`session_token` も含めない。
+      security:
+        - device: []
+        - operator: []
+      responses:
+        "200":
+          description: セッション
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionDetail"
+              example:
+                {"session_id": "ses_…", "worksheet_id": "WS-01", "worksheet_title": "一次方程式", "problem_count": 4,
+                 "learner_label": "デモ", "mode": "live",
+                 "state": "watching", "current_problem_no": 2, "still_seconds": 7,
+                 "settings": {"stuck_seconds": 20, "cooldown_seconds": 60, "max_level": 2},
+                 "problems": [
+                   {"problem_no": 1, "status": "done", "stuck_count": 0, "max_level": 0, "seconds_spent": 95,
+                    "hints": [], "check": {"verdict": "correct", "display": "正解！ 移項がきれい", "created_at": "…"}},
+                   {"problem_no": 2, "status": "working", "stuck_count": 2, "max_level": 2, "seconds_spent": 140,
+                    "hints": [
+                      {"hint_id": "hnt_…", "level": 1, "trigger": "auto", "display": "今、何を求めようとしてる？",
+                       "stuck_point": "移項の符号", "source": "fallback",
+                       "leak_check": {"ok": true, "fallback": false}, "latency_ms": 3, "created_at": "…"},
+                      {"hint_id": "hnt_…", "level": 2, "trigger": "auto", "display": "右辺に移したときの符号、もう一回見てみて",
+                       "stuck_point": "移項の符号", "source": "gpt",
+                       "leak_check": {"ok": true, "fallback": false}, "latency_ms": 2300, "created_at": "…"}],
+                    "check": null},
+                   {"problem_no": 3, "status": "pending", "stuck_count": 0, "max_level": 0, "seconds_spent": 0, "hints": [], "check": null},
+                   {"problem_no": 4, "status": "pending", "stuck_count": 0, "max_level": 0, "seconds_spent": 0, "hints": [], "check": null}],
+                 "stuck_points": [{"label": "移項の符号", "count": 2}],
+                 "leak_blocked_count": 0,
+                 "created_at": "…", "ended_at": null}
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /sessions/{id}/settings:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    patch:
+      tags: [sessions]
+      operationId: patchSettings
+      summary: 止まったと判定する秒数を学習者が選ぶ
+      description: |
+        `stuck_seconds`（5〜1200。/device の選択肢は 10・20・30・60・180・300・600・1200）と `cooldown_seconds`（0〜300）のどちらか、または両方。
+        受理するのは `created`・`watching`・`still`・`cooldown`。`stuck`・`speaking`・`checking`・`ended` では 409。進行中に変えても次の静止から効く。
+      security:
+        - device: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SettingsPatch"
+            example: {"stuck_seconds": 60}
+      responses:
+        "200":
+          description: 差し替えた設定
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [settings, state]
+                properties:
+                  settings:
+                    $ref: "#/components/schemas/Settings"
+                  state:
+                    $ref: "#/components/schemas/State"
+              example: {"settings": {"stuck_seconds": 60, "cooldown_seconds": 60, "max_level": 2}, "state": "created"}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /sessions/{id}/signals:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      tags: [signals]
+      operationId: postSignal
+      summary: 1 秒ごとの動きスコア。応答で状態を受け取る
+      description: |
+        - `created` で受けると `watching` にする（「はじめる」の合図）。
+        - `camera_ok: false` か `motion` 省略は「信号が来ていない」のと同じ扱い（`still` なら `watching` に戻し `still_seconds` を 0 に）。
+        - `stuck`・`speaking`・`checking` の間は `motion` を無視する。
+        - **`next_action` は `stuck` の間の応答すべてで `send_frame_and_request_hint`。** デバイスはフレームを送ってから `hints` を `trigger: auto` で呼ぶ。一度成功したら、`state` が `stuck` 以外になるまで再要求しない。
+        - `force_stuck: true` は `motion` を無視して `stuck` に入る（/ops の強制 stuck）。受理は `watching`・`still`・`cooldown`。`stuck` なら何もせず 200。`created`・`speaking`・`checking`・`ended` では 409。**このときだけ `X-Operator-Key` でも認可する。** `force_stuck` の無い要求にオペレータの鍵で来たら 403。
+        - `ended` の後の通常の signals は 200 で `state: ended` を返す。デバイスはループを止める。
+        - `watching`・`still`・`stuck` で 5 秒以上 signals が来なければ、サーバは `watching` に戻す。
+      security:
+        - device: []
+        - operator: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignalRequest"
+            examples:
+              signal:
+                value: {"ts": "2026-10-17T01:31:05Z", "motion": 0.012, "camera_ok": true}
+              force_stuck:
+                value: {"ts": "2026-10-17T01:31:05Z", "force_stuck": true}
+      responses:
+        "200":
+          description: 今の状態
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignalResponse"
+              examples:
+                still:
+                  value:
+                    {"state": "still", "still_seconds": 7, "current_problem_no": 2,
+                     "next_action": null, "cooldown_remaining": 0}
+                ended:
+                  value: {"state": "ended", "still_seconds": 0, "current_problem_no": 4, "next_action": null, "cooldown_remaining": 0}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /sessions/{id}/frames:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      tags: [signals]
+      operationId: postFrame
+      summary: フレーム 1 枚（JPEG）
+      description: |
+        送るのは 3 つの瞬間だけ（`next_action` が来たとき、「ヒント」を押したとき、「できた」を押したとき）。定期的には送らない。
+        サーバはセッションごとに最新 1 枚だけメモリに持ち、保存しない。600 KB を超えたら 413。`ended` では 409。
+      security:
+        - device: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [frame]
+              properties:
+                frame:
+                  type: string
+                  contentMediaType: image/jpeg
+                  description: 長辺 1024、品質 0.7、上限 600 KB
+            encoding:
+              frame:
+                contentType: image/jpeg
+      responses:
+        "200":
+          description: 受け取った
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FrameReceived"
+              example: {"frame_id": "frm_…", "received_at": "…", "bytes": 182311}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+        "413":
+          $ref: "#/components/responses/FrameTooLarge"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /sessions/{id}/hints:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      tags: [hints]
+      operationId: requestHint
+      summary: ヒント要求
+      description: |
+        - `trigger` は `auto`（`next_action` に従って）・`manual`（ボタン）・`voice`（「わからない」「わかんない」「ヒント」を聞き取った）。
+        - `level` は `auto` なら `min(stuck_count, max_level)`（1 回目 H1、2 回目以降 H2）。`manual` と `voice` はその問題で最後に出した段階（まだなら 1）で、段階を上げない。
+        - `auto` は `stuck` のときだけ受理し、それ以外は 409（受理の判定はリクエスト到着時）。`manual` と `voice` は `watching`・`still`・`cooldown` で受理し、`created`・`stuck`・`speaking`・`checking`・`ended` では 409。`cooldown` が止めるのは `auto` だけ。
+        - 応答を返した時点で `speaking` にし、読み上げ推定時間（`speech` の文字数 × 0.15 秒 + 1 秒）後に `cooldown`、`cooldown_seconds` 後に `watching` へ戻す。
+        - `leak_check` が `{ok: false, fallback: true}` なら、GPT の文が答え漏れ検査に一致したので固定 H2 に差し替えた。GPT のタイムアウト（8 秒）・エラーは固定 H2 で `source: fallback`、`leak_check.ok: true`。固定ヒントも読めなければ 503。
+        - `frame_id` は照合せず、最新 1 枚を使う。
+      security:
+        - device: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HintRequest"
+            example: {"trigger": "auto", "frame_id": "frm_…"}
+      responses:
+        "200":
+          description: ヒント
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HintResponse"
+              example:
+                {"hint_id": "hnt_…", "problem_no": 2, "level": 2, "trigger": "auto",
+                 "speech": "右辺に移したときの符号、もう一回見てみて",
+                 "display": "右辺に移したときの符号、もう一回見てみて",
+                 "stuck_point": "移項の符号",
+                 "leak_check": {"ok": true, "fallback": false},
+                 "source": "gpt", "model": "gpt-6.1-sol", "latency_ms": 2300,
+                 "state": "speaking"}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "503":
+          $ref: "#/components/responses/HintUnavailable"
+
+  /sessions/{id}/check:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      tags: [hints]
+      operationId: postCheck
+      summary: 「できた」。正誤チェック
+      description: |
+        - 受理した時点で `checking` にし、判定が出たら `speaking` → `cooldown` → `watching`（ヒントと同じ時間規則）。
+        - `correct` なら問題を `done` にし `current_problem_no` を進める。最後の問題なら `next_problem_no: null`、`state: ended`。`incorrect` なら問題は `working` のままで、`next_problem_no` は今の番号。
+        - `speech`・`display` は固定文で同じ文（`correct` は fixed_check_correct、`incorrect` は fixed_check_incorrect、無ければ「正解。その調子」「もう一回、途中の式を見てみて」）。
+        - `unreadable` は、GPT が読めないと言ったら「もう少し明るいところで、もう一回見せて」、8 秒で返らない・例外・フレーム無しなら「うまく読めなかった。もう一回、できたを押してみて」。
+        - `scripted` は GPT を呼ばず常に `correct`。正答の値は応答に含めない。
+        - 受理は `watching`・`still`・`cooldown`。`created`・`stuck`・`speaking`・`checking`・`ended` では 409。
+      security:
+        - device: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckRequest"
+            example: {"frame_id": "frm_…"}
+      responses:
+        "200":
+          description: 判定
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckResponse"
+              example:
+                {"check_id": "chk_…", "problem_no": 2, "verdict": "correct",
+                 "speech": "正解。符号の直し方、ばっちり", "display": "正解！ 符号の直し方、ばっちり",
+                 "next_problem_no": 3, "state": "speaking"}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /sessions/{id}/advance:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      tags: [sessions]
+      operationId: postAdvance
+      summary: 次の問題へ（スキップ）
+      description: |
+        前の問題を `skipped` にする（`done` なら変えない）。最後の問題なら `state: ended` で、`current_problem_no` はそのまま。
+        受理は `watching`・`still`・`cooldown`・`speaking`（`speaking` なら読み上げを打ち切って `watching`）。`created`・`stuck`・`checking`・`ended` では 409。
+      security:
+        - device: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  enum: [skip]
+            example: {"reason": "skip"}
+      responses:
+        "200":
+          description: 進めた
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdvanceResponse"
+              example: {"current_problem_no": 3, "state": "watching"}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /sessions/{id}/end:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      tags: [sessions]
+      operationId: postEnd
+      summary: 終了
+      description: 最新フレームをメモリから捨てる。`ended` に対してもう一度呼んでも 200。
+      security:
+        - device: []
+        - operator: []
+      responses:
+        "200":
+          description: 終了した
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EndResponse"
+              example: {"state": "ended", "ended_at": "…"}
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /worksheets:
+    get:
+      tags: [worksheets]
+      operationId: getWorksheets
+      summary: ワークシート一覧（正答なし）
+      security: []
+      responses:
+        "200":
+          description: 一覧
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorksheetList"
+              example: {"worksheets": [{"worksheet_id": "WS-01", "title": "一次方程式", "problem_count": 4, "grade": "中1"}]}
+
+  /worksheets/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          example: WS-01
+    get:
+      tags: [worksheets]
+      operationId: getWorksheet
+      summary: 問題文と印刷用レイアウト情報（正答なし）
+      description: 正答・典型ミス・固定ヒント・`leak_strings` は含めない。`print` はサーバの定数。
+      security: []
+      responses:
+        "200":
+          description: ワークシート
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorksheetDetail"
+              example:
+                {"worksheet_id": "WS-01", "title": "一次方程式", "grade": "中1",
+                 "problems": [{"problem_no": 1, "text": "3x + 5 = 20 を解きなさい。"}],
+                 "print": {"paper": "A4", "id_font_px": 48, "gap_mm": 45,
+                           "footer": "となり：手元だけを見ます。顔は映しません。映像は保存しません"}}
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /demo/reset:
+    post:
+      tags: [ops]
+      operationId: demoReset
+      summary: 全セッションを消す（DEMO_MODE=1 のときだけ）
+      description: セッション・問題・ヒント・チェック・メモリのフレームをすべて消す。ワークシート定義は消さない。`DEMO_MODE` が 1 でなければ 404。
+      security:
+        - operator: []
+      responses:
+        "200":
+          description: 消した
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoReset"
+              example: {"ok": true, "removed_sessions": 3}
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /healthz:
+    get:
+      tags: [ops]
+      operationId: getHealth
+      summary: 死活
+      description: "`gpt` は OPENAI_API_KEY があれば ok、無ければ missing（疎通確認はしない）。"
+      security: []
+      responses:
+        "200":
+          description: 生きている
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+              example: {"ok": true, "gpt": "ok", "worksheets": 3, "mode_default": "live"}
+
+components:
+  securitySchemes:
+    device:
+      type: http
+      scheme: bearer
+      description: セッショントークン（tok_…）。POST /sessions の応答でだけ返る
+    operator:
+      type: apiKey
+      in: header
+      name: X-Operator-Key
+      description: 環境変数 OPERATOR_KEY と一致する鍵
+
+  parameters:
+    SessionId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^ses_"
+        example: ses_mock
+
+  responses:
+    BadRequest:
+      description: 本文が JSON（frames は multipart）として読めない
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example: {"error": {"code": "BAD_REQUEST", "message": "..."}}
+    Unauthorized:
+      description: 鍵が無いか一致しない
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example: {"error": {"code": "UNAUTHORIZED", "message": "..."}}
+    Forbidden:
+      description: 鍵は正しいが系統が違う
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example: {"error": {"code": "FORBIDDEN", "message": "..."}}
+    NotFound:
+      description: セッションかワークシートが無い（/demo/reset は DEMO_MODE が 1 でない）
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example: {"error": {"code": "NOT_FOUND", "message": "..."}}
+    StateConflict:
+      description: 今の状態では受理できない（受理する状態は各エンドポイントの説明）
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example: {"error": {"code": "STATE_CONFLICT", "message": "..."}}
+    FrameTooLarge:
+      description: フレームが 600 KB を超えた
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example: {"error": {"code": "FRAME_TOO_LARGE", "message": "..."}}
+    ValidationError:
+      description: 型・範囲・必須の違反、または存在しない worksheet_id
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example: {"error": {"code": "VALIDATION_ERROR", "message": "..."}}
+    HintUnavailable:
+      description: 固定ヒントも読めない
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example: {"error": {"code": "HINT_UNAVAILABLE", "message": "..."}}
+
+  schemas:
+    State:
+      type: string
+      enum: [created, watching, still, stuck, speaking, cooldown, checking, ended]
+    Mode:
+      type: string
+      enum: [live, scripted]
+      description: live は GPT を呼ぶ。scripted は GPT を呼ばず固定ヒントで、正誤は常に correct
+    Trigger:
+      type: string
+      enum: [auto, manual, voice]
+    HintSource:
+      type: string
+      enum: [gpt, fallback, scripted]
+      description: fallback は固定ヒント（H1 は常に fallback）
+    HintLevel:
+      type: integer
+      enum: [1, 2]
+    Verdict:
+      type: string
+      enum: [correct, incorrect, unreadable]
+    LeakCheck:
+      type: object
+      required: [ok, fallback]
+      properties:
+        ok:
+          type: boolean
+          description: false なら GPT の文が答え漏れ検査に一致した
+        fallback:
+          type: boolean
+          description: true なら固定 H2 に差し替えた
+    Settings:
+      type: object
+      required: [stuck_seconds, cooldown_seconds, max_level]
+      additionalProperties: false
+      properties:
+        stuck_seconds:
+          type: integer
+          minimum: 5
+          maximum: 1200
+          default: 20
+          description: 止まったと判定する秒数
+        cooldown_seconds:
+          type: integer
+          minimum: 0
+          maximum: 300
+          default: 60
+          description: 一度声をかけた後の沈黙。止めるのは自動のヒントだけ
+        max_level:
+          type: integer
+          minimum: 1
+          maximum: 2
+          default: 2
+
+    SessionCreateRequest:
+      type: object
+      required: [worksheet_id, mode]
+      properties:
+        worksheet_id:
+          type: string
+        learner_label:
+          type: string
+          default: 学習者
+        mode:
+          $ref: "#/components/schemas/Mode"
+        settings:
+          type: object
+          additionalProperties: false
+          properties:
+            stuck_seconds:
+              $ref: "#/components/schemas/Settings/properties/stuck_seconds"
+            cooldown_seconds:
+              $ref: "#/components/schemas/Settings/properties/cooldown_seconds"
+            max_level:
+              $ref: "#/components/schemas/Settings/properties/max_level"
+
+    SessionCreated:
+      type: object
+      required: [session_id, session_token, mode, state, worksheet, settings, created_at]
+      properties:
+        session_id:
+          type: string
+          pattern: "^ses_"
+        session_token:
+          type: string
+          pattern: "^tok_"
+        mode:
+          $ref: "#/components/schemas/Mode"
+        state:
+          $ref: "#/components/schemas/State"
+        worksheet:
+          type: object
+          required: [worksheet_id, title, problem_count]
+          properties:
+            worksheet_id:
+              type: string
+            title:
+              type: string
+            problem_count:
+              type: integer
+        settings:
+          $ref: "#/components/schemas/Settings"
+        created_at:
+          type: string
+          format: date-time
+
+    SessionList:
+      type: object
+      required: [sessions]
+      properties:
+        sessions:
+          type: array
+          items:
+            type: object
+            required: [session_id, worksheet_id, learner_label, mode, state, problem_done, problem_count, stuck_total, created_at, ended_at]
+            properties:
+              session_id:
+                type: string
+                pattern: "^ses_"
+              worksheet_id:
+                type: string
+              learner_label:
+                type: string
+              mode:
+                $ref: "#/components/schemas/Mode"
+              state:
+                $ref: "#/components/schemas/State"
+              problem_done:
+                type: integer
+              problem_count:
+                type: integer
+              stuck_total:
+                type: integer
+              created_at:
+                type: string
+                format: date-time
+              ended_at:
+                type: [string, "null"]
+                format: date-time
+
+    SessionDetail:
+      type: object
+      required: [session_id, worksheet_id, worksheet_title, problem_count, learner_label, mode, state, current_problem_no, still_seconds, settings, problems, stuck_points, leak_blocked_count, created_at, ended_at]
+      properties:
+        session_id:
+          type: string
+          pattern: "^ses_"
+        worksheet_id:
+          type: string
+        worksheet_title:
+          type: string
+        problem_count:
+          type: integer
+        learner_label:
+          type: string
+        mode:
+          $ref: "#/components/schemas/Mode"
+        state:
+          $ref: "#/components/schemas/State"
+        current_problem_no:
+          type: integer
+          minimum: 1
+        still_seconds:
+          type: integer
+          minimum: 0
+          description: still のときだけ正、他は 0
+        settings:
+          $ref: "#/components/schemas/Settings"
+        problems:
+          type: array
+          items:
+            type: object
+            required: [problem_no, status, stuck_count, max_level, seconds_spent, hints, check]
+            properties:
+              problem_no:
+                type: integer
+                minimum: 1
+              status:
+                type: string
+                enum: [pending, working, done, skipped]
+              stuck_count:
+                type: integer
+                minimum: 0
+              max_level:
+                type: integer
+                minimum: 0
+                maximum: 2
+                description: この問題で出した最大の段階。まだなら 0
+              seconds_spent:
+                type: integer
+                minimum: 0
+                description: working になってから done・skipped になるまで（進行中は現在まで）
+              hints:
+                type: array
+                description: speech は含めない（読み上げは出した瞬間だけ）
+                items:
+                  type: object
+                  required: [hint_id, level, trigger, display, stuck_point, source, leak_check, latency_ms, created_at]
+                  properties:
+                    hint_id:
+                      type: string
+                      pattern: "^hnt_"
+                    level:
+                      $ref: "#/components/schemas/HintLevel"
+                    trigger:
+                      $ref: "#/components/schemas/Trigger"
+                    display:
+                      type: string
+                      maxLength: 60
+                    stuck_point:
+                      type: string
+                      description: H1 では典型ミスの 1 つ目
+                    source:
+                      $ref: "#/components/schemas/HintSource"
+                    leak_check:
+                      $ref: "#/components/schemas/LeakCheck"
+                    latency_ms:
+                      type: integer
+                      minimum: 0
+                    created_at:
+                      type: string
+                      format: date-time
+              check:
+                type: [object, "null"]
+                required: [verdict, display, created_at]
+                properties:
+                  verdict:
+                    $ref: "#/components/schemas/Verdict"
+                  display:
+                    type: string
+                    maxLength: 60
+                  created_at:
+                    type: string
+                    format: date-time
+        stuck_points:
+          type: array
+          items:
+            type: object
+            required: [label, count]
+            properties:
+              label:
+                type: string
+              count:
+                type: integer
+                minimum: 1
+        leak_blocked_count:
+          type: integer
+          minimum: 0
+          description: 答え漏れ検査で捨てた回数の合計（/log の「答えを言いそうになって止めた回数」）
+        created_at:
+          type: string
+          format: date-time
+        ended_at:
+          type: [string, "null"]
+          format: date-time
+
+    SettingsPatch:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        stuck_seconds:
+          $ref: "#/components/schemas/Settings/properties/stuck_seconds"
+        cooldown_seconds:
+          $ref: "#/components/schemas/Settings/properties/cooldown_seconds"
+
+    SignalRequest:
+      type: object
+      properties:
+        ts:
+          type: string
+          format: date-time
+          description: デバイスの時刻。記録用で、判定はサーバの時計で行う
+        motion:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: 動きスコア。ウォームアップ中（最初の 3 秒）は省略する
+        camera_ok:
+          type: boolean
+        force_stuck:
+          type: boolean
+          default: false
+          description: /ops の強制 stuck。true のときは motion と camera_ok を省略してよい
+      if:
+        required: [force_stuck]
+        properties:
+          force_stuck:
+            const: true
+      then:
+        required: [ts]
+      else:
+        required: [ts, camera_ok]
+
+    SignalResponse:
+      type: object
+      required: [state, still_seconds, current_problem_no, next_action, cooldown_remaining]
+      properties:
+        state:
+          $ref: "#/components/schemas/State"
+        still_seconds:
+          type: integer
+          minimum: 0
+          description: still のときだけ正、他は 0
+        current_problem_no:
+          type: integer
+          minimum: 1
+        next_action:
+          type: [string, "null"]
+          enum: [send_frame_and_request_hint, null]
+          description: stuck の間の応答すべてで send_frame_and_request_hint
+        cooldown_remaining:
+          type: integer
+          minimum: 0
+          description: cooldown のときだけ正、他は 0
+
+    FrameReceived:
+      type: object
+      required: [frame_id, received_at, bytes]
+      properties:
+        frame_id:
+          type: string
+          pattern: "^frm_"
+        received_at:
+          type: string
+          format: date-time
+        bytes:
+          type: integer
+          minimum: 1
+
+    HintRequest:
+      type: object
+      required: [trigger, frame_id]
+      properties:
+        trigger:
+          $ref: "#/components/schemas/Trigger"
+        frame_id:
+          type: string
+          pattern: "^frm_"
+          description: 直前に送ったフレーム。サーバは照合せず最新 1 枚を使う
+
+    HintResponse:
+      type: object
+      required: [hint_id, problem_no, level, trigger, speech, display, stuck_point, leak_check, source, latency_ms, state]
+      properties:
+        hint_id:
+          type: string
+          pattern: "^hnt_"
+        problem_no:
+          type: integer
+          minimum: 1
+        level:
+          $ref: "#/components/schemas/HintLevel"
+        trigger:
+          $ref: "#/components/schemas/Trigger"
+        speech:
+          type: [string, "null"]
+          maxLength: 40
+          description: 読み上げ用。Hack Day 版で null になることは無いが、null なら読まない
+        display:
+          type: string
+          maxLength: 60
+          description: 字幕用。そのまま出す
+        stuck_point:
+          type: string
+        leak_check:
+          $ref: "#/components/schemas/LeakCheck"
+        source:
+          $ref: "#/components/schemas/HintSource"
+        model:
+          type: string
+          description: source が gpt のときだけ
+        latency_ms:
+          type: integer
+          minimum: 0
+        state:
+          $ref: "#/components/schemas/State"
+
+    CheckRequest:
+      type: object
+      required: [frame_id]
+      properties:
+        frame_id:
+          type: string
+          pattern: "^frm_"
+
+    CheckResponse:
+      type: object
+      required: [check_id, problem_no, verdict, speech, display, next_problem_no, state]
+      properties:
+        check_id:
+          type: string
+          pattern: "^chk_"
+        problem_no:
+          type: integer
+          minimum: 1
+        verdict:
+          $ref: "#/components/schemas/Verdict"
+        speech:
+          type: string
+          maxLength: 40
+        display:
+          type: string
+          maxLength: 60
+        next_problem_no:
+          type: [integer, "null"]
+          minimum: 1
+          description: 最後の問題が correct なら null。incorrect と unreadable は今の番号
+        state:
+          $ref: "#/components/schemas/State"
+
+    AdvanceResponse:
+      type: object
+      required: [current_problem_no, state]
+      properties:
+        current_problem_no:
+          type: integer
+          minimum: 1
+        state:
+          $ref: "#/components/schemas/State"
+
+    EndResponse:
+      type: object
+      required: [state, ended_at]
+      properties:
+        state:
+          type: string
+          const: ended
+        ended_at:
+          type: string
+          format: date-time
+
+    WorksheetList:
+      type: object
+      required: [worksheets]
+      properties:
+        worksheets:
+          type: array
+          items:
+            type: object
+            required: [worksheet_id, title, problem_count, grade]
+            properties:
+              worksheet_id:
+                type: string
+              title:
+                type: string
+              problem_count:
+                type: integer
+              grade:
+                type: string
+
+    WorksheetDetail:
+      type: object
+      required: [worksheet_id, title, grade, problems, print]
+      properties:
+        worksheet_id:
+          type: string
+        title:
+          type: string
+        grade:
+          type: string
+        problems:
+          type: array
+          items:
+            type: object
+            required: [problem_no, text]
+            properties:
+              problem_no:
+                type: integer
+                minimum: 1
+              text:
+                type: string
+        print:
+          type: object
+          required: [paper, id_font_px, gap_mm, footer]
+          properties:
+            paper:
+              type: string
+            id_font_px:
+              type: integer
+            gap_mm:
+              type: integer
+            footer:
+              type: string
+
+    DemoReset:
+      type: object
+      required: [ok, removed_sessions]
+      properties:
+        ok:
+          type: boolean
+          const: true
+        removed_sessions:
+          type: integer
+          minimum: 0
+
+    Health:
+      type: object
+      required: [ok, gpt, worksheets, mode_default]
+      properties:
+        ok:
+          type: boolean
+        gpt:
+          type: string
+          enum: [ok, missing]
+        worksheets:
+          type: integer
+          minimum: 0
+        mode_default:
+          $ref: "#/components/schemas/Mode"
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [BAD_REQUEST, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, STATE_CONFLICT, FRAME_TOO_LARGE, VALIDATION_ERROR, HINT_UNAVAILABLE]
+              description: 400 BAD_REQUEST、401 UNAUTHORIZED、403 FORBIDDEN、404 NOT_FOUND、409 STATE_CONFLICT、413 FRAME_TOO_LARGE、422 VALIDATION_ERROR、503 HINT_UNAVAILABLE
+            message:
+              type: string

@@ -75,6 +75,8 @@ JPHACKS 2026（大阪会場・Hack Day 10/17-18）で作る「答えを言わな
 | ハーネス（10/16 夜） | 全員が AI（Claude Code か Codex）で開発するので、ツールに依らない層で守る：`AGENTS.md`＝`CLAUDE.md`、root の `.role.local`、git の `pre-commit`／`pre-push` フック（担当外・保護ファイル・`main` への push・force push を止める）、CI の担当検査（`team.json`）、`docs/prompts/` の手順 4 本。Claude Code にはその上に `.claude/settings.json`（同じ guard を編集前に走らせる）とスラッシュコマンド。正本は `tonari/harness/`、当日コピー。予行で「担当外を触ると止まる」を全員が体験する |
 | 追加仕様（10/16 夜） | 止まったと判定する秒数は学習者が `/device` で選ぶ（10 秒・20 秒・30 秒・1 分・3 分・5 分・10 分・20 分。`PATCH /sessions/{id}/settings`）。「わからない」と言えば声でヒントを呼べる（`web/lib/voice.ts`、`trigger: voice`。Day 1 17:00〜、間に合わなければ落とす。ピッチでは使わず動画で見せる）。一度声をかけた後の沈黙（`cooldown_seconds`）が止めるのは自動のヒントだけで、ボタンと声は通る |
 | API（10/17） | ヒント生成と正誤チェックを OpenAI から Gemini API の無料枠（`gemini-3.5-flash-lite`、約 2 秒）に変更。費用を 0 円にするため。鍵は `GEMINI_API_KEY`。契約は変えず、`source: "gpt"` と docs の「GPT」は生成 AI の総称として読む。無料枠では送った 1 枚が Google の改善に使われうるので、README・ピッチでそう言う（ADR 0025） |
+| 問題とヒント（10/17 15:30） | 自前のワークシートをやめ、学習者の紙の問題（初見）を AI が写真から読んで解く。ヒントは 1 回目の詰まりから AI が答案を見て出す（段階は 2 つ）。答え漏れは AI が解いた答えと照合して止め、AI の失敗時は固定の問い返し。「できた」も AI の判定。契約は変えず、見えないワークシート `FREE` だけを置く。`/sheets`・ws02・ws03・`check:ws` は作らない（ADR 0026） |
+| τ（10/17 15:07） | 本番 iPhone の計測で `motion_threshold` を 0.02 → 0.03。iPhone は手で持たずに固定する |
 | デプロイ（10/17） | Railway と Vercel は高橋の Mac から CLI で（org の GitHub 連携は使わない）。API `https://api-production-67c3.up.railway.app`、Web `https://tonari-nine.vercel.app`。プレビューは保護を外して公開（ADR 0023・0024） |
 
 ## Notion へのインポート手順

@@ -11,6 +11,7 @@ Verdict = Literal["correct", "incorrect", "unreadable"]
 ProblemStatus = Literal["pending", "working", "done", "skipped"]
 
 NEXT_ACTION = "send_frame_and_request_hint"
+SEND_FRAME_ACTION = "send_frame"
 HINTABLE_STATES: tuple[State, ...] = ("watching", "still", "cooldown")
 SETTINGS_EDITABLE_STATES: tuple[State, ...] = ("created", "watching", "still", "cooldown")
 ADVANCEABLE_STATES: tuple[State, ...] = ("watching", "still", "cooldown", "speaking")
@@ -23,6 +24,7 @@ class Thresholds:
     motion_threshold: float
     motion_exit_threshold: float
     signal_timeout_seconds: float
+    prefetch_lead_seconds: float
     speech_seconds_per_char: float
     speech_seconds_base: float
 
@@ -97,6 +99,7 @@ class Session:
     last_signal_at: datetime | None = None
     speaking_after_correct: bool = False
     pending_until: datetime | None = None
+    prefetch_requested: bool = False
 
     @property
     def current_problem(self) -> Problem:
@@ -173,6 +176,10 @@ def still_seconds(session: Session, now: datetime) -> int:
     if session.state != "still" or session.still_since is None:
         return 0
     return int((now - session.still_since).total_seconds())
+
+
+def next_auto_hint_level(session: Session) -> int:
+    return min(session.current_problem.stuck_count + 1, session.settings.max_level)
 
 
 def cooldown_remaining(session: Session, now: datetime) -> int:
@@ -263,8 +270,15 @@ def _on_signal(session: Session, signal: Signal, now: datetime, thresholds: Thre
         elif session.state == "watching":
             session.state = "still"
             session.still_since = previous_signal_at or now
-        elif session.still_since is not None and (now - session.still_since).total_seconds() >= session.settings.stuck_seconds:
-            _enter_stuck(session)
+            session.prefetch_requested = False
+        elif session.still_since is not None:
+            still_for = (now - session.still_since).total_seconds()
+            prefetch_from = session.settings.stuck_seconds - thresholds.prefetch_lead_seconds
+            if still_for >= session.settings.stuck_seconds:
+                _enter_stuck(session)
+            elif still_for >= prefetch_from and not session.prefetch_requested:
+                session.prefetch_requested = True
+                return Accepted(next_action=SEND_FRAME_ACTION)
     return Accepted(next_action=NEXT_ACTION if session.state == "stuck" else None)
 
 

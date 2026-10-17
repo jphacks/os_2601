@@ -4,6 +4,7 @@ import pytest
 
 from app.state import (
     NEXT_ACTION,
+    SEND_FRAME_ACTION,
     Accepted,
     Advance,
     CheckDone,
@@ -26,6 +27,7 @@ THRESHOLDS = Thresholds(
     motion_threshold=0.02,
     motion_exit_threshold=0.03,
     signal_timeout_seconds=5,
+    prefetch_lead_seconds=3,
     speech_seconds_per_char=0.15,
     speech_seconds_base=1.0,
 )
@@ -91,7 +93,7 @@ def test_stillness_turns_into_stuck_only_after_stuck_seconds(
     _, trace = send(new_session(), motions, start_second=0)
     assert first_stuck(trace) == stuck_at, name
     assert trace[-1][0] == last_state, name
-    assert all(next_action == (NEXT_ACTION if state == "stuck" else None) for state, next_action in trace), name
+    assert all((next_action == NEXT_ACTION) == (state == "stuck") for state, next_action in trace), name
 
 
 def test_brief_motion_resets_the_stillness_count() -> None:
@@ -196,3 +198,19 @@ def test_small_tremor_while_still_does_not_restart_the_count() -> None:
     _, trace = send(new_session(), [MOVING] + [STILL] * 5 + [0.025] * 3 + [STILL] * 12, start_second=0)
     assert first_stuck(trace) == 21
     assert all(state != "watching" for state, _ in trace[1:20])
+
+
+def frame_requests(trace: list[tuple[str, str | None]]) -> list[int]:
+    return [index for index, (_, next_action) in enumerate(trace) if next_action == SEND_FRAME_ACTION]
+
+
+def test_frame_is_requested_once_three_seconds_before_stuck() -> None:
+    _, trace = send(new_session(), [MOVING] + [STILL] * 20, start_second=0)
+    assert frame_requests(trace) == [17]
+    assert trace[17][0] == "still"
+    assert first_stuck(trace) == 21
+
+
+def test_frame_is_requested_again_in_the_next_stillness() -> None:
+    _, trace = send(new_session(), [MOVING] + [STILL] * 18 + [MOVING] + [STILL] * 20, start_second=0)
+    assert frame_requests(trace) == [17, 36]

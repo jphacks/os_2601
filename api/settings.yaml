@@ -5,6 +5,7 @@ stuck_seconds: 20           # セッション作成時と /device の選択で�
 cooldown_seconds: 60        # 同上（0〜300）
 max_level: 2
 signal_timeout_seconds: 5
+prefetch_lead_seconds: 3    # stuck の何秒前にフレームを送らせ、AI のヒントを先に作り始めるか（ADR 0028）
 frame_interval_seconds: 10
 speech_seconds_per_char: 0.15
 speech_seconds_base: 1.0

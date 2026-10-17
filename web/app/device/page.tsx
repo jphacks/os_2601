@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ApiError, getSession, patchSettings, type SessionDetail, type State } from "@/lib/api";
-import { startCamera } from "@/lib/camera";
+import { startCamera, stopCamera } from "@/lib/camera";
 import { advance, end, requestCheck, requestManualHint, startSession } from "@/lib/loop";
 import { unlockSpeech } from "@/lib/speech";
 import { Buttons } from "./_components/Buttons";
@@ -34,6 +34,7 @@ function Device() {
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const stopRef = useRef<(() => void) | null>(null);
+  const startingRef = useRef(false);
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [state, setState] = useState<State>("created");
   const [problemNo, setProblemNo] = useState(1);
@@ -56,7 +57,13 @@ function Device() {
     };
   }, [sessionId, token]);
 
-  useEffect(() => () => stopRef.current?.(), []);
+  useEffect(
+    () => () => {
+      stopRef.current?.();
+      stopCamera();
+    },
+    [],
+  );
 
   function applyState(next: State, nextProblemNo: number) {
     setState(next);
@@ -70,7 +77,9 @@ function Device() {
 
   async function handleStart() {
     const video = videoRef.current;
-    if (!video || stopRef.current) return;
+    // 連打で startCamera と startSession が 2 回走らないようにする（state の busy は再描画まで効かない）
+    if (!video || stopRef.current || startingRef.current) return;
+    startingRef.current = true;
     setBusy(true);
     // patchSettings は先に送り出すが、await は unlockSpeech の後にする（クリック直後でないと iOS で音が出ない）
     const patching =
@@ -84,19 +93,21 @@ function Device() {
       console.warn("[device] startCamera に失敗", error);
       setCaption(CAMERA_DENIED_CAPTION);
       setBusy(false);
+      startingRef.current = false;
       return;
     }
     await patching;
     stopRef.current = startSession(video, sessionId, token, {
       onState: (signal) => applyState(signal.state, signal.current_problem_no),
       onHint: (hint) => {
-        if (hint.display) setCaption(hint.display);
+        if (hint.speech !== null) setCaption(hint.display);
       },
       onBrightness: () => {},
       onConnection: () => {},
       onHeard: () => {},
     });
     setBusy(false);
+    startingRef.current = false;
   }
 
   async function handleHint() {

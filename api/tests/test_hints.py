@@ -43,8 +43,8 @@ def test_ai_hint_is_used_from_the_first_stuck_and_answer_is_kept_server_side() -
     hint = compose(ai)
     assert (hint.speech, hint.source, hint.model) == ("右辺に移したときの符号を見てみて", "gpt", MODEL)
     assert hint.leak_check == LeakCheck(ok=True, fallback=False)
-    assert (hint.problem_text, hint.final_answer) == ("2x - 7 = 4x + 3", "x = -5")
-    assert "x=-5" in hint.leak_strings
+    assert hint.problem_text == "2x - 7 = 4x + 3"
+    assert {"x=-5", "-5", "-2x=10"} <= set(hint.leak_strings)
     assert "段階 1" in ai.requests[0] and "前のヒント" in ai.requests[0] and "前に読み取った問題文" in ai.requests[0]
 
 
@@ -61,6 +61,20 @@ def test_answer_from_an_earlier_hint_still_blocks_a_leak() -> None:
     assert hint.leak_check == LeakCheck(ok=False, fallback=True)
 
 
+def test_unreadable_or_empty_hint_falls_back_to_a_fixed_question() -> None:
+    unreadable = ai_hint("見てみて")
+    unreadable["readable"] = False
+    assert compose(FakeAI(unreadable)).speech == FALLBACK_HINTS[1]
+    assert compose(FakeAI(ai_hint("   "))).source == "fallback"
+
+
+def test_leak_strings_of_a_different_problem_are_dropped() -> None:
+    reply = ai_hint("かっこを外したところを見てみて")
+    reply.update(problem_text="3(x + 2) = 2x + 11", final_answer="x = 5", key_values=[])
+    hint = compose(FakeAI(reply), known_leaks=["x=-5"])
+    assert "x=-5" not in hint.leak_strings
+
+
 def test_ai_failure_or_missing_frame_falls_back_to_a_fixed_question() -> None:
     assert compose(FakeAI(error=AIUnavailable("timeout"))).speech == FALLBACK_HINTS[1]
     assert compose(FakeAI({"speech": "欠けた応答"})).source == "fallback"
@@ -69,7 +83,9 @@ def test_ai_failure_or_missing_frame_falls_back_to_a_fixed_question() -> None:
 
 
 def test_check_uses_fixed_texts_and_falls_back_to_unreadable() -> None:
-    correct = asyncio.run(judge(FakeAI({"readable": True, "final_answer_seen": "x=-5", "verdict": "correct"}), MODEL, FRAME, None, None))
+    correct = asyncio.run(judge(FakeAI({"readable": True, "final_answer_seen": "x=-5", "verdict": "correct"}), MODEL, FRAME))
     assert (correct.verdict, correct.speech) == ("correct", CORRECT_TEXT)
-    failed = asyncio.run(judge(FakeAI(error=AIUnavailable("timeout")), MODEL, FRAME, None, None))
+    odd = asyncio.run(judge(FakeAI({"verdict": "maybe"}), MODEL, FRAME))
+    assert odd.speech == FAILED_TEXT
+    failed = asyncio.run(judge(FakeAI(error=AIUnavailable("timeout")), MODEL, FRAME))
     assert (failed.verdict, failed.speech) == ("unreadable", FAILED_TEXT)

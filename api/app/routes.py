@@ -416,7 +416,6 @@ async def request_hint(
     recorded = session.problems[problem_no - 1]
     recorded.hints.append(hint)
     recorded.problem_text = composed.problem_text or recorded.problem_text
-    recorded.answer = composed.final_answer or recorded.answer
     recorded.leak_strings = composed.leak_strings
     if not composed.leak_check.ok:
         session.leak_blocked_count += 1
@@ -451,9 +450,7 @@ async def post_check(
     if session.mode == "scripted":
         judgement = Judgement("correct", CORRECT_TEXT)
     else:
-        judgement = await judge(
-            context.ai, context.check_model, _latest_frame(context, session_id), problem.problem_text, problem.answer
-        )
+        judgement = await judge(context.ai, context.check_model, _latest_frame(context, session_id))
     session, _ = _apply(
         context, _find_session(context, session_id), CheckDone(judgement.verdict, len(judgement.speech)), _now()
     )

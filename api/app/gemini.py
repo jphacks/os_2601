@@ -1,6 +1,6 @@
+import asyncio
 import base64
 import json
-from dataclasses import dataclass
 
 import httpx
 
@@ -12,9 +12,9 @@ class AIUnavailable(Exception):
     pass
 
 
-@dataclass(frozen=True)
 class Gemini:
-    api_key: str
+    def __init__(self, api_key: str) -> None:
+        self._client = httpx.AsyncClient(headers={"x-goog-api-key": api_key})
 
     async def generate_json(self, model: str, system: str, text: str, image_jpeg: bytes, schema: dict) -> dict:
         body = {
@@ -31,11 +31,12 @@ class Gemini:
             "generationConfig": {"responseMimeType": "application/json", "responseSchema": schema},
         }
         try:
-            async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
-                response = await client.post(
-                    API_URL.format(model=model), json=body, headers={"x-goog-api-key": self.api_key}
-                )
+            async with asyncio.timeout(TIMEOUT_SECONDS):
+                response = await self._client.post(API_URL.format(model=model), json=body)
             response.raise_for_status()
-            return json.loads(response.json()["candidates"][0]["content"]["parts"][-1]["text"])
-        except (httpx.HTTPError, KeyError, IndexError, ValueError) as error:
+            reply = json.loads(response.json()["candidates"][0]["content"]["parts"][-1]["text"])
+        except (TimeoutError, httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as error:
             raise AIUnavailable(f"{model}: {error!r}") from error
+        if not isinstance(reply, dict):
+            raise AIUnavailable(f"{model}: JSON がオブジェクトでない")
+        return reply

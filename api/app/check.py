@@ -7,6 +7,7 @@ CORRECT_TEXT = "正解。その調子"
 INCORRECT_TEXT = "もう一回、途中の式を見てみて"
 UNREADABLE_TEXT = "もう少し明るいところで、もう一回見せて"
 FAILED_TEXT = "うまく読めなかった。もう一回、できたを押してみて"
+REQUEST_TEXT = "写真の問題を自分で解き、学習者の最終の答えと比べてください。"
 
 SYSTEM_PROMPT = """画像は、学習者が紙で問題を解いた答案の写真です。
 写っている問題を自分で解き、学習者が書いた最終の答えと比べてください。
@@ -32,20 +33,12 @@ class Judgement:
     speech: str
 
 
-def _request_text(problem_text: str | None, answer: str | None) -> str:
-    if problem_text and answer:
-        return f"前に読み取った問題文：{problem_text}\nその問題の答え：{answer}"
-    return "問題文と答えは、写真から読み取って自分で解いてください。"
-
-
-async def judge(
-    ai: Gemini | None, model: str, frame: bytes | None, problem_text: str | None, answer: str | None
-) -> Judgement:
+async def judge(ai: Gemini | None, model: str, frame: bytes | None) -> Judgement:
     if ai is None or frame is None:
         return Judgement("unreadable", FAILED_TEXT)
     try:
-        out = await ai.generate_json(model, SYSTEM_PROMPT, _request_text(problem_text, answer), frame, CHECK_SCHEMA)
+        out = await ai.generate_json(model, SYSTEM_PROMPT, REQUEST_TEXT, frame, CHECK_SCHEMA)
         verdict = out["verdict"]
         return Judgement(verdict, SPEECH_BY_VERDICT[verdict])
-    except (AIUnavailable, KeyError):
+    except (AIUnavailable, KeyError, TypeError):
         return Judgement("unreadable", FAILED_TEXT)

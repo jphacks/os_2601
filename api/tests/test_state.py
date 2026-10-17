@@ -65,14 +65,14 @@ def first_stuck(trace: list[tuple[str, str | None]]) -> int | None:
     return next((index + 1 for index, (state, _) in enumerate(trace) if state == "stuck"), None)
 
 
-def speak_hint(session: Session, second: float) -> Session:
+def speak_hint(session: Session, second: float) -> tuple[Session, int]:
     session, accepted = step(session, HintRequested("manual" if session.state != "stuck" else "auto"), at(second), THRESHOLDS)
     assert isinstance(accepted, Accepted)
     session, _ = step(session, HintIssued(len(H1_TEXT)), at(second), THRESHOLDS)
     session.current_problem.hints.append(
         Hint("hnt_test", accepted.level, "auto", H1_TEXT, H1_TEXT, "符号", "fallback", LeakCheck(True, False), None, 0, at(second))
     )
-    return session
+    return session, accepted.level
 
 
 @pytest.mark.parametrize(
@@ -125,7 +125,7 @@ def test_force_stuck_enters_stuck_immediately_and_counts_once() -> None:
 
 def test_stillness_during_cooldown_waits_for_cooldown_then_counts_again() -> None:
     session, _ = step(new_session(), Signal(motion=None, camera_ok=False, force_stuck=True), START, THRESHOLDS)
-    session = speak_hint(session, 0)
+    session, _ = speak_hint(session, 0)
     session, trace = send(session, [STILL] * 90, start_second=1)
     states = [state for state, _ in trace]
     assert states[0] == "speaking"
@@ -138,10 +138,8 @@ def test_repeated_manual_hints_do_not_raise_the_level() -> None:
     session = new_session()
     levels = []
     for round_number in range(5):
-        second = round_number * 10
-        session, accepted = step(session, HintRequested("manual"), at(second), THRESHOLDS)
-        levels.append(accepted.level)
-        session = speak_hint(session, second)
+        session, level = speak_hint(session, round_number * 10)
+        levels.append(level)
     assert levels == [1, 1, 1, 1, 1]
 
 
@@ -160,7 +158,7 @@ def test_after_end_signals_stay_ended_and_other_requests_conflict() -> None:
 
 def test_stale_signal_from_before_an_outage_does_not_backdate_stillness() -> None:
     session, _ = step(new_session(), Signal(motion=None, camera_ok=False, force_stuck=True), START, THRESHOLDS)
-    session = speak_hint(session, 0)
+    session, _ = speak_hint(session, 0)
     session, _ = send(session, [STILL] * 10, start_second=1)
     session, trace = send(session, [STILL] * 25, start_second=70)
     assert trace[0][0] == "still"
@@ -175,3 +173,19 @@ def test_advance_while_praising_a_correct_answer_does_not_skip_the_next_problem(
     assert result == Accepted()
     assert (session.state, session.current_problem_no) == ("watching", 2)
     assert [problem.status for problem in session.problems] == ["done", "working", "pending"]
+
+
+def test_second_request_while_the_ai_is_answering_is_rejected() -> None:
+    session, accepted = step(new_session(), HintRequested("manual"), START, THRESHOLDS)
+    assert isinstance(accepted, Accepted)
+    assert isinstance(step(session, HintRequested("voice"), at(1), THRESHOLDS)[1], Rejected)
+    assert isinstance(step(session, CheckRequested(), at(1), THRESHOLDS)[1], Rejected)
+    session, _ = step(session, HintIssued(len(H1_TEXT)), at(2), THRESHOLDS)
+    assert session.pending_until is None
+
+
+def test_check_that_never_finishes_returns_to_watching_after_the_pending_window() -> None:
+    session, _ = step(new_session(), CheckRequested(), START, THRESHOLDS)
+    assert session.state == "checking"
+    session, _ = step(session, Signal(motion=MOVING, camera_ok=True), at(13), THRESHOLDS)
+    assert (session.state, session.pending_until) == ("watching", None)

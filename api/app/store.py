@@ -6,7 +6,7 @@ from typing import Any
 
 from app.state import Check, Hint, LeakCheck, Problem, Session, SessionSettings
 
-RUNTIME_FIELDS = ("still_since", "speaking_until", "cooldown_until", "last_signal_at", "speaking_after_correct")
+RUNTIME_FIELDS = ("still_since", "speaking_until", "cooldown_until", "last_signal_at", "speaking_after_correct", "pending_until")
 
 
 def _encode(value: Any) -> Any:
@@ -40,7 +40,6 @@ def _decode_problem(raw: dict) -> Problem:
         hints=[_decode_hint(hint) for hint in raw["hints"]],
         check=Check(**{**check, "created_at": datetime.fromisoformat(check["created_at"])}) if check else None,
         problem_text=raw.get("problem_text"),
-        answer=raw.get("answer"),
         leak_strings=raw.get("leak_strings", []),
     )
 

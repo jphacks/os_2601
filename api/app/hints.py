@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from app.gemini import AIUnavailable, Gemini
-from app.leak import contains_leak, leak_strings
+from app.leak import contains_leak, leak_strings, normalize
 from app.state import LeakCheck
 
 SPEECH_MAX_CHARS = 40
@@ -50,13 +50,12 @@ class ComposedHint:
     model: str | None
     leak_check: LeakCheck
     problem_text: str | None
-    final_answer: str | None
     leak_strings: list[str]
 
 
 def fixed_hint(level: int, source: str, leak_check: LeakCheck, known_leaks: list[str]) -> ComposedHint:
     text = FALLBACK_HINTS[level]
-    return ComposedHint(text, text, FALLBACK_STUCK_POINT, source, None, leak_check, None, None, known_leaks)
+    return ComposedHint(text, text, FALLBACK_STUCK_POINT, source, None, leak_check, None, known_leaks)
 
 
 def _request_text(level: int, previous: list[str], known_problem: str | None) -> str:
@@ -81,21 +80,28 @@ async def compose_hint(
         return fixed_hint(level, "fallback", LeakCheck(ok=True, fallback=False), known_leaks)
     try:
         out = await ai.generate_json(model, SYSTEM_PROMPT, _request_text(level, previous, known_problem), frame, HINT_SCHEMA)
-        leaks = sorted(set(known_leaks) | set(leak_strings(out["final_answer"], out["key_values"])))
-        hint = ComposedHint(
-            speech=out["speech"][:SPEECH_MAX_CHARS],
-            display=out["display"][:DISPLAY_MAX_CHARS],
-            stuck_point=out["stuck_point"][:10] or FALLBACK_STUCK_POINT,
-            source="gpt",
-            model=model,
-            leak_check=LeakCheck(ok=True, fallback=False),
-            problem_text=out["problem_text"] or None,
-            final_answer=out["final_answer"] or None,
-            leak_strings=leaks,
-        )
-    except (AIUnavailable, KeyError, TypeError):
+        problem_text = out["problem_text"] or None
+        same_problem = bool(known_problem and problem_text) and normalize(known_problem) == normalize(problem_text)
+        inherited = known_leaks if same_problem or not problem_text else []
+        leaks = sorted(set(inherited) | set(leak_strings(out["final_answer"], out["key_values"])))
+        speech = out["speech"][:SPEECH_MAX_CHARS].strip()
+        display = out["display"][:DISPLAY_MAX_CHARS].strip()
+        readable = out["readable"] is True
+        stuck_point = out["stuck_point"][:10] or FALLBACK_STUCK_POINT
+    except (AIUnavailable, KeyError, TypeError, AttributeError):
         return fixed_hint(level, "fallback", LeakCheck(ok=True, fallback=False), known_leaks)
 
-    if contains_leak(hint.speech, leaks) or contains_leak(hint.display, leaks):
+    if not readable or not speech or not display:
+        return fixed_hint(level, "fallback", LeakCheck(ok=True, fallback=False), leaks)
+    if contains_leak(speech, leaks) or contains_leak(display, leaks):
         return fixed_hint(level, "fallback", LeakCheck(ok=False, fallback=True), leaks)
-    return hint
+    return ComposedHint(
+        speech=speech,
+        display=display,
+        stuck_point=stuck_point,
+        source="gpt",
+        model=model,
+        leak_check=LeakCheck(ok=True, fallback=False),
+        problem_text=problem_text,
+        leak_strings=leaks,
+    )

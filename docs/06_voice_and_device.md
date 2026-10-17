@@ -73,7 +73,7 @@ PC（横持ち）では映像を左、字幕とボタンを右に置く。部品
 
 ## 音声認識（`web/lib/voice.ts`、高橋が書く）
 
-- `webkitSpeechRecognition`（`lang: ja-JP`、`continuous: false`、`interimResults: false`）。発話ごとに確定した文字列を `onHeard` に渡し、終わったら 0.5 秒おいて自動で再開する（`continuous: true` だと iOS Safari で確定が遅れるため）。エラーの後は 3 秒待つ。非対応なら何もしない。
+- `webkitSpeechRecognition`（`lang: ja-JP`、`continuous: false`、`interimResults: false`）。発話ごとに確定した文字列を `onHeard` に渡し、終わったらすぐ自動で再開する（`continuous: true` だと iOS Safari で確定が遅れるため。10/17 に 0.5 秒の待ちをやめた、Issue #40）。エラーの後は 3 秒待つ。マイクを取れないとき（通話中など、`audio-capture`）は 30 秒待って再開する（Issue #39）。非対応なら何もしない。
 - 「はじめる」のクリックの中で `primeListening()` を呼び、マイクと音声認識の許可をその場で取る（iOS は操作の直後でないと許可を求められないことがある）。許可されなかったら、そのページではもう聞かない。
 - `/device` の URL に `voice=0` を付けると聞き取らない（中間発表や動画の撮影で、会場の声に反応させないため）。
 - 合言葉は使わない（10/17、ADR 0032）。確定した文（3 文字以上）をすべて `hints`（`trigger: voice`、`utterance` に文）に送り、答えるかどうかは AI が決める。答えないときは 204 で、何も読まない。声の送信は「ヒント」「できた」とは別の印で数え、ボタンを止めない。

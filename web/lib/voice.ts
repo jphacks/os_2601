@@ -1,8 +1,10 @@
 const LANG = "ja-JP";
-const RESTART_DELAY_MS = 500;
+const RESTART_DELAY_MS = 0;
 const RETRY_DELAY_MS = 3000;
+const MIC_BUSY_RETRY_DELAY_MS = 30000;
 const NEEDS_GESTURE_ERROR = "not-allowed";
-const FATAL_ERRORS = new Set(["service-not-allowed", "audio-capture", "language-not-supported"]);
+const MIC_BUSY_ERROR = "audio-capture";
+const FATAL_ERRORS = new Set(["service-not-allowed", "language-not-supported"]);
 const QUIET_ERRORS = new Set(["no-speech", "aborted"]);
 const EVENTS_SHOWN = 4;
 
@@ -72,6 +74,9 @@ function createRecognizer(): Recognizer | null {
       console.warn("[voice] 聞き取りをやめる", event.error);
       blocked = true;
       wanted = false;
+    } else if (event.error === MIC_BUSY_ERROR) {
+      console.warn("[voice] マイクを取れない（通話中など）。30 秒待って再開");
+      nextBeginDelayMs = MIC_BUSY_RETRY_DELAY_MS;
     } else if (!QUIET_ERRORS.has(event.error)) {
       console.warn("[voice] 聞き取りのエラー。少し待って再開", event.error);
       nextBeginDelayMs = RETRY_DELAY_MS;

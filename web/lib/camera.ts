@@ -30,8 +30,13 @@ export async function startCamera(video: HTMLVideoElement): Promise<void> {
   if (new URLSearchParams(location.search).get("cam") === "iphone") {
     const iphone = await findIphoneCamera();
     if (iphone) {
-      stopCamera();
-      stream = await openStream({ deviceId: { exact: iphone.deviceId }, ...IDEAL_SIZE });
+      try {
+        const iphoneStream = await openStream({ deviceId: { exact: iphone.deviceId }, ...IDEAL_SIZE });
+        stopCamera();
+        stream = iphoneStream;
+      } catch (error) {
+        console.warn("[camera] iPhone のカメラが開けないので既定のカメラを使う", error);
+      }
     }
   }
   video.muted = true;

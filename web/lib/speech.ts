@@ -2,25 +2,30 @@ const LANG = "ja-JP";
 const VOICES_WAIT_MS = 1000;
 const CANCELLED_ERRORS = new Set(["interrupted", "canceled"]);
 
-let japaneseVoice: SpeechSynthesisVoice | undefined;
+let japaneseVoiceLookup: Promise<SpeechSynthesisVoice | undefined> | null = null;
 
 function isSupported(): boolean {
   return typeof window !== "undefined" && "speechSynthesis" in window;
 }
 
-function findJapaneseVoice(): SpeechSynthesisVoice | undefined {
-  return speechSynthesis.getVoices().find((voice) => voice.lang.replace("_", "-") === LANG);
+function waitForVoices(): Promise<void> {
+  if (speechSynthesis.getVoices().length > 0) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      speechSynthesis.removeEventListener("voiceschanged", done);
+      resolve();
+    };
+    const timer = setTimeout(done, VOICES_WAIT_MS);
+    speechSynthesis.addEventListener("voiceschanged", done);
+  });
 }
 
-async function loadJapaneseVoice(): Promise<SpeechSynthesisVoice | undefined> {
-  japaneseVoice ??= findJapaneseVoice();
-  if (japaneseVoice) return japaneseVoice;
-  await new Promise<void>((resolve) => {
-    speechSynthesis.addEventListener("voiceschanged", () => resolve(), { once: true });
-    setTimeout(resolve, VOICES_WAIT_MS);
-  });
-  japaneseVoice = findJapaneseVoice();
-  return japaneseVoice;
+function loadJapaneseVoice(): Promise<SpeechSynthesisVoice | undefined> {
+  japaneseVoiceLookup ??= waitForVoices().then(() =>
+    speechSynthesis.getVoices().find((voice) => voice.lang.replace("_", "-") === LANG),
+  );
+  return japaneseVoiceLookup;
 }
 
 export function unlockSpeech(): void {

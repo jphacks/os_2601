@@ -58,6 +58,7 @@ stateDiagram-v2
 |---|---|---|---|
 | `watching` | `motion < τ` | `still` | `still_since = now` |
 | `still` | `motion ≥ motion_exit_threshold`（0.045。10/17 に τ から変更、ADR 0027）、または `camera_ok: false`、または `motion` 省略 | `watching` | `still_seconds = 0` |
+| `still` | `now − still_since ≥ stuck_seconds − prefetch_lead_seconds`（3 秒。静止がひと続きの間に 1 回だけ） | `still` のまま | 応答に `next_action: send_frame`。デバイスが送ったフレームで、サーバが次の自動ヒントを裏で作り始める。静止が途切れたら取り消す（10/17 に追加、ADR 0028） |
 | `still` | `now − still_since ≥ stuck_seconds` | `stuck` | 応答に `next_action: send_frame_and_request_hint`。`problems.stuck_count += 1` |
 | `created` | 最初の `signals` | `watching` | 「はじめる」が押された合図 |
 | `stuck` | `POST /hints`（auto） | `speaking` | ヒント生成。`speaking_until = now + est`。`auto` は `stuck` 以外では 409 |
@@ -101,6 +102,7 @@ stuck_seconds: 20           # セッション作成時と /device の選択で�
 cooldown_seconds: 60        # 同上（0〜300）
 max_level: 2
 signal_timeout_seconds: 5
+prefetch_lead_seconds: 3     # stuck の何秒前にフレームを送らせ、ヒントを先に作るか（10/17 に追加、ADR 0028）
 frame_interval_seconds: 10
 speech_seconds_per_char: 0.15
 speech_seconds_base: 1.0

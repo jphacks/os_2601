@@ -68,3 +68,4 @@
 | 0025 | [ヒントの H2 と正誤判定は Gemini API の無料枠（gemini-3.5-flash-lite）で行う](0025-gemini-free-tier.md) | 承認 |
 | 0026 | [ワークシートをやめ、初見の問題に 1 回目から AI のヒントを出す](0026-unseen-problems-ai-first.md) | 承認 |
 | 0027 | [動きのスコアから明るさの変化を除き、静止を抜ける境目を高くする](0027-stillness-brightness-and-hysteresis.md) | 承認 |
+| 0028 | [stuck の 3 秒前にフレームを送らせ、AI のヒントを先に作っておく](0028-prefetch-hint-before-stuck.md) | 承認 |

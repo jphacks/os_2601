@@ -1,8 +1,11 @@
 import asyncio
 
+import pytest
+
 from app.check import CORRECT_TEXT, FAILED_TEXT, judge
 from app.gemini import AIUnavailable
 from app.hints import (
+    ANSWER_FALLBACK,
     ANSWER_SPEECH_MAX_CHARS,
     DISPLAY_MAX_CHARS,
     FALLBACK_HINTS,
@@ -138,7 +141,18 @@ def test_answer_that_gives_away_the_value_is_replaced_and_an_overlong_one_falls_
     assert answer(FakeAI(ai_answer("見" * (ANSWER_SPEECH_MAX_CHARS + 1)))).source == "fallback"
 
 
-def test_no_answer_when_the_ai_decides_not_to_respond_or_fails() -> None:
+def test_no_answer_when_the_ai_decides_not_to_respond() -> None:
     assert answer(FakeAI(ai_answer("", respond=False))) is None
-    assert answer(FakeAI(error=AIUnavailable("timeout"))) is None
-    assert answer(None) is None
+
+
+def test_ai_failure_is_raised_so_the_caller_can_choose_a_fixed_reply() -> None:
+    with pytest.raises(AIUnavailable):
+        answer(FakeAI(error=AIUnavailable("timeout")))
+    with pytest.raises(AIUnavailable):
+        answer(None)
+
+
+def test_answer_with_nothing_to_check_leaks_against_is_not_used() -> None:
+    reply = ai_answer("移項は、項を反対の辺に移すことだよ")
+    reply.update(final_answer="", key_values=[])
+    assert answer(FakeAI(reply)).speech == ANSWER_FALLBACK

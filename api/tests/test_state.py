@@ -13,7 +13,6 @@ from app.state import (
     Hint,
     HintIssued,
     HintRequested,
-    HintSkipped,
     LeakCheck,
     Problem,
     Rejected,
@@ -235,10 +234,3 @@ def test_scripted_session_is_not_asked_for_a_frame_before_stuck() -> None:
     assert frame_requests(trace) == []
     assert first_stuck(trace) == 21
 
-
-def test_skipped_answer_clears_the_wait_and_keeps_the_state() -> None:
-    session, trace = send(new_session(), [MOVING] + [STILL] * 5, start_second=0)
-    assert trace[-1][0] == "still"
-    session, _ = step(session, HintRequested("voice"), at(6), THRESHOLDS)
-    session, result = step(session, HintSkipped(), at(7), THRESHOLDS)
-    assert (result, session.state, session.pending_until) == (Accepted(), "still", None)

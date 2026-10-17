@@ -76,7 +76,7 @@ PC（横持ち）では映像を左、字幕とボタンを右に置く。部品
 - `webkitSpeechRecognition`（`lang: ja-JP`、`continuous: false`、`interimResults: false`）。発話ごとに確定した文字列を `onHeard` に渡し、終わったら 0.5 秒おいて自動で再開する（`continuous: true` だと iOS Safari で確定が遅れるため）。エラーの後は 3 秒待つ。非対応なら何もしない。
 - 「はじめる」のクリックの中で `primeListening()` を呼び、マイクと音声認識の許可をその場で取る（iOS は操作の直後でないと許可を求められないことがある）。許可されなかったら、そのページではもう聞かない。
 - `/device` の URL に `voice=0` を付けると聞き取らない（中間発表や動画の撮影で、会場の声に反応させないため）。
-- 合言葉は使わない（10/17、ADR 0032）。確定した文（2 文字以上）をすべて `hints`（`trigger: voice`、`utterance` に文）に送り、答えるかどうかは AI が決める。1 つ答えている間は次を送らない。答えないとき応答の `speech` は `null` で、何も読まない。
+- 合言葉は使わない（10/17、ADR 0032）。確定した文（3 文字以上）をすべて `hints`（`trigger: voice`、`utterance` に文）に送り、答えるかどうかは AI が決める。答えないときは 204 で、何も読まない。声の送信は「ヒント」「できた」とは別の印で数え、ボタンを止めない。
 - `debug=1` のとき、デバッグ表示に聞き取りの直近 4 つの出来事（start・途中・聞こえた・error・end・タップ）を出し、signals の URL にも `?note=` で付けて送る（サーバのアクセスログで追える）。
 - iOS Safari は「Siri と音声入力」が ON でないと動かない。Mac Chrome は動く（音声は Google のサーバで文字にされる。Safari は Apple）。聞き取った文字だけを使い、音声は保存しない。README と 12 に書く。
 - ピッチでは使わない（会場のマイクやスピーカーの音を誤認識するため）。製品説明動画の 3 問目で見せる。
@@ -130,7 +130,7 @@ PC（横持ち）では映像を左、字幕とボタンを右に置く。部品
 |---|---|---|---|
 | `unlockSpeech()` | なし | `void` | 「はじめる」のクリックの中で呼ぶ。無音の読み上げで以後の自動読み上げを許可する |
 | `speak(text)` | `string` | `Promise<void>` | 読み上げ。読み上げ中なら止めてから読む。B は普段呼ばない（`loop.ts` が呼ぶ） |
-| `startListening(onHeard)` / `stopListening()` | `(text: string) => void` | `() => void` / `void` | 「わからない」の聞き取り（ブラウザの音声認識）。B は呼ばない（`loop.ts` が呼ぶ） |
+| `startListening(onHeard)` / `stopListening()` | `(text: string) => void` | `() => void` / `void` | 学習者の発話の聞き取り（ブラウザの音声認識）。B は呼ばない（`loop.ts` が呼ぶ） |
 | `startCamera(video)` | `HTMLVideoElement` | `Promise<void>` | カメラを `video` に流す。許可が出なければ `Error`（`name` が `CameraDenied`）を throw |
 | `stopCamera()` | なし | `void` | カメラを止める |
 | `captureFrame()` | なし | `Promise<Blob>` | 最新フレームの JPEG。B は呼ばない（`loop.ts` が呼ぶ） |
@@ -155,7 +155,7 @@ PC（横持ち）では映像を左、字幕とボタンを右に置く。部品
 - 最初に `state` が `watching` になったとき「見守りを始めるよ」を 1 回読み上げる（B は書かない）。
 - `brightness` を `handlers.onBrightness(b)` に渡す（B が 60 未満で「明るさが足りません」を重ねる）。
 - `postSignal` が連続 3 回失敗したら `handlers.onConnection(false)`、成功したら `true`（B が「つながりにくいみたい」を出す）。
-- **声のトリガー**：`watching`・`still`・`cooldown` の間は `startListening` で聞き取り、「わからない」「わかんない」「ヒント」のどれかを含む文が来たら `requestHint({trigger: "voice"})`（フレームを送ってから）を 1 回送り、応答を `onHint` と `speak`。`speaking`・`checking` の間は `stopListening`（自分の読み上げを拾わないため）。聞き取った文字は `handlers.onHeard(text)` に渡す（B は字幕の下に小さく「聞こえた：わからない」と 3 秒だけ出す）。非対応ブラウザでは何もしない。
+- **声のトリガー**：`watching`・`still`・`cooldown` の間は `startListening` で聞き取り、確定した文（3 文字以上、200 文字で切る）が来たら、フレームを送ってから `answerUtterance` で送る。答えがあれば `onHint` と `speak`、204 なら何もしない。送っている間に来た文は最後の 1 つだけ覚えて、終わったら送る（ADR 0032）。`speaking`・`checking` の間は `stopListening`（自分の読み上げを拾わないため）。聞き取った文字は `handlers.onHeard(text)` に渡す（B は字幕の下に小さく「聞こえた：わからない」と 3 秒だけ出す）。非対応ブラウザでは何もしない。
 - `signals`・`hints`・`check`・`advance` のどの応答でも `state` が `ended` になったらループを止める。戻り値の止める関数でも止まる。
 - `requestManualHint()` と `requestCheck()` は同じファイルにあり、動いているセッションの id と token を使う。応答を返し、`speech` があれば `speak` する。
 

@@ -134,11 +134,6 @@ class HintIssued:
 
 
 @dataclass(frozen=True)
-class HintSkipped:
-    pass
-
-
-@dataclass(frozen=True)
 class CheckRequested:
     pass
 
@@ -164,7 +159,7 @@ class Tick:
     pass
 
 
-Event = Signal | ChangeSettings | HintRequested | HintIssued | HintSkipped | CheckRequested | CheckDone | Advance | End | Tick
+Event = Signal | ChangeSettings | HintRequested | HintIssued | CheckRequested | CheckDone | Advance | End | Tick
 
 
 @dataclass(frozen=True)
@@ -378,9 +373,6 @@ def step(session: Session, event: Event, now: datetime, thresholds: Thresholds) 
         case HintIssued(speech_chars=chars):
             next_session.pending_until = None
             _enter_speaking(next_session, now, chars, thresholds)
-            return next_session, Accepted()
-        case HintSkipped():
-            next_session.pending_until = None
             return next_session, Accepted()
         case CheckRequested():
             if next_session.state not in HINTABLE_STATES or next_session.pending_until is not None:

@@ -291,7 +291,7 @@ paths:
       summary: ヒント要求
       description: |
         - `trigger` は `auto`（`next_action` に従って）・`manual`（ボタン）・`voice`（学習者の発話を聞き取った）。
-        - **`voice` で `utterance`（聞き取った文）があれば、その発話に答える（ADR 0032）。** AI がまず答えるかどうかを決め、独り言・読み上げ・周りの会話なら答えない。答えないときは `speech: null`・`display: ""` を返し、状態は変えず（`speaking` にしない）、記録にも残さない。答えるときは言葉の意味ややり方の説明もするが、この問題の答えと途中の値は言わない（答え漏れの検査は同じ）。`utterance` は保存もログへの出力もしない。
+        - **`voice` で `utterance`（聞き取った文）があれば、その発話に答える（ADR 0032）。** AI がまず答えるかどうかを決め、独り言・読み上げ・周りの会話なら答えない。答えないときは 204 で、状態は変えず、記録にも残さない。AI を待つ間は状態を変えない（ボタンと「できた」は止めない）ので、答えると決まった時点の状態で受理を判定する（`manual`・`voice` と同じ）。答えるときは言葉の意味ややり方の説明もするが、この問題の答え・途中の値・正誤は言わない（答え漏れの検査は同じ）。AI が使えないときは、「わからない」「教えて」などの助けを求める言葉があるときだけ固定の問い返しで答える。scripted では答えない（204）。`utterance` は保存もログへの出力もしない。
         - `level` は `auto` なら `min(stuck_count, max_level)`（1 回目 H1、2 回目以降 H2）。`manual` と `voice` はその問題で最後に出した段階（まだなら 1）で、段階を上げない。
         - `auto` は `stuck` のときだけ受理し、それ以外は 409（受理の判定はリクエスト到着時）。`manual` と `voice` は `watching`・`still`・`cooldown` で受理し、`created`・`stuck`・`speaking`・`checking`・`ended` では 409。`cooldown` が止めるのは `auto` だけ。
         - 応答を返した時点で `speaking` にし、読み上げ推定時間（`speech` の文字数 × 0.15 秒 + 1 秒）後に `cooldown`、`cooldown_seconds` 後に `watching` へ戻す。
@@ -307,6 +307,8 @@ paths:
               $ref: "#/components/schemas/HintRequest"
             example: {"trigger": "auto", "frame_id": "frm_…"}
       responses:
+        "204":
+          description: 声の発話（utterance）に答えない（独り言・読み上げ・周りの会話、scripted、AI が使えず助けを求める言葉も無い）
         "200":
           description: ヒント
           content:
@@ -975,7 +977,7 @@ components:
         speech:
           type: [string, "null"]
           maxLength: 100
-          description: 読み上げ用。声の発話に答えないとき null（読まない。display は空）
+          description: 読み上げ用。null なら読まない
         display:
           type: string
           maxLength: 120

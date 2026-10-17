@@ -115,7 +115,7 @@ export type SignalResponse = {
 
 export type FrameReceived = { frame_id: string; received_at: string; bytes: number };
 
-export type HintRequest = { trigger: Trigger; frame_id: string; utterance?: string };
+export type HintRequest = { trigger: Trigger; frame_id: string };
 
 export type HintResponse = {
   hint_id: string;
@@ -232,14 +232,18 @@ function jsonInit(method: string, auth: Auth, body?: unknown): RequestInit {
   };
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function send(path: string, init: RequestInit): Promise<Response> {
   if (!API_BASE) throw new Error("NEXT_PUBLIC_API_BASE が無い。web/.env.local か Vercel の環境変数に入れる");
   const response = await fetch(`${API_BASE}${path}`, init);
   if (!response.ok) {
     const body: ApiErrorBody | null = await response.json().catch(() => null);
     throw new ApiError(response.status, body?.error?.code ?? "UNKNOWN", body?.error?.message);
   }
-  return response.json() as Promise<T>;
+  return response;
+}
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  return (await send(path, init)).json() as Promise<T>;
 }
 
 export async function createSession(body: SessionCreateRequest, operatorKey: string): Promise<SessionCreated> {
@@ -303,6 +307,16 @@ export async function requestHint(id: string, token: string, body: HintRequest):
     return (mockHintCount === 1 ? hintLevel1Mock : hintLevel2Mock) as HintResponse;
   }
   return request(sessionPath(id, "/hints"), jsonInit("POST", { token }, body));
+}
+
+export async function answerUtterance(
+  id: string,
+  token: string,
+  body: { frame_id: string; utterance: string },
+): Promise<HintResponse | null> {
+  if (USE_MOCK) return null;
+  const response = await send(sessionPath(id, "/hints"), jsonInit("POST", { token }, { trigger: "voice", ...body }));
+  return response.status === 204 ? null : (response.json() as Promise<HintResponse>);
 }
 
 export async function postCheck(id: string, token: string, body: CheckRequest): Promise<CheckResponse> {

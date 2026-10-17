@@ -149,7 +149,7 @@ Hack Day 版はヒント 2 段階（H1 固定文・H2 GPT）、SSE なし（記�
 {"trigger": "auto", "frame_id": "frm_…"}
 ```
 
-`trigger` は `auto`（`next_action` に従って）| `manual`（ボタン）| `voice`（学習者の発話を聞き取った。ブラウザの音声認識で聞き取り、`web/lib/loop.ts` が `utterance` に文を入れて送る）。**`utterance` があれば、AI がその発話に答えるかを決め、答えるときは説明もする（答えと途中の値は言わない）。答えないときは `speech: null`・`display: ""` で、状態は変えず記録にも残さない。`utterance` は保存しない（10/17、ADR 0032）。**`frame_id` は直前に送ったフレーム（サーバは照合せず最新 1 枚を使う。`auto` で先に作り始めたヒントが同じ問題の同じ詰まり（`stuck_count`）のものなら、それを返す。ADR 0028）。
+`trigger` は `auto`（`next_action` に従って）| `manual`（ボタン）| `voice`（学習者の発話を聞き取った。ブラウザの音声認識で聞き取り、`web/lib/loop.ts` が `utterance` に文を入れて送る）。**`utterance` があれば、AI がその発話に答えるかを決め、答えるときは説明もする（答えと途中の値は言わない）。答えないときは 204 で、状態は変えず記録にも残さない。AI を待つ間は状態を変えないので、ボタンと「できた」は止まらない。`utterance` は保存しない（10/17、ADR 0032）。**`frame_id` は直前に送ったフレーム（サーバは照合せず最新 1 枚を使う。`auto` で先に作り始めたヒントが同じ問題の同じ詰まり（`stuck_count`）のものなら、それを返す。ADR 0028）。
 
 ```json
 {"hint_id": "hnt_…", "problem_no": 2, "level": 2, "trigger": "auto",

@@ -112,7 +112,7 @@ os_2601/
 ├── worksheets/            # schema.json（高橋）、ws01〜03.json、README.md（C）
 ├── docs/                  # この文書一式 + pitch/ + video/
 ├── .github/               # workflows/check.yml、pull_request_template.md
-├── .githooks/             # guard.mjs、pre-commit、pre-push（担当外・main への push・force push を止める）
+├── .githooks/             # guard.mjs、pre-commit、pre-push（ハーネスと依存のファイル・main への push・force push を止める。ADR 0030）
 ├── .claude/               # settings.json（同じ guard を編集前に走らせる）、commands/
 ├── docs/prompts/          # start / check / pr / sync（Codex は貼る、Claude Code はスラッシュコマンド）
 ├── AGENTS.md              # AI が最初に読む決まり（CLAUDE.md と同じ中身）

@@ -12,6 +12,8 @@ from app.leak import contains_leak, leak_strings, normalize
         ("3 × 4", "3*4"),
         ("マイナス 5", "-5"),
         ("エックス イコール 5", "x=5"),
+        ("3エックス プラス 6", "3x+6"),
+        ("2 かける 3", "2*3"),
     ],
 )
 def test_normalize(raw: str, normalized: str) -> None:

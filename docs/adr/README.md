@@ -63,3 +63,5 @@
 | 0020 | [静止の始まりは、静止に入る直前の signals の時刻にする](0020-still-since-from-previous-signal.md) | 提案 |
 | 0021 | [存在しない session id は認可より先に 404 を返す](0021-not-found-before-auth.md) | 提案 |
 | 0022 | [正解の読み上げ中の「次へ」は、読み上げを止めるだけにする](0022-advance-after-correct-only-stops-speech.md) | 提案 |
+| 0023 | [Railway と Vercel は Mac から CLI でデプロイする](0023-deploy-from-mac-with-cli.md) | 承認 |
+| 0024 | [Vercel のプレビューは保護を外して公開する](0024-public-vercel-previews.md) | 承認 |

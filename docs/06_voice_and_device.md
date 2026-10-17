@@ -89,7 +89,7 @@ PC（横持ち）では映像を左、字幕とボタンを右に置く。部品
 
 - Web Speech API の `speechSynthesis` を使う。`lang = "ja-JP"`。
 - 声の選び方：`speechSynthesis.getVoices()` から `lang` が `ja-JP` のものを選ぶ。iOS は Kyoko、Android Chrome は Google 日本語、PC Chrome は Google 日本語か OS の声。`voiceschanged` イベント後に選び直す（最初の `getVoices()` が空のことがある）。
-- 速さ `rate = 1.0`、高さ `pitch = 1.0`。`speech` は 40 文字以内なので 5〜7 秒で終わる。
+- 速さ `rate = 1.0`、高さ `pitch = 1.0`。`speech` は 35 文字以内なので 5〜6 秒で終わる。
 - 読み上げ中に次のヒントが来たら、`speechSynthesis.cancel()` してから新しい文を読む。
 - 音声が出ないときも字幕は必ず出す。会場では PC を会場スピーカーにつなぐ（08 参照）。
 - VOICEVOX は使わない（サーバが要る）。Kaizen Sprint の候補。

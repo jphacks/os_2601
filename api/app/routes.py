@@ -34,6 +34,7 @@ from app.state import (
     End,
     Event,
     Hint,
+    HintAbandoned,
     HintIssued,
     HintRequested,
     LeakCheck,
@@ -255,6 +256,13 @@ def _take_prefetch(context: AppContext, session: Session) -> asyncio.Task[Compos
         return prefetch.composing
     prefetch.composing.cancel()
     return None
+
+
+def _abandon_hint(context: AppContext, session_id: str, ticket: datetime) -> None:
+    session = context.store.get(session_id)
+    if session is not None:
+        _apply(context, session, HintAbandoned(ticket), _now())
+        context.store.save()
 
 
 def _find_session(context: AppContext, session_id: str) -> Session:
@@ -482,11 +490,12 @@ def _issue_hint(
     level: int,
     trigger: str,
     composed: ComposedHint,
+    ticket: datetime,
     started: float,
     requested_at: datetime,
     prefetched: bool,
 ) -> dict:
-    session, _ = _apply(context, _find_session(context, session_id), HintIssued(len(composed.speech)), _now())
+    session, _ = _apply(context, _find_session(context, session_id), HintIssued(len(composed.speech), ticket), _now())
     hint = Hint(
         hint_id=_new_id("hnt"),
         level=level,
@@ -545,13 +554,15 @@ async def _answer_utterance(context: AppContext, session: Session, utterance: st
     problem_no = session.current_problem_no
     problem = session.current_problem
     if asks_if_correct(utterance):
+        _, requested = _apply(context, session, HintRequested("voice"), now)
         return _issue_hint(
             context,
             session.session_id,
             problem_no=problem_no,
-            level=acceptable.level,
+            level=requested.level,
             trigger="voice",
             composed=check_reply(problem.leak_strings, session.settings.persona),
+            ticket=requested.ticket,
             started=started,
             requested_at=now,
             prefetched=False,
@@ -582,6 +593,7 @@ async def _answer_utterance(context: AppContext, session: Session, utterance: st
         level=accepted.level,
         trigger="voice",
         composed=composed,
+        ticket=accepted.ticket,
         started=started,
         requested_at=now,
         prefetched=False,
@@ -601,17 +613,22 @@ async def request_hint(
     session, accepted = _apply(context, session, HintRequested(body.trigger), now)
     problem = session.current_problem
     composing = _take_prefetch(context, session) if body.trigger == "auto" else None
-    if session.mode == "scripted":
-        composed = fixed_hint(
-            FALLBACK_HINTS[accepted.level], "scripted", LeakCheck(ok=True, fallback=False), problem.leak_strings,
-            session.settings.persona,
-        )
-    elif composing:
-        composed = await composing
-    else:
-        composed = await _compose(context, problem, accepted.level, _latest_frame(context, session_id), session.settings.persona)
+    try:
+        if session.mode == "scripted":
+            composed = fixed_hint(
+                FALLBACK_HINTS[accepted.level], "scripted", LeakCheck(ok=True, fallback=False), problem.leak_strings,
+                session.settings.persona,
+            )
+        elif composing:
+            composed = await composing
+        else:
+            composed = await _compose(context, problem, accepted.level, _latest_frame(context, session_id), session.settings.persona)
+    except Exception:
+        _abandon_hint(context, session_id, accepted.ticket)
+        raise
     latest = _find_session(context, session_id)
     if latest.current_problem_no != session.current_problem_no or latest.settings.persona != session.settings.persona:
+        _abandon_hint(context, session_id, accepted.ticket)
         _fail(409, "ヒント生成中に問題か人格が変わったため、もう一度お試しください")
     return _issue_hint(
         context,
@@ -620,6 +637,7 @@ async def request_hint(
         level=accepted.level,
         trigger=body.trigger,
         composed=composed,
+        ticket=accepted.ticket,
         started=started,
         requested_at=now,
         prefetched=composing is not None,

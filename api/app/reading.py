@@ -16,6 +16,7 @@ SYMBOL_READINGS = [
 
 
 def to_reading(text: str) -> str:
+    text = text.replace("²", "の2乗").replace("³", "の3乗")
     text = unicodedata.normalize("NFKC", text)
     text = re.sub(r"([〇一二ニ三四五六七八九十])(?=行目)", lambda match: KANJI_DIGITS[match.group(1)], text)
     for pattern, reading in SYMBOL_READINGS:

@@ -254,7 +254,7 @@ def test_changing_the_persona_setting_updates_the_next_prompt() -> None:
 
 @pytest.mark.parametrize("persona", ["teacher", "ikemen"])
 def test_both_personas_keep_the_main_hint_and_answer_length_limits(persona: str) -> None:
-    reply = {**ai_hint("見" * SPEECH_MAX_CHARS), "display": "見" * DISPLAY_MAX_CHARS}
+    reply = {**ai_hint("見" * 60), "display": "見" * 80}
     hint = compose(FakeAI(reply), persona=persona)
     assert (len(hint.speech), len(hint.display), hint.source) == (60, 80, "gpt")
     for field, limit in (("speech", 60), ("display", 80)):

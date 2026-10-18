@@ -4,7 +4,7 @@ import { StuckPointBars } from "./StuckPointBars";
 
 export function SessionRecord({ session }: { session: SessionDetail }) {
   return (
-    <>
+    <div className="flex flex-col gap-6">
       <dl className="grid grid-cols-3 gap-3 text-center">
         <div className="rounded-lg bg-gray-50 p-3">
           <dt className="text-sm text-gray-600">できた問題</dt>
@@ -31,6 +31,6 @@ export function SessionRecord({ session }: { session: SessionDetail }) {
             <ProblemRecord key={problem.problem_no} problem={problem} />
           ))}
       </section>
-    </>
+    </div>
   );
 }

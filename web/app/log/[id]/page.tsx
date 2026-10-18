@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useCallback } from "react";
 import { useParams } from "next/navigation";
 import { getSession } from "@/lib/api";
-import { SessionRecord } from "../_components/SessionRecord";
+import { dateTime, sessionStatus } from "@/app/_components/record/format";
+import { SessionRecord } from "@/app/_components/record/SessionRecord";
 import { useOperatorPolling } from "../_components/useOperatorPolling";
-import { dateTime, sessionStatus } from "../format";
 
 export default function LogDetailPage() {
   const { id } = useParams<{ id: string }>();

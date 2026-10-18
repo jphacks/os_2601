@@ -1,5 +1,5 @@
 import type { HintSource, ProblemStatus, SessionDetail, Trigger, Verdict } from "@/lib/api";
-import { dateTime } from "../format";
+import { dateTime } from "./format";
 
 type Problem = SessionDetail["problems"][number];
 type Hint = Problem["hints"][number];

@@ -45,6 +45,7 @@ function Device() {
   const startingRef = useRef(false);
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [record, setRecord] = useState<SessionDetail | null>(null);
+  const [recordStatus, setRecordStatus] = useState<"idle" | "loading" | "failed">("idle");
   const [state, setState] = useState<State>("created");
   const [problemNo, setProblemNo] = useState(1);
   const [problemText, setProblemText] = useState<string | null>(null);
@@ -165,7 +166,7 @@ function Device() {
       if (!FIXED_CAPTIONS[check.state]) setCaption(check.display);
     } catch (error) {
       ignoreError(error);
-      setState(before.state);
+      setState((current) => (current === "ended" ? current : before.state));
       setCaption(before.caption);
     } finally {
       setBusy(false);
@@ -198,10 +199,13 @@ function Device() {
   }
 
   async function handleShowRecord() {
+    setRecordStatus("loading");
     try {
       setRecord(await getSession(sessionId, { token }));
+      setRecordStatus("idle");
     } catch (error) {
       ignoreError(error);
+      setRecordStatus("failed");
     }
   }
 
@@ -225,14 +229,18 @@ function Device() {
               dark={brightness !== null && brightness < DARK_BRIGHTNESS}
               debugText={debug ? `輝度 ${brightness === null ? "-" : Math.round(brightness)} / 静止 ${stillSeconds} 秒 / 声 ${voiceStatus()}` : null}
             />
-            {state === "ended" && (
+            {(state === "ended" || session?.state === "ended") && (
               <button
                 type="button"
                 onClick={handleShowRecord}
-                className="rounded-full bg-white px-3 py-2 text-sm font-bold text-sky-700 shadow-md ring-2 ring-sky-300"
+                disabled={recordStatus === "loading"}
+                className="rounded-full bg-white px-3 py-2.5 text-sm font-bold text-sky-700 shadow-md ring-2 ring-sky-300 disabled:opacity-60"
               >
-                記録を見る
+                {recordStatus === "loading" ? "読み込み中…" : "記録を見る"}
               </button>
+            )}
+            {recordStatus === "failed" && (
+              <p className="rounded-lg bg-white/80 px-2 py-1 text-center text-xs font-bold text-red-700">記録を読めませんでした</p>
             )}
           </div>
         </div>

@@ -3,7 +3,7 @@ import asyncio
 import httpx
 import pytest
 
-from app.voicevox import Voicevox, VoiceUnavailable
+from app.voicevox import VoiceUnavailable, Voicevox
 
 SPEAKERS = [
     {"name": "青山龍星", "styles": [{"name": "ノーマル", "id": 13}, {"name": "しっとり", "id": 84}]},

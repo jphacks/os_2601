@@ -6,9 +6,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.gemini import Gemini  # noqa: E402
-from photos import photo  # noqa: E402
-from app.hints import compose_hint  # noqa: E402
+from photos import photo
+
+from app.gemini import Gemini
+from app.hints import compose_hint
 
 MODEL = os.environ.get("HINT_MODEL", "gemini-3.5-flash-lite")
 ERROR = ["4x + 5 = 1", "4x = 1 - 4", "4x = -4"]
@@ -28,7 +29,7 @@ async def main() -> None:
         print(f"## {name}")
         previous: list[str] = []
         problem_text, leaks = None, []
-        for round_number, (lines, level) in enumerate(zip(rounds, (1, 1, 2)), start=1):
+        for round_number, (lines, level) in enumerate(zip(rounds, (1, 1, 2), strict=True), start=1):
             print(f"答案: {' / '.join(lines)}")
             started = time.monotonic()
             hint = await compose_hint(ai, MODEL, photo(lines), level, previous, problem_text, leaks)

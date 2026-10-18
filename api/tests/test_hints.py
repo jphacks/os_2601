@@ -7,19 +7,19 @@ import pytest
 from app.check import CORRECT_TEXT, FAILED_TEXT, judge
 from app.gemini import AIUnavailable
 from app.hints import (
-    ANSWER_FALLBACK,
     ANSWER_DISPLAY_MAX_CHARS,
-    UNREADABLE_ANSWER,
+    ANSWER_FALLBACK,
     ANSWER_SPEECH_MAX_CHARS,
     DISPLAY_MAX_CHARS,
     FALLBACK_HINTS,
     SPEECH_MAX_CHARS,
+    UNREADABLE_ANSWER,
     UNREADABLE_HINT,
     compose_answer,
     compose_hint,
 )
-from app.state import LeakCheck
 from app.personas import PERSONAS, fallback_message, get_persona
+from app.state import LeakCheck
 
 FRAME = b"\xff\xd8jpeg"
 MODEL = "gemini-test"

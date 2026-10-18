@@ -3,7 +3,11 @@ import unicodedata
 
 MIN_LEAK_CHARS = 3
 MIN_ANSWER_VALUE_CHARS = 2
-SHORT_ANSWER_PHRASES = (r"(答え|こたえ)[はがを]?{v}(?!\d)", r"(?<![\d.])={v}(?!\d)", r"(?<![\d.]){v}(だよ|だね|です|になる|になります|かな|にして|にする|が答え|で合って)")
+SHORT_ANSWER_PHRASES = (
+    r"(答え|こたえ)[はがを]?{v}(?!\d)",
+    r"(?<![\d.])={v}(?!\d)",
+    r"(?<![\d.]){v}(だよ|だね|です|になる|になります|かな|にして|にする|が答え|で合って)",
+)
 READINGS = {"=": "イコール", "*": "かける", "÷": "わる", "-": "マイナス", "+": "プラス", "x": "エックス"}
 SPOKEN_SYMBOLS = {reading: symbol for symbol, reading in READINGS.items()}
 

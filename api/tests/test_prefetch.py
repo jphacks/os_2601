@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 import pytest
 from conftest import Device
+
 from app.personas import get_persona
 
 MOVING = 0.05

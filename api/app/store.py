@@ -66,6 +66,7 @@ def _decode_session(raw: dict) -> Session:
         current_problem_no=raw["current_problem_no"],
         leak_blocked_count=raw["leak_blocked_count"],
         ended_at=_parse_time(raw["ended_at"]),
+        auto_end_at=_parse_time(raw.get("auto_end_at")),
     )
 
 

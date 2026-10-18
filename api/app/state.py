@@ -98,6 +98,7 @@ class Session:
     current_problem_no: int = 1
     leak_blocked_count: int = 0
     ended_at: datetime | None = None
+    auto_end_at: datetime | None = None
     still_since: datetime | None = None
     speaking_until: datetime | None = None
     cooldown_until: datetime | None = None

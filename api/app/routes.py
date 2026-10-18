@@ -37,6 +37,7 @@ from app.state import (
     HintIssued,
     HintRequested,
     LeakCheck,
+    Mode,
     Problem,
     Rejected,
     Session,
@@ -51,12 +52,15 @@ from app.state import (
 )
 from app.store import SessionStore
 from app.voicevox import VoiceUnavailable, Voicevox
-from app.worksheets import PRINT_LAYOUT, Worksheet
+from app.worksheets import FREE_WORKSHEET, PRINT_LAYOUT, Worksheet
 
 logger = logging.getLogger(__name__)
 
 MAX_FRAME_BYTES = 600 * 1024
 MAX_UTTERANCE_CHARS = 200
+OPEN_SESSIONS_PER_MINUTE = 3
+OPEN_SESSION_LIFETIME = timedelta(minutes=30)
+OPEN_SESSION_LABEL = "自分で始めた"
 SPEECH_REQUEST_MAX_CHARS = 200
 SPEECH_AFTER_END_SECONDS = 60
 MODE_DEFAULT = "live"
@@ -78,12 +82,14 @@ class AppContext:
     store: SessionStore
     operator_key: str
     demo_mode: bool
+    open_sessions: bool
     ai: Gemini | None
     hint_model: str
     check_model: str
     frames: dict[str, tuple[str, bytes]] = field(default_factory=dict)
     prefetches: dict[str, Prefetch] = field(default_factory=dict)
     voice: Voicevox | None = None
+    opened_at: dict[str, list[datetime]] = field(default_factory=dict)
 
 
 StuckSeconds = Annotated[int, Field(ge=5, le=1200)]
@@ -261,7 +267,26 @@ def _find_session(context: AppContext, session_id: str) -> Session:
     session = context.store.get(session_id)
     if session is None:
         _fail(404, f"セッション {session_id} が無い")
+    if session.auto_end_at is not None and session.state != "ended" and _now() >= session.auto_end_at:
+        session, _ = _apply(context, session, End(), _now())
+        context.store.save()
     return session
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _allow_open(context: AppContext, ip: str, now: datetime) -> bool:
+    recent = [opened for opened in context.opened_at.get(ip, []) if now - opened < timedelta(minutes=1)]
+    if len(recent) >= OPEN_SESSIONS_PER_MINUTE:
+        context.opened_at[ip] = recent
+        return False
+    context.opened_at[ip] = [*recent, now]
+    return True
 
 
 def _apply(context: AppContext, session: Session, event: Event, now: datetime) -> tuple[Session, Accepted]:
@@ -321,16 +346,10 @@ def _stuck_points(session: Session) -> list[dict]:
     return [{"label": label, "count": count} for label, count in sorted(counts.items(), key=lambda item: -item[1])]
 
 
-@router.post("/sessions", status_code=201)
-async def create_session(
-    body: SessionCreateRequest, request: Request, context: AppContext = Depends(get_context)
+def _new_session(
+    context: AppContext, worksheet: Worksheet, learner_label: str, mode: Mode, settings: SessionSettings, auto_end_at: datetime | None
 ) -> dict:
-    _require_operator(request, context)
-    worksheet = context.worksheets.get(body.worksheet_id)
-    if worksheet is None:
-        _fail(422, f"ワークシート {body.worksheet_id} が無い")
     now = _now()
-    settings = SessionSettings(**{**asdict(context.default_settings), **body.settings.model_dump(exclude_none=True)})
     problems = [Problem(problem_no=problem_no) for problem_no in range(1, worksheet.problem_count + 1)]
     problems[0].status = "working"
     problems[0].started_at = now
@@ -338,11 +357,12 @@ async def create_session(
         session_id=_new_id("ses"),
         session_token=_new_id("tok"),
         worksheet_id=worksheet.worksheet_id,
-        learner_label=body.learner_label,
-        mode=body.mode,
+        learner_label=learner_label,
+        mode=mode,
         settings=settings,
         problems=problems,
         created_at=now,
+        auto_end_at=auto_end_at,
     )
     context.store.put(session)
     context.store.save()
@@ -355,6 +375,29 @@ async def create_session(
         "settings": asdict(session.settings),
         "created_at": _iso(session.created_at),
     }
+
+
+@router.post("/sessions", status_code=201)
+async def create_session(
+    body: SessionCreateRequest, request: Request, context: AppContext = Depends(get_context)
+) -> dict:
+    _require_operator(request, context)
+    worksheet = context.worksheets.get(body.worksheet_id)
+    if worksheet is None:
+        _fail(422, f"ワークシート {body.worksheet_id} が無い")
+    settings = SessionSettings(**{**asdict(context.default_settings), **body.settings.model_dump(exclude_none=True)})
+    return _new_session(context, worksheet, body.learner_label, body.mode, settings, None)
+
+
+@router.post("/sessions/open", status_code=201)
+async def open_session(request: Request, context: AppContext = Depends(get_context)) -> dict:
+    if not context.open_sessions:
+        _fail(404, "OPEN_SESSIONS が 0")
+    now = _now()
+    if not _allow_open(context, _client_ip(request), now):
+        _fail(429, f"1 分に {OPEN_SESSIONS_PER_MINUTE} 回まで")
+    worksheet = context.worksheets[FREE_WORKSHEET.worksheet_id]
+    return _new_session(context, worksheet, OPEN_SESSION_LABEL, "live", context.default_settings, now + OPEN_SESSION_LIFETIME)
 
 
 @router.get("/sessions")

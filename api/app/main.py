@@ -28,6 +28,7 @@ ERROR_CODES = {
     409: "STATE_CONFLICT",
     413: "FRAME_TOO_LARGE",
     422: "VALIDATION_ERROR",
+    429: "RATE_LIMITED",
     503: "HINT_UNAVAILABLE",
 }
 
@@ -57,6 +58,7 @@ def _build_context() -> AppContext:
         store=SessionStore(Path(os.environ.get("DATA_PATH", DEFAULT_DATA_PATH))),
         operator_key=os.environ.get("OPERATOR_KEY", ""),
         demo_mode=os.environ.get("DEMO_MODE") == "1",
+        open_sessions=os.environ.get("OPEN_SESSIONS", "1") == "1",
         ai=Gemini(api_key) if (api_key := os.environ.get("GEMINI_API_KEY")) else None,
         hint_model=os.environ.get("HINT_MODEL", DEFAULT_MODEL),
         check_model=os.environ.get("CHECK_MODEL", DEFAULT_MODEL),

@@ -1,8 +1,8 @@
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { ApiError, getSession, patchSettings, type SessionDetail, type State } from "@/lib/api";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ApiError, getSession, openSession, patchSettings, type SessionDetail, type State } from "@/lib/api";
 import { startCamera, stopCamera } from "@/lib/camera";
 import { advance, end, requestCheck, requestManualHint, startSession, updateSessionPersona } from "@/lib/loop";
 import { endMessage } from "@/lib/personas";
@@ -24,6 +24,7 @@ const FIXED_CAPTIONS: Partial<Record<State, string>> = {
   checking: "見てるよ…",
 };
 const CAMERA_DENIED_CAPTION = "設定からカメラを許可してね。LINE などの中のブラウザなら Safari か Chrome で開いてね";
+const NO_SESSION_CAPTION = "セッションの URL から開いてね";
 const END_CONFIRM = "おわる？";
 // 平均輝度がこれ未満なら「明るさが足りません」を重ねる（docs/tasks/b.md の B1-4）
 const DARK_BRIGHTNESS = 60;
@@ -37,6 +38,7 @@ function ignoreError(error: unknown) {
 
 function Device() {
   const params = useSearchParams();
+  const router = useRouter();
   const sessionId = params.get("s") ?? "";
   const token = params.get("t") ?? "";
   const debug = params.get("debug") === "1";
@@ -67,6 +69,26 @@ function Device() {
   const [connected, setConnected] = useState(true);
   // 同じ文字が続けて来ても 3 秒を数え直すように、受け取るたびに新しいオブジェクトにする
   const [heard, setHeard] = useState<{ text: string } | null>(null);
+
+  useEffect(() => {
+    if (sessionId && token) return;
+    let cancelled = false;
+    openSession()
+      .then((created) => {
+        if (cancelled) return;
+        const query = new URLSearchParams({ s: created.session_id, t: created.session_token });
+        if (debug) query.set("debug", "1");
+        router.replace(`/device?${query}`);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        ignoreError(error);
+        setCaption(NO_SESSION_CAPTION);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, token, debug, router]);
 
   useEffect(() => {
     if (!sessionId || !token) return;

@@ -60,7 +60,7 @@ flowchart LR
 |---|---|---|---|
 | デバイス | `Authorization: Bearer <session_token>`（セッション作成時に発行） | `POST /sessions/{id}/signals` `frames` `hints` `check` `advance` `end`、`PATCH /sessions/{id}/settings`、`GET /sessions/{id}` | その机のブラウザだけ |
 | オペレータ | `X-Operator-Key`（環境変数 `OPERATOR_KEY`） | `POST /sessions` `GET /sessions*` `POST /sessions/{id}/end` `POST /demo/reset`、`POST /sessions/{id}/signals` は `force_stuck: true` のときだけ | `/ops`・`/log` を操作する人 |
-| 公開 | なし | `GET /worksheets*`（正答なし）、`GET /healthz` | 誰でも |
+| 公開 | なし | `POST /sessions/open`（IP ごとに 1 分 3 件、30 分で自動終了。ADR 0036）、`GET /worksheets*`（正答なし）、`GET /healthz` | 誰でも |
 
 正答はどの系統からも API では返さない。セキュリティの境界はトークンであり CORS ではない。
 

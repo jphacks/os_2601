@@ -433,6 +433,48 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
 
+  /sessions/{id}/tts:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      tags: [hints]
+      operationId: synthesizeSpeech
+      summary: 読み上げの文を VOICEVOX の声にする
+      description: |
+        デバイスが読み上げるたびに呼ぶ（ADR 0035）。api が VOICEVOX のエンジン（環境変数 `VOICEVOX_URL`、話者は `VOICEVOX_SPEAKER`）で wav を作って返す。
+        エンジンが無い・失敗したときは 503 で、デバイスはブラウザの音声合成で読む。状態は変えない。
+      security:
+        - device: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+            example: {"text": "最初の行のかっこを外したところ、もう一回見てみて"}
+      responses:
+        "200":
+          description: 読み上げの音声
+          content:
+            audio/wav:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "503":
+          $ref: "#/components/responses/HintUnavailable"
+
   /sessions/{id}/advance:
     parameters:
       - $ref: "#/components/parameters/SessionId"

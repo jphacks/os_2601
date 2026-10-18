@@ -49,6 +49,7 @@ from app.hints import (
     read_problem,
 )
 from app.store import SessionStore
+from app.voicevox import Voicevox, VoiceUnavailable
 from app.worksheets import PRINT_LAYOUT, Worksheet
 
 logger = logging.getLogger(__name__)
@@ -78,6 +79,7 @@ class AppContext:
     check_model: str
     frames: dict[str, tuple[str, bytes]] = field(default_factory=dict)
     prefetches: dict[str, Prefetch] = field(default_factory=dict)
+    voice: Voicevox | None = None
 
 
 StuckSeconds = Annotated[int, Field(ge=5, le=1200)]
@@ -136,6 +138,10 @@ class CheckRequest(BaseModel):
 
 class ProblemRequest(BaseModel):
     frame_id: str
+
+
+class SpeechRequest(BaseModel):
+    text: Annotated[str, Field(min_length=1, max_length=120)]
 
 
 class AdvanceRequest(BaseModel):
@@ -660,6 +666,22 @@ async def post_problem(
         "problem session=%s read=%s latency_ms=%s", session.session_id, problem_text is not None, int((time.monotonic() - started) * 1000)
     )
     return {"problem_no": problem_no, "problem_text": session.problems[problem_no - 1].problem_text, "state": session.state}
+
+
+@router.post("/sessions/{session_id}/tts")
+async def post_tts(session_id: str, body: SpeechRequest, request: Request, context: AppContext = Depends(get_context)) -> Response:
+    session = _find_session(context, session_id)
+    _require_device(request, context, session)
+    if context.voice is None:
+        raise HTTPException(status_code=503, detail="読み上げの声が用意されていない")
+    started = time.monotonic()
+    try:
+        audio = await context.voice.synthesize(body.text)
+    except VoiceUnavailable as error:
+        logger.warning("tts session=%s failed=%s", session.session_id, error)
+        raise HTTPException(status_code=503, detail="読み上げの声を作れなかった") from error
+    logger.info("tts session=%s chars=%s latency_ms=%s", session.session_id, len(body.text), int((time.monotonic() - started) * 1000))
+    return Response(content=audio, media_type="audio/wav")
 
 
 @router.post("/sessions/{session_id}/advance")

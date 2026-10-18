@@ -1,8 +1,14 @@
+import { synthesizeSpeech } from "./api";
+
 const LANG = "ja-JP";
 const VOICES_WAIT_MS = 1000;
 const CANCELLED_ERRORS = new Set(["interrupted", "canceled"]);
+const SILENT_WAV = "data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YSADAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==";
 
 let japaneseVoiceLookup: Promise<SpeechSynthesisVoice | undefined> | null = null;
+let speaker: { id: string; token: string } | null = null;
+let player: HTMLAudioElement | null = null;
+let speechTurn = 0;
 
 function isSupported(): boolean {
   return typeof window !== "undefined" && "speechSynthesis" in window;
@@ -28,16 +34,48 @@ function loadJapaneseVoice(): Promise<SpeechSynthesisVoice | undefined> {
   return japaneseVoiceLookup;
 }
 
+export function setSpeechSession(id: string, token: string): void {
+  speaker = { id, token };
+}
+
 export function unlockSpeech(): void {
-  if (!isSupported()) return;
-  speechSynthesis.speak(new SpeechSynthesisUtterance(""));
+  if (typeof window === "undefined") return;
+  player ??= new Audio();
+  player.src = SILENT_WAV;
+  player.play().catch((error) => console.warn("[speech] 無音の再生に失敗", error));
+  if (isSupported()) speechSynthesis.speak(new SpeechSynthesisUtterance(""));
 }
 
 export function stopSpeaking(): void {
+  speechTurn += 1;
+  player?.pause();
   if (isSupported()) speechSynthesis.cancel();
 }
 
+function playAudio(audioPlayer: HTMLAudioElement, audio: Blob): Promise<void> {
+  const url = URL.createObjectURL(audio);
+  audioPlayer.src = url;
+  return new Promise<void>((resolve, reject) => {
+    audioPlayer.onpause = () => resolve();
+    audioPlayer.onerror = () => reject(new Error("音声を再生できなかった"));
+    audioPlayer.play().catch(reject);
+  }).finally(() => URL.revokeObjectURL(url));
+}
+
 export async function speak(text: string): Promise<void> {
+  stopSpeaking();
+  const turn = speechTurn;
+  if (speaker && player) {
+    try {
+      const audio = await synthesizeSpeech(speaker.id, speaker.token, text);
+      if (turn !== speechTurn) return;
+      await playAudio(player, audio);
+      return;
+    } catch (error) {
+      if (turn !== speechTurn) return;
+      console.warn("[speech] VOICEVOX の声が使えないので、ブラウザの声で読む", error);
+    }
+  }
   if (!isSupported()) throw new Error("このブラウザは読み上げに対応していない");
   const voice = await loadJapaneseVoice();
   const utterance = new SpeechSynthesisUtterance(text);
@@ -45,7 +83,7 @@ export async function speak(text: string): Promise<void> {
   utterance.rate = 1;
   utterance.pitch = 1;
   if (voice) utterance.voice = voice;
-  stopSpeaking();
+  if (turn !== speechTurn) return;
   await new Promise<void>((resolve, reject) => {
     utterance.onend = () => resolve();
     utterance.onerror = (event) =>

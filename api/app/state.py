@@ -56,7 +56,7 @@ class Hint:
     speech: str
     display: str
     stuck_point: str
-    source: Literal["gpt", "fallback", "scripted"]
+    source: Literal["ai", "fallback", "scripted"]
     leak_check: LeakCheck
     model: str | None
     latency_ms: int
@@ -322,7 +322,7 @@ def _on_hint_requested(session: Session, request: HintRequested, now: datetime) 
     elif session.state not in HINTABLE_STATES:
         return Rejected()
     else:
-        asked_before = sum(hint.trigger != "auto" and hint.source == "gpt" for hint in problem.hints)
+        asked_before = sum(hint.trigger != "auto" and hint.source == "ai" for hint in problem.hints)
         level = min(asked_before + 1, session.settings.max_level)
     session.pending_until = now + timedelta(seconds=PENDING_SECONDS)
     return Accepted(level=level, ticket=session.pending_until)

@@ -23,12 +23,12 @@ class Device:
 
     def signal(self, second: int, motion: float) -> dict:
         self.now = START + timedelta(seconds=second)
-        body = {"ts": self.now.isoformat(), "motion": motion, "camera_ok": True}
+        body = {"motion": motion, "camera_ok": True}
         return self.client.post(f"/sessions/{self.session_id}/signals", json=body, headers=self.headers).json()
 
     def force_stuck(self, second: int) -> dict:
         self.now = START + timedelta(seconds=second)
-        body = {"ts": self.now.isoformat(), "force_stuck": True}
+        body = {"force_stuck": True}
         operator = {"X-Operator-Key": OPERATOR_KEY}
         return self.client.post(f"/sessions/{self.session_id}/signals", json=body, headers=operator).json()
 

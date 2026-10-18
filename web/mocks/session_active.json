@@ -45,7 +45,7 @@
           "trigger": "auto",
           "display": "4x を左に移したとき、符号はどうなった？",
           "stuck_point": "移項の符号",
-          "source": "gpt",
+          "source": "ai",
           "leak_check": { "ok": true, "fallback": false },
           "latency_ms": 2300,
           "created_at": "2026-10-17T01:33:05Z"

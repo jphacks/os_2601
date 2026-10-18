@@ -23,7 +23,7 @@ export type { Persona, PersonaOption } from "./personas";
 export type State = "created" | "watching" | "still" | "stuck" | "speaking" | "cooldown" | "checking" | "ended";
 export type Mode = "live" | "scripted";
 export type Trigger = "auto" | "manual" | "voice";
-export type HintSource = "gpt" | "fallback" | "scripted";
+export type HintSource = "ai" | "fallback" | "scripted";
 export type HintLevel = 1 | 2;
 export type Verdict = "correct" | "incorrect" | "unreadable";
 export type ProblemStatus = "pending" | "working" | "done" | "skipped";
@@ -107,8 +107,8 @@ export type SessionDetail = {
 export type SettingsPatch = Partial<Pick<Settings, "stuck_seconds" | "cooldown_seconds" | "persona">>;
 
 export type SignalRequest =
-  | { ts: string; motion?: number; camera_ok: boolean; force_stuck?: false }
-  | { ts: string; motion?: number; camera_ok?: boolean; force_stuck: true };
+  | { motion?: number; camera_ok: boolean; force_stuck?: false }
+  | { motion?: number; camera_ok?: boolean; force_stuck: true };
 
 export type SignalResponse = {
   state: State;
@@ -371,7 +371,7 @@ export async function postAdvance(id: string, token: string): Promise<AdvanceRes
     }
     return { ...(advanceMock as AdvanceResponse), current_problem_no: mockAdvanceCount + 1 };
   }
-  return request(sessionPath(id, "/advance"), jsonInit("POST", { token }, { reason: "skip" }));
+  return request(sessionPath(id, "/advance"), jsonInit("POST", { token }));
 }
 
 export async function postEnd(id: string, token: string): Promise<EndResponse> {

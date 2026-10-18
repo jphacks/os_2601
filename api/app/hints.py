@@ -229,7 +229,7 @@ def _checked(
     speech_limit, display_limit = limits
     if not speech or not display or len(written_speech) > speech_limit or len(display) > display_limit:
         return fixed_hint(fallback, "fallback", LeakCheck(ok=True, fallback=False), leaks)
-    return ComposedHint(speech, display, stuck_point, "gpt", model, LeakCheck(ok=True, fallback=False), problem_text, leaks)
+    return ComposedHint(speech, display, stuck_point, "ai", model, LeakCheck(ok=True, fallback=False), problem_text, leaks)
 
 
 def asks_for_help(utterance: str) -> bool:

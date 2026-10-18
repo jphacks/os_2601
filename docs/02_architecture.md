@@ -49,7 +49,7 @@ flowchart LR
 | フレーム（JPEG、長辺 1024） | 「はじめる」の 3 秒後（問題文の読み取り、ADR 0034）・手が止まって 17 秒（詰まりの 3 秒前）・「ヒント」「できた」の瞬間の 1 枚だけサーバへ。サーバはメモリに最新 1 枚だけ持つ | 残らない |
 | 詰まった瞬間・「できた」の瞬間のフレーム | ヒント生成・正誤チェックのために Gemini API（無料枠）へ送る | API 側の扱いは Google の規約に従い、無料枠では Google のサービス改善に使われうる（ADR 0025）。ピッチで自分から言う |
 | 状態、ヒント文、詰まりポイント、正誤 | JSON ファイル | 残る。記録画面に出すのはこれ |
-| 正答・典型ミス・固定ヒント・`leak_strings` | サーバだけ。`GET /worksheets*` は問題文だけ返す | デバイス・記録画面には出ない |
+| AI が解いた答えと途中の値（`leak_strings`） | サーバだけ | デバイス・記録画面には出ない |
 | 音声（マイク） | ブラウザの音声認識（Chrome は Google、Safari は Apple のサーバ）で文字にし、聞き取った文を写真 1 枚と一緒に AI に送る。答えるかは AI が決める（ADR 0032） | 音声は残らない。聞き取った文字も保存しない（答えたときだけ `trigger: voice` が残る） |
 
 ピッチでは「映像は手元だけ、残るのはラベルだけ。ただし手が止まったときの 1 枚は AI に送る」と自分から言う。
@@ -60,7 +60,7 @@ flowchart LR
 |---|---|---|---|
 | デバイス | `Authorization: Bearer <session_token>`（セッション作成時に発行） | `POST /sessions/{id}/signals` `frames` `hints` `check` `advance` `end`、`PATCH /sessions/{id}/settings`、`GET /sessions/{id}` | その机のブラウザだけ |
 | オペレータ | `X-Operator-Key`（環境変数 `OPERATOR_KEY`） | `POST /sessions` `GET /sessions*` `POST /sessions/{id}/end` `POST /demo/reset`、`POST /sessions/{id}/signals` は `force_stuck: true` のときだけ | `/ops`・`/log` を操作する人 |
-| 公開 | なし | `POST /sessions/open`（IP ごとに 1 分 3 件・全体で 1 分 30 件、30 分で自動終了、2 時間で消える。ADR 0036・0039）、`GET /worksheets*`（正答なし）、`GET /healthz` | 誰でも |
+| 公開 | なし | `POST /sessions/open`（IP ごとに 1 分 3 件・全体で 1 分 30 件、30 分で自動終了、2 時間で消える。ADR 0036・0039）、`GET /healthz` | 誰でも |
 
 正答はどの系統からも API では返さない。セキュリティの境界はトークンであり CORS ではない。
 
@@ -88,7 +88,7 @@ os_2601/
 │   │   ├── state.py       # 状態機械（純粋関数 step()＋表駆動テスト）
 │   │   ├── store.py       # JSON ファイル 1 つに保存・読込
 │   │   ├── worksheets.py  # worksheets/*.json の読込と検索
-│   │   ├── hints.py       # GPT 呼び出し、プロンプト、構造化出力、固定ヒント、scripted
+│   │   ├── hints.py       # Gemini の呼び出し、プロンプト、構造化出力、固定の問い返し、scripted
 │   │   ├── leak.py        # 答え漏れ検査（正規化と照合）
 │   │   └── check.py       # 正誤チェック
 │   ├── tools/

@@ -15,7 +15,6 @@ from app.routes import MAX_FRAME_BYTES, AppContext, router
 from app.state import SessionSettings, Thresholds
 from app.store import SessionStore
 from app.voicevox import Voicevox
-from app.worksheets import FREE_WORKSHEET
 
 SETTINGS_PATH = Path(__file__).resolve().parents[1] / "settings.yaml"
 DEFAULT_DATA_PATH = "./data/tonari.json"
@@ -58,7 +57,6 @@ def _build_context() -> AppContext:
             cooldown_seconds=settings["cooldown_seconds"],
             max_level=settings["max_level"],
         ),
-        worksheets={FREE_WORKSHEET.worksheet_id: FREE_WORKSHEET},
         store=SessionStore(Path(os.environ.get("DATA_PATH", DEFAULT_DATA_PATH))),
         operator_key=os.environ.get("OPERATOR_KEY", ""),
         demo_mode=os.environ.get("DEMO_MODE") == "1",

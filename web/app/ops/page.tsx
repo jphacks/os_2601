@@ -90,7 +90,7 @@ export default function OpsPage() {
   async function handleForceStuck() {
     setMessage("");
     try {
-      await postSignal(stuckTarget, { operatorKey }, { ts: new Date().toISOString(), force_stuck: true });
+      await postSignal(stuckTarget, { operatorKey }, { force_stuck: true });
       setMessage(`強制 stuck を送った（${stuckTarget}）`);
     } catch (error) {
       setMessage(`強制 stuck に失敗: ${errorText(error)}`);

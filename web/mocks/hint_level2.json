@@ -8,8 +8,8 @@
   "display": "右辺に移したときの符号、もう一回見てみて",
   "stuck_point": "移項の符号",
   "leak_check": { "ok": true, "fallback": false },
-  "source": "gpt",
-  "model": "gpt-6.1-sol",
+  "source": "ai",
+  "model": "gemini-3.5-flash-lite",
   "latency_ms": 2300,
   "state": "speaking"
 }

@@ -11,7 +11,7 @@ const STATUS_LABELS: Record<ProblemStatus, string> = {
   skipped: "飛ばした",
 };
 const TRIGGER_LABELS: Record<Trigger, string> = { auto: "手が止まって", manual: "ヒントボタン", voice: "声で呼んだ" };
-const SOURCE_LABELS: Record<HintSource, string> = { gpt: "AI", fallback: "固定の問い返し", scripted: "台本" };
+const SOURCE_LABELS: Record<HintSource, string> = { ai: "AI", fallback: "固定の問い返し", scripted: "台本" };
 const VERDICT_LABELS: Record<Verdict, string> = { correct: "正解", incorrect: "不正解", unreadable: "読めなかった" };
 
 function duration(seconds: number): string {
@@ -19,7 +19,7 @@ function duration(seconds: number): string {
 }
 
 function HintRow({ hint }: { hint: Hint }) {
-  const byAi = hint.source === "gpt";
+  const byAi = hint.source === "ai";
   return (
     <li className={`flex flex-col gap-1 rounded border-l-4 px-3 py-2 ${byAi ? "border-blue-500 bg-blue-50" : "border-gray-300 bg-gray-50"}`}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-600">

@@ -243,8 +243,8 @@ async function sendSignal(session: Session): Promise<void> {
   session.signalInFlight = true;
   const body: SignalRequest =
     session.latestScore === null
-      ? { ts: new Date().toISOString(), camera_ok: session.cameraOk }
-      : { ts: new Date().toISOString(), motion: session.latestScore, camera_ok: session.cameraOk };
+      ? { camera_ok: session.cameraOk }
+      : { motion: session.latestScore, camera_ok: session.cameraOk };
   try {
     const debugNote = new URLSearchParams(window.location.search).get("debug") === "1" ? voiceStatus() : undefined;
     const signal = await postSignal(session.id, { token: session.token }, body, debugNote);

@@ -55,7 +55,7 @@ from app.state import (
 )
 from app.store import SessionStore
 from app.voicevox import VoiceUnavailable, Voicevox
-from app.worksheets import FREE_WORKSHEET, PRINT_LAYOUT, Worksheet
+from app.worksheets import FREE_WORKSHEET
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,6 @@ class Prefetch:
 class AppContext:
     thresholds: Thresholds
     default_settings: SessionSettings
-    worksheets: dict[str, Worksheet]
     store: SessionStore
     operator_key: str
     demo_mode: bool
@@ -136,7 +135,6 @@ class SettingsPatch(BaseModel):
 
 
 class SignalRequest(BaseModel):
-    ts: datetime
     motion: float | None = Field(default=None, ge=0, le=1)
     camera_ok: bool | None = None
     force_stuck: bool = False
@@ -165,10 +163,6 @@ class ProblemRequest(BaseModel):
 class SpeechRequest(BaseModel):
     text: Annotated[str, Field(min_length=1, max_length=SPEECH_REQUEST_MAX_CHARS)]
     character: Literal["handsome", "teacher"] = "handsome"
-
-
-class AdvanceRequest(BaseModel):
-    reason: Literal["skip"] = "skip"
 
 
 router = APIRouter()
@@ -231,7 +225,7 @@ def _latest_frame(context: AppContext, session_id: str) -> bytes | None:
 
 
 def _ai_hints(problem: Problem) -> list[str]:
-    return [hint.display for hint in problem.hints if hint.source == "gpt"]
+    return [hint.display for hint in problem.hints if hint.source == "ai"]
 
 
 async def _compose(context: AppContext, problem: Problem, level: int, frame: bytes | None, persona: str = "teacher") -> ComposedHint:
@@ -390,22 +384,22 @@ def _stuck_points(session: Session) -> list[dict]:
     counts: dict[str, int] = {}
     for problem in session.problems:
         for hint in problem.hints:
-            if hint.source == "gpt":
+            if hint.source == "ai":
                 counts[hint.stuck_point] = counts.get(hint.stuck_point, 0) + 1
     return [{"label": label, "count": count} for label, count in sorted(counts.items(), key=lambda item: -item[1])]
 
 
 def _new_session(
-    context: AppContext, worksheet: Worksheet, learner_label: str, mode: Mode, settings: SessionSettings, auto_end_at: datetime | None
+    context: AppContext, learner_label: str, mode: Mode, settings: SessionSettings, auto_end_at: datetime | None
 ) -> dict:
     now = _now()
-    problems = [Problem(problem_no=problem_no) for problem_no in range(1, worksheet.problem_count + 1)]
+    problems = [Problem(problem_no=problem_no) for problem_no in range(1, FREE_WORKSHEET.problem_count + 1)]
     problems[0].status = "working"
     problems[0].started_at = now
     session = Session(
         session_id=_new_id("ses"),
         session_token=_new_id("tok"),
-        worksheet_id=worksheet.worksheet_id,
+        worksheet_id=FREE_WORKSHEET.worksheet_id,
         learner_label=learner_label,
         mode=mode,
         settings=settings,
@@ -420,7 +414,7 @@ def _new_session(
         "session_token": session.session_token,
         "mode": session.mode,
         "state": session.state,
-        "worksheet": {"worksheet_id": worksheet.worksheet_id, "title": worksheet.title, "problem_count": len(problems)},
+        "worksheet": {"worksheet_id": FREE_WORKSHEET.worksheet_id, "title": FREE_WORKSHEET.title, "problem_count": len(problems)},
         "settings": asdict(session.settings),
         "created_at": _iso(session.created_at),
     }
@@ -431,11 +425,10 @@ async def create_session(
     body: SessionCreateRequest, request: Request, context: AppContext = Depends(get_context)
 ) -> dict:
     _require_operator(request, context)
-    worksheet = context.worksheets.get(body.worksheet_id)
-    if worksheet is None:
+    if body.worksheet_id != FREE_WORKSHEET.worksheet_id:
         _fail(422, f"ワークシート {body.worksheet_id} が無い")
     settings = SessionSettings(**{**asdict(context.default_settings), **body.settings.model_dump(exclude_none=True)})
-    return _new_session(context, worksheet, body.learner_label, body.mode, settings, None)
+    return _new_session(context, body.learner_label, body.mode, settings, None)
 
 
 @router.post("/sessions/open", status_code=201)
@@ -446,9 +439,8 @@ async def open_session(request: Request, context: AppContext = Depends(get_conte
     if not _allow_open(context, _client_ip(request), now):
         _fail(429, "少し待ってから、もう一度開いてね")
     _forget_old_open_sessions(context, now)
-    worksheet = context.worksheets[FREE_WORKSHEET.worksheet_id]
     settings = replace(context.default_settings)
-    return _new_session(context, worksheet, OPEN_SESSION_LABEL, "live", settings, now + OPEN_SESSION_LIFETIME)
+    return _new_session(context, OPEN_SESSION_LABEL, "live", settings, now + OPEN_SESSION_LIFETIME)
 
 
 @router.get("/sessions")
@@ -482,11 +474,10 @@ async def get_session(session_id: str, request: Request, context: AppContext = D
     _require_device_or_operator(request, context, session)
     now = _now()
     session, _ = _apply(context, session, Tick(), now)
-    worksheet = context.worksheets[session.worksheet_id]
     return {
         "session_id": session.session_id,
         "worksheet_id": session.worksheet_id,
-        "worksheet_title": worksheet.title,
+        "worksheet_title": FREE_WORKSHEET.title,
         "problem_count": len(session.problems),
         "learner_label": session.learner_label,
         "mode": session.mode,
@@ -829,7 +820,7 @@ async def post_tts(session_id: str, body: SpeechRequest, request: Request, conte
 
 @router.post("/sessions/{session_id}/advance")
 async def post_advance(
-    session_id: str, request: Request, body: AdvanceRequest | None = None, context: AppContext = Depends(get_context)
+    session_id: str, request: Request, context: AppContext = Depends(get_context)
 ) -> dict:
     session = _find_session(context, session_id)
     _require_device(request, context, session)
@@ -845,35 +836,6 @@ async def post_end(session_id: str, request: Request, context: AppContext = Depe
     session, _ = _apply(context, session, End(), _now())
     context.store.save()
     return {"state": session.state, "ended_at": _iso(session.ended_at)}
-
-
-@router.get("/worksheets")
-async def list_worksheets(context: AppContext = Depends(get_context)) -> dict:
-    return {
-        "worksheets": [
-            {
-                "worksheet_id": worksheet.worksheet_id,
-                "title": worksheet.title,
-                "problem_count": worksheet.problem_count,
-                "grade": worksheet.grade,
-            }
-            for worksheet in context.worksheets.values()
-        ]
-    }
-
-
-@router.get("/worksheets/{worksheet_id}")
-async def get_worksheet(worksheet_id: str, context: AppContext = Depends(get_context)) -> dict:
-    worksheet = context.worksheets.get(worksheet_id)
-    if worksheet is None:
-        _fail(404, f"ワークシート {worksheet_id} が無い")
-    return {
-        "worksheet_id": worksheet.worksheet_id,
-        "title": worksheet.title,
-        "grade": worksheet.grade,
-        "problems": [],
-        "print": PRINT_LAYOUT,
-    }
 
 
 @router.post("/demo/reset")
@@ -893,7 +855,6 @@ async def demo_reset(request: Request, context: AppContext = Depends(get_context
 async def healthz(context: AppContext = Depends(get_context)) -> dict:
     return {
         "ok": True,
-        "gpt": "ok" if context.ai else "missing",
-        "worksheets": len(context.worksheets),
+        "ai": "ok" if context.ai else "missing",
         "mode_default": MODE_DEFAULT,
     }

@@ -67,6 +67,7 @@ function createRecognizer(): Recognizer | null {
     heardSinceStart = true;
     clearTimeout(settleTimer);
     const pending: string[] = [];
+    let finished = false;
     for (let i = event.resultIndex; i < event.results.length; i += 1) {
       const text = event.results[i][0].transcript.trim();
       if (!text) continue;
@@ -74,10 +75,11 @@ function createRecognizer(): Recognizer | null {
         pending.push(text);
         continue;
       }
+      finished = true;
       note(`聞こえた ${text.length} 字`);
       onHeard(text);
     }
-    interim = pending.length > 0 ? pending.join("") : null;
+    interim = !finished && pending.length > 0 ? pending.join("") : null;
     if (interim) {
       note(`途中 ${interim.length} 字`);
       settleTimer = setTimeout(settle, INTERIM_SETTLE_MS);

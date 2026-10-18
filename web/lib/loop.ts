@@ -46,6 +46,7 @@ type Session = {
   connected: boolean | null;
   greeted: boolean;
   requestInFlight: boolean;
+  checking: boolean;
   voiceInFlight: boolean;
   pendingUtterance: string | null;
   autoHintDone: boolean;
@@ -217,6 +218,7 @@ async function answerHeard(session: Session, text: string): Promise<void> {
 }
 
 function handleSignal(session: Session, signal: SignalResponse): void {
+  if (signal.state !== "ended" && (session.checking || signal.state === "checking")) return;
   session.handlers.onState(signal);
   if (signal.state === "ended") {
     session.stop();
@@ -297,6 +299,7 @@ export function startSession(
     connected: null,
     greeted: false,
     requestInFlight: false,
+    checking: false,
     voiceInFlight: false,
     pendingUtterance: null,
     autoHintDone: false,
@@ -348,13 +351,16 @@ export async function requestManualHint(): Promise<HintResponse> {
 export async function requestCheck(): Promise<CheckResponse> {
   const session = requireSession();
   session.requestInFlight = true;
+  session.checking = true;
   updateState(session, "checking", session.problemNo);
   try {
     const frameId = await sendFrame(session);
     const check = await postCheck(session.id, session.token, { frame_id: frameId });
+    session.checking = false;
     applyResponse(session, check.speech, check.state, check.next_problem_no ?? check.problem_no);
     return check;
   } finally {
+    session.checking = false;
     session.requestInFlight = false;
   }
 }

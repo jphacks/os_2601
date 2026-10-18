@@ -49,7 +49,6 @@ function pageWithoutSession(): string {
 }
 
 function failureCaption(error: unknown): string | null {
-  if (!(error instanceof ApiError)) console.warn("[device] 操作に失敗", error);
   if (error instanceof ApiError && error.status === 409) return null;
   return error instanceof ApiError && error.status === 429 ? RATE_LIMITED_CAPTION : FAILED_CAPTION;
 }
@@ -72,9 +71,9 @@ function Device() {
   const endSpokenRef = useRef(false);
   const personaUpdatingRef = useRef(false);
   const recordLoadingRef = useRef(false);
-  const checkingRef = useRef(false);
   const hintWhileCheckingRef = useRef(false);
   const lastCheckRef = useRef<string | null>(null);
+  const finishingRef = useRef(false);
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [record, setRecord] = useState<SessionDetail | null>(null);
   const [recordStatus, setRecordStatus] = useState<"idle" | "loading" | "failed">("idle");
@@ -85,6 +84,7 @@ function Device() {
   const [stuckSeconds, setStuckSeconds] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [personaUpdating, setPersonaUpdating] = useState(false);
+  const [finishing, setFinishing] = useState(false);
   const [personaError, setPersonaError] = useState("");
   const [brightness, setBrightness] = useState<number | null>(null);
   const [stillSeconds, setStillSeconds] = useState(0);
@@ -143,6 +143,9 @@ function Device() {
         personaUpdatingRef.current = false;
         startingRef.current = false;
         recordLoadingRef.current = false;
+        lastCheckRef.current = null;
+        finishingRef.current = false;
+        setFinishing(false);
         setSession(detail);
         setRecord(null);
         setRecordStatus("idle");
@@ -200,6 +203,8 @@ function Device() {
     setState(next);
     setProblemNo(appliedProblemNo);
     if (next === "ended") {
+      finishingRef.current = false;
+      setFinishing(false);
       const confirmed = sessionRef.current;
       const persona = confirmed?.settings.persona ?? "teacher";
       const message = endMessage(persona, confirmed?.persona_options);
@@ -306,9 +311,7 @@ function Device() {
       onState: (signal) => {
         if (
           version !== requestVersion.current ||
-          (signal.state !== "ended" && signal.current_problem_no < problemNoRef.current) ||
-          (signal.state !== "ended" && checkingRef.current) ||
-          (signal.state === "checking" && !checkingRef.current)
+          (signal.state !== "ended" && signal.current_problem_no < problemNoRef.current)
         ) return;
         applyState(signal.state, signal.current_problem_no);
         setStillSeconds(signal.still_seconds);
@@ -318,8 +321,10 @@ function Device() {
           version !== requestVersion.current || stateRef.current === "ended" ||
           hint.problem_no !== problemNoRef.current
         ) return;
-        if (checkingRef.current) hintWhileCheckingRef.current = true;
-        if (hint.speech !== null) setCaption(hint.display);
+        if (hint.speech !== null) {
+          if (stateRef.current === "checking") hintWhileCheckingRef.current = true;
+          setCaption(hint.display);
+        }
         setProblemText(hint.problem_text);
       },
       onBrightness: setBrightness,
@@ -344,8 +349,9 @@ function Device() {
       ) return;
       if (hint.speech !== null) setCaption(hint.display);
       setProblemText(hint.problem_text);
-      applyState(hint.state, hint.problem_no);
+      if (hint.state !== "ended") applyState(hint.state, hint.problem_no);
     } catch (error) {
+      console.warn("[device] ヒントに失敗", error);
       const message = failureCaption(error);
       if (version === requestVersion.current && message && stateRef.current !== "ended") setCaption(message);
     } finally {
@@ -359,19 +365,21 @@ function Device() {
     const before = { state, problemNo, caption };
     setBusy(true);
     applyState("checking", problemNo);
-    checkingRef.current = true;
     hintWhileCheckingRef.current = false;
     try {
       const check = await requestCheck();
       if (version !== requestVersion.current || checkedProblemNo !== problemNoRef.current || stateRef.current === "ended") return;
       if (check.state === "ended") {
         lastCheckRef.current = check.display;
+        finishingRef.current = true;
+        setFinishing(true);
         setCaption(check.display);
         return;
       }
       applyState(check.state, check.next_problem_no ?? check.problem_no);
       if (!FIXED_CAPTIONS[check.state]) setCaption(check.display);
     } catch (error) {
+      console.warn("[device] できたに失敗", error);
       const message = failureCaption(error);
       if (version === requestVersion.current && checkedProblemNo === problemNoRef.current && stateRef.current === "checking") {
         stateRef.current = before.state;
@@ -379,7 +387,6 @@ function Device() {
         if (!hintWhileCheckingRef.current) setCaption(message ?? before.caption);
       }
     } finally {
-      checkingRef.current = false;
       if (version === requestVersion.current) setBusy(false);
     }
   }
@@ -393,6 +400,7 @@ function Device() {
       applyState(response.state, response.current_problem_no);
       if (response.state !== "ended") setCaption(NEXT_CAPTION);
     } catch (error) {
+      console.warn("[device] 次へに失敗", error);
       const message = failureCaption(error);
       if (version === requestVersion.current && message && stateRef.current !== "ended") setCaption(message);
     } finally {
@@ -401,7 +409,7 @@ function Device() {
   }
 
   async function handleEnd() {
-    if (personaUpdatingRef.current || startingRef.current || stateRef.current === "ended") return;
+    if (personaUpdatingRef.current || startingRef.current || finishingRef.current || stateRef.current === "ended") return;
     if (!window.confirm(END_CONFIRM)) return;
     const version = requestVersion.current;
     setBusy(true);
@@ -494,7 +502,7 @@ function Device() {
           )}
           <Buttons
             state={state}
-            busy={busy || personaUpdating || !session}
+            busy={busy || personaUpdating || finishing || !session}
             onStart={handleStart}
             onHint={handleHint}
             onCheck={handleCheck}

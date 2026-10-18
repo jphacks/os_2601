@@ -16,9 +16,9 @@ import signalsSpeakingMock from "@/mocks/signals_speaking.json";
 import signalsStillMock from "@/mocks/signals_still.json";
 import signalsStuckMock from "@/mocks/signals_stuck.json";
 import signalsWatchingMock from "@/mocks/signals_watching.json";
-import { personaOptions, type Persona, type PersonaOption } from "./personas";
+import { personaOptions, type Persona, type PersonaOption, type VoiceCharacter } from "./personas";
 
-export type { Persona, PersonaOption } from "./personas";
+export type { Persona, PersonaOption, VoiceCharacter } from "./personas";
 
 export type State = "created" | "watching" | "still" | "stuck" | "speaking" | "cooldown" | "checking" | "ended";
 export type Mode = "live" | "scripted";
@@ -29,8 +29,6 @@ export type Verdict = "correct" | "incorrect" | "unreadable";
 export type ProblemStatus = "pending" | "working" | "done" | "skipped";
 
 export type LeakCheck = { ok: boolean; fallback: boolean };
-
-export type VoiceCharacter = "handsome" | "teacher";
 
 export type Settings = { stuck_seconds: number; cooldown_seconds: number; max_level: number; persona: Persona };
 

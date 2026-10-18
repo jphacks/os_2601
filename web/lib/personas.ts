@@ -1,5 +1,7 @@
 export type Persona = "teacher" | "ikemen";
 
+export type VoiceCharacter = "handsome" | "teacher";
+
 export type PersonaOption = { id: Persona; display_name: string; end_message: string };
 
 // 古いモックにメタデータがない場合だけ使う。通常はサーバーの人格設定を使う。
@@ -34,4 +36,12 @@ export function personaOptions(value: unknown): PersonaOption[] {
 
 export function endMessage(persona: Persona, options?: unknown): string {
   return personaOptions(options).find((option) => option.id === persona)!.end_message;
+}
+
+export function voiceOf(persona: Persona): VoiceCharacter {
+  return persona === "ikemen" ? "handsome" : "teacher";
+}
+
+export function personaOf(voice: VoiceCharacter): Persona {
+  return voice === "handsome" ? "ikemen" : "teacher";
 }

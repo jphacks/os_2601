@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { listSessions } from "@/lib/api";
-import { useOperatorPolling } from "./_components/useOperatorPolling";
+import { useOperatorPolling } from "@/app/_components/operator/useOperatorPolling";
 import { dateTime, sessionStatus } from "@/app/_components/record/format";
 
 export default function LogListPage() {

@@ -385,6 +385,54 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
 
+  /sessions/{id}/problem:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      tags: [hints]
+      operationId: readProblem
+      summary: 最新のフレームから問題文だけを読み取る
+      description: |
+        「はじめる」の 3 秒後と、問題が変わったときにデバイスが呼ぶ（ADR 0034）。AI に問題文だけを読ませ（答案は解かない）、`problems[].problem_text` に入れて返す。
+        読めなければ `problem_text` は今の値のまま（まだなら null）。状態は変えない。`ended` では 409。`frame_id` は照合せず最新 1 枚を使う。
+      security:
+        - device: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [frame_id]
+              properties:
+                frame_id:
+                  type: string
+            example: {"frame_id": "frm_…"}
+      responses:
+        "200":
+          description: 読み取った
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [problem_no, problem_text, state]
+                properties:
+                  problem_no:
+                    type: integer
+                  problem_text:
+                    type: [string, "null"]
+                  state:
+                    $ref: "#/components/schemas/State"
+              example: {"problem_no": 1, "problem_text": "2x - 7 = 4x + 3", "state": "watching"}
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
   /sessions/{id}/advance:
     parameters:
       - $ref: "#/components/parameters/SessionId"

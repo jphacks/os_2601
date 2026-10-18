@@ -13,6 +13,8 @@ class ListeningAI:
     def __init__(self) -> None:
         self.respond = True
         self.fail = False
+        self.unreadable = False
+        self.problem_text = "2x - 7 = 4x + 3"
         self.requests: list[str] = []
         self.on_call: Callable[[], None] = lambda: None
 
@@ -23,9 +25,9 @@ class ListeningAI:
             raise AIUnavailable("timeout")
         return {
             "respond": self.respond,
-            "readable": True,
-            "unreadable_reason": "none",
-            "problem_text": "2x - 7 = 4x + 3",
+            "readable": not self.unreadable,
+            "unreadable_reason": "dark" if self.unreadable else "none",
+            "problem_text": "" if self.unreadable else self.problem_text,
             "final_answer": "x = -5",
             "key_values": ["-2x = 10"],
             "stuck_point": "移項の意味",
@@ -97,3 +99,34 @@ def test_scripted_session_does_not_answer_what_it_hears(device: Device, ai: List
     scripted = Device(device.client, created["session_id"], {"Authorization": f"Bearer {created['session_token']}"})
     assert ask(scripted, start_watching(scripted), "これ分からない").status_code == 204
     assert ai.requests == []
+
+
+def read(device: Device, frame_id: str):
+    return device.client.post(f"/sessions/{device.session_id}/problem", json={"frame_id": frame_id}, headers=device.headers)
+
+
+def test_problem_text_is_read_from_the_latest_frame_without_a_hint(device: Device, ai: ListeningAI) -> None:
+    frame_id = start_watching(device)
+    assert read(device, frame_id).json() == {"problem_no": 1, "problem_text": "2x - 7 = 4x + 3", "state": "watching"}
+    assert "問題文" in ai.requests[0]
+    assert device.client.get(f"/sessions/{device.session_id}", headers=device.headers).json()["problems"][0]["problem_text"] == "2x - 7 = 4x + 3"
+    assert device.recorded_hints() == []
+
+
+def test_unreadable_frame_keeps_the_problem_text_and_a_new_text_resets_the_leak_strings(device: Device, ai: ListeningAI) -> None:
+    frame_id = start_watching(device)
+    ask(device, frame_id, "移項って何？")
+    store = device.client.app.state.context.store
+    assert store.get(device.session_id).problems[0].leak_strings != []
+    ai.unreadable = True
+    assert read(device, frame_id).json()["problem_text"] == "2x - 7 = 4x + 3"
+    ai.unreadable = False
+    ai.problem_text = "3x + 2 = 8"
+    assert read(device, frame_id).json()["problem_text"] == "3x + 2 = 8"
+    assert store.get(device.session_id).problems[0].leak_strings == []
+
+
+def test_reading_after_the_session_ended_is_rejected(device: Device, ai: ListeningAI) -> None:
+    frame_id = start_watching(device)
+    device.client.post(f"/sessions/{device.session_id}/end", headers=device.headers)
+    assert read(device, frame_id).status_code == 409

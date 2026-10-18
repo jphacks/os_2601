@@ -1,5 +1,5 @@
 const LANG = "ja-JP";
-const RESTART_DELAY_MS = 0;
+const RESTART_DELAY_MS = 500;
 const QUICK_END_MS = 500;
 const QUICK_END_RETRY_DELAY_MS = 1000;
 const RETRY_DELAY_MS = 3000;

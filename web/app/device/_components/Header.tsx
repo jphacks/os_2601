@@ -1,5 +1,7 @@
 import type { Mode } from "@/lib/api";
 
+export const CONNECTION_LOST = "つながりにくいみたい";
+
 // mode は getSession が成功するまで null。接続の警告は mode が無くても出す
 export function Header({ mode, connected }: { mode: Mode | null; connected: boolean }) {
   return (
@@ -7,13 +9,11 @@ export function Header({ mode, connected }: { mode: Mode | null; connected: bool
       {mode === "scripted" && (
         <p className="rounded-full bg-yellow-400 px-4 py-1 text-center text-sm font-bold text-black">scripted</p>
       )}
-      <div role="status">
-        {!connected && (
-          <p className="rounded-full bg-red-50 px-4 py-1 text-center text-base font-bold text-red-600">
-            つながりにくいみたい
-          </p>
-        )}
-      </div>
+      {!connected && (
+        <p className="rounded-full bg-red-50 px-4 py-1 text-center text-base font-bold text-red-600">
+          {CONNECTION_LOST}
+        </p>
+      )}
     </header>
   );
 }

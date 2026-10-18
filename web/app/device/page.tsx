@@ -12,7 +12,7 @@ import { Buttons } from "./_components/Buttons";
 import { Caption, HeardBubble } from "./_components/Caption";
 import { Character } from "./_components/Character";
 import { CharacterPicker } from "./_components/CharacterPicker";
-import { Header } from "./_components/Header";
+import { CONNECTION_LOST, Header } from "./_components/Header";
 import { RecordSheet } from "./_components/RecordSheet";
 import { nearestChoice, SecondsPicker } from "./_components/SecondsPicker";
 import { ProblemText } from "./_components/ProblemText";
@@ -34,6 +34,8 @@ const RATE_LIMITED_CAPTION = "少し待ってから、もう一度押してね";
 const SETTINGS_FAILED_CAPTION = "秒数を変えられなかったよ。前の秒数のまま見守るね";
 const END_FAILED_CAPTION = "つながりにくくて、終わったことを伝えられなかったよ";
 const LOAD_FAILED_CAPTION = "つながらなかったよ。ページを開き直してね";
+const PERSONA_FAILED = "切り替えられませんでした。もう一度試してね。";
+const RECORD_FAILED = "記録を読めませんでした";
 const OPEN_RETRY_MS = 20000;
 const END_CONFIRM = "おわる？";
 // 平均輝度がこれ未満なら「明るさが足りません」を重ねる（docs/tasks/b.md の B1-4）
@@ -93,6 +95,7 @@ function Device() {
   // 同じ文字が続けて来ても 3 秒を数え直すように、受け取るたびに新しいオブジェクトにする
   const [heard, setHeard] = useState<{ text: string } | null>(null);
   const [openAttempt, setOpenAttempt] = useState(0);
+  const [notice, setNotice] = useState("");
   const recordButtonRef = useRef<HTMLButtonElement>(null);
   const closeRecord = useCallback(() => {
     setRecord(null);
@@ -119,6 +122,7 @@ function Device() {
         console.warn("[device] openSession に失敗", error);
         if (error instanceof ApiError && error.status === 429) {
           setCaption(BUSY_CAPTION);
+          setNotice(BUSY_CAPTION);
           retry = setTimeout(() => {
             setCaption(OPENING_CAPTION);
             setOpenAttempt((attempt) => attempt + 1);
@@ -126,6 +130,7 @@ function Device() {
           return;
         }
         setCaption(NO_SESSION_CAPTION);
+        setNotice(NO_SESSION_CAPTION);
       });
     return () => {
       cancelled = true;
@@ -175,6 +180,7 @@ function Device() {
         }
         setConnected(false);
         setCaption(LOAD_FAILED_CAPTION);
+        setNotice(LOAD_FAILED_CAPTION);
       });
     return () => {
       cancelled = true;
@@ -266,7 +272,8 @@ function Device() {
       updateSessionPersona(sessionId, response.settings.persona);
     } catch (error) {
       if (version === requestVersion.current && stateRef.current !== "ended") {
-        setPersonaError("切り替えられませんでした。もう一度試してね。");
+        setPersonaError(PERSONA_FAILED);
+        setNotice(PERSONA_FAILED);
         console.warn("[device] 人格を切り替えられなかった", error);
       }
     } finally {
@@ -306,7 +313,7 @@ function Device() {
       console.warn("[device] startCamera に失敗", error);
       stopListening();
       const denied = error instanceof TypeError || (error instanceof Error && error.name === "CameraDenied");
-      setCaption(denied ? CAMERA_DENIED_CAPTION : CAMERA_FAILED_CAPTION);
+      tell(denied ? CAMERA_DENIED_CAPTION : CAMERA_FAILED_CAPTION);
       setBusy(false);
       startingRef.current = false;
       return;
@@ -321,7 +328,7 @@ function Device() {
       setSession(sessionRef.current);
       setSpeechCharacter(updated.settings.persona === "ikemen" ? "handsome" : "teacher");
     } else if (patching) {
-      setCaption(SETTINGS_FAILED_CAPTION);
+      tell(SETTINGS_FAILED_CAPTION);
     }
     endSpokenRef.current = false;
     stopRef.current = startSession(video, sessionId, token, {
@@ -345,7 +352,10 @@ function Device() {
         setProblemText(hint.problem_text);
       },
       onBrightness: setBrightness,
-      onConnection: setConnected,
+      onConnection: (connected) => {
+        setConnected(connected);
+        if (!connected) setNotice(CONNECTION_LOST);
+      },
       onFinishing: () => {
         if (version !== requestVersion.current) return;
         finishingRef.current = true;
@@ -360,9 +370,14 @@ function Device() {
     startingRef.current = false;
   }
 
+  function tell(text: string) {
+    setCaption(text);
+    setNotice(text);
+  }
+
   function showFailure(version: number, error: unknown) {
     const message = failureCaption(error);
-    if (version === requestVersion.current && message && stateRef.current !== "ended" && !finishingRef.current) setCaption(message);
+    if (version === requestVersion.current && message && stateRef.current !== "ended" && !finishingRef.current) tell(message);
   }
 
   async function handleHint() {
@@ -412,7 +427,8 @@ function Device() {
       ) {
         stateRef.current = before.state;
         setState(before.state);
-        if (!hintWhileCheckingRef.current) setCaption(message ?? before.caption);
+        if (!hintWhileCheckingRef.current && message) tell(message);
+        else if (!hintWhileCheckingRef.current) setCaption(before.caption);
       }
     } finally {
       if (version === requestVersion.current) setBusy(false);
@@ -445,7 +461,7 @@ function Device() {
     } catch (error) {
       console.warn("[device] 終わりを伝えられなかった", error);
       const unreachable = error instanceof TypeError || error instanceof DOMException || (error instanceof ApiError && error.status >= 500);
-      if (version === requestVersion.current && unreachable) setCaption(END_FAILED_CAPTION);
+      if (version === requestVersion.current && unreachable) tell(END_FAILED_CAPTION);
     } finally {
       if (version === requestVersion.current) {
         stopRef.current = null;
@@ -468,6 +484,7 @@ function Device() {
       if (version === requestVersion.current) {
         console.warn("[device] 記録を読めなかった", error);
         setRecordStatus("failed");
+        setNotice(RECORD_FAILED);
       }
     } finally {
       if (version === requestVersion.current) recordLoadingRef.current = false;
@@ -477,6 +494,7 @@ function Device() {
   return (
     <>
       <main inert={record !== null} className="relative isolate flex flex-1 flex-col overflow-hidden bg-linear-to-b from-sky-400 via-sky-200 to-cyan-100 text-slate-800">
+        <p role="status" className="sr-only">{notice}</p>
         {/* 下の丘（飾り） */}
         <div
           aria-hidden
@@ -507,7 +525,7 @@ function Device() {
                 </button>
               )}
               {recordStatus === "failed" && (
-                <p className="rounded-lg bg-white/80 px-2 py-1 text-center text-xs font-bold text-red-700">記録を読めませんでした</p>
+                <p className="rounded-lg bg-white/80 px-2 py-1 text-center text-xs font-bold text-red-700">{RECORD_FAILED}</p>
               )}
             </div>
           </div>
@@ -526,7 +544,7 @@ function Device() {
               onChange={(id) => void handlePersonaChange(id === "handsome" ? "ikemen" : "teacher")}
               disabled={!session || busy || personaUpdating || finishing || !canChangePersona}
             />}
-            <div role="status">{personaError && <p className="px-2 text-sm text-red-700">{personaError}</p>}</div>
+            {personaError && <p className="px-2 text-sm text-red-700">{personaError}</p>}
             {state === "created" && selectedSeconds !== null && (
               <SecondsPicker value={selectedSeconds} onChange={setStuckSeconds} />
             )}

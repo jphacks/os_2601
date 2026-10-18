@@ -6,7 +6,11 @@
 
 iPhone の画面を録画したもの（1.5 倍速、音なし）。はじめる → 紙の問題文を読み取る → ヒント 2 回 → 「できた」で正解 → おわる → 今日の記録。
 
-製品説明動画（YouTube）は準備中。
+製品説明動画（YouTube、縦向き）：
+
+[![となり 製品説明動画](https://img.youtube.com/vi/04hRV0uHNMU/hqdefault.jpg)](https://youtube.com/shorts/04hRV0uHNMU)
+
+https://youtube.com/shorts/04hRV0uHNMU
 
 ## 製品概要
 

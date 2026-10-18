@@ -30,7 +30,6 @@ let onHeard: (text: string) => void = () => {};
 let wanted = false;
 let running = false;
 let blocked = false;
-let micBusy = false;
 let waitingForTap = false;
 let startedAt = 0;
 let heardSinceStart = false;
@@ -83,7 +82,6 @@ function createRecognizer(): Recognizer | null {
       wanted = false;
     } else if (event.error === MIC_BUSY_ERROR) {
       console.warn(`[voice] マイクを取れない（通話中など）。${MIC_BUSY_RETRY_DELAY_MS / 1000} 秒待って再開`);
-      micBusy = true;
       running = false;
       nextBeginDelayMs = MIC_BUSY_RETRY_DELAY_MS;
       scheduleBegin(MIC_BUSY_RETRY_DELAY_MS);
@@ -121,7 +119,6 @@ function begin(): void {
   try {
     recognizer.start();
     running = true;
-    micBusy = false;
     startedAt = Date.now();
     heardSinceStart = false;
     note("start");

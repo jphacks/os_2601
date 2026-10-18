@@ -69,6 +69,7 @@ const PROBLEM_READ_RETRY_MS = 3000;
 const MIN_UTTERANCE_CHARS = 3;
 const MAX_UTTERANCE_CHARS = 200;
 const LISTEN_STATES: State[] = ["watching", "still", "cooldown"];
+const LAST_WORDS_LIMIT_MS = 12000;
 
 let activeSession: Session | null = null;
 
@@ -118,14 +119,13 @@ function finish(session: Session, problemNo: number, lastWords: string | null = 
     return;
   }
   session.handlers.onFinishing();
-  speak(lastWords)
-    .catch((error) => console.warn("[loop] 最後の読み上げに失敗", error))
-    .finally(announce);
+  const spoken = speak(lastWords).catch((error) => console.warn("[loop] 最後の読み上げに失敗", error));
+  const limit = new Promise<void>((resolve) => setTimeout(resolve, LAST_WORDS_LIMIT_MS));
+  void Promise.race([spoken, limit]).then(announce);
 }
 
 function applyResponse(session: Session, speech: string | null, state: State, problemNo: number): void {
   if (!session.running) return;
-  session.answeredAt = performance.now();
   if (state === "ended") {
     finish(session, problemNo, speech);
     return;
@@ -173,6 +173,7 @@ async function fetchHint(
 }
 
 function deliverHint(session: Session, hint: HintResponse): void {
+  session.answeredAt = performance.now();
   if (!session.running || hint.problem_no !== session.problemNo) return;
   session.handlers.onHint(hint);
   applyResponse(session, hint.speech, hint.state, hint.problem_no);
@@ -225,11 +226,12 @@ async function answerHeard(session: Session, text: string): Promise<void> {
 }
 
 function handleSignal(session: Session, signal: SignalResponse, sentAt: number): void {
+  if (session.checking) return;
   if (signal.state === "ended") {
     finish(session, signal.current_problem_no);
     return;
   }
-  if (session.checking || sentAt < session.answeredAt) return;
+  if (sentAt < session.answeredAt) return;
   session.handlers.onState(signal);
   if (signal.state === "watching" && !session.greeted) {
     session.greeted = true;
@@ -350,7 +352,8 @@ export async function requestManualHint(): Promise<HintResponse> {
   session.requestInFlight = true;
   try {
     const hint = await fetchHint(session, "manual");
-    if (hint.problem_no === session.problemNo) applyResponse(session, hint.speech, hint.state, hint.problem_no);
+    session.answeredAt = performance.now();
+    if (hint.state === "ended" || hint.problem_no === session.problemNo) applyResponse(session, hint.speech, hint.state, hint.problem_no);
     return hint;
   } finally {
     session.requestInFlight = false;
@@ -378,6 +381,7 @@ export async function advance(): Promise<AdvanceResponse> {
   const session = requireSession();
   stopSpeaking();
   const response = await postAdvance(session.id, session.token);
+  session.answeredAt = performance.now();
   applyResponse(session, null, response.state, response.current_problem_no);
   return response;
 }

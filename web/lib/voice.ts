@@ -10,6 +10,7 @@ const FATAL_ERRORS = new Set(["service-not-allowed", "language-not-supported"]);
 const QUIET_ERRORS = new Set(["no-speech", "aborted"]);
 const EVENTS_SHOWN = 4;
 const INTERIM_SETTLE_MS = 2000;
+const MAX_REFUSED_TAPS = 2;
 
 type RecognitionResultEvent = { resultIndex: number; results: SpeechRecognitionResultList };
 
@@ -41,6 +42,7 @@ let settleTimer: ReturnType<typeof setTimeout> | undefined;
 let interim: string | null = null;
 let settled = false;
 let startedByTap = false;
+let refusedTaps = 0;
 const events: string[] = ["未開始"];
 
 function note(event: string): void {
@@ -65,6 +67,7 @@ function createRecognizer(): Recognizer | null {
   created.onresult = (event) => {
     if (!wanted || settled) return;
     heardSinceStart = true;
+    refusedTaps = 0;
     const pending: string[] = [];
     let finished = false;
     for (let i = event.resultIndex; i < event.results.length; i += 1) {
@@ -92,7 +95,7 @@ function createRecognizer(): Recognizer | null {
   };
   created.onerror = (event) => {
     note(`error:${event.error}`);
-    if (event.error === NEEDS_GESTURE_ERROR && startedByTap) {
+    if (event.error === NEEDS_GESTURE_ERROR && startedByTap && ++refusedTaps >= MAX_REFUSED_TAPS) {
       console.warn("[voice] タップの直後でも許可されなかったので、このページではもう聞かない");
       blocked = true;
       wanted = false;

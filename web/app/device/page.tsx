@@ -208,7 +208,10 @@ function Device() {
     // 再開直後のloopはまだ問題番号1を持つ場合がある。終了はセッション全体に適用する。
     const appliedProblemNo = next === "ended" ? Math.max(problemNoRef.current, nextProblemNo) : nextProblemNo;
     if (appliedProblemNo < problemNoRef.current || (stateRef.current === "ended" && next !== "ended")) return;
-    if (appliedProblemNo !== problemNoRef.current) setProblemText(null);
+    if (appliedProblemNo !== problemNoRef.current) {
+      setProblemText(null);
+      if (next !== "ended") setCaption(NEXT_CAPTION);
+    }
     problemNoRef.current = appliedProblemNo;
     stateRef.current = next;
     setState(next);

@@ -13,19 +13,12 @@ export function RecordSheet({ session, onClose }: Props) {
   const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const scroll = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     closeRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = scroll;
-      opener?.focus();
-    };
+    return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
   return (
@@ -36,7 +29,7 @@ export function RecordSheet({ session, onClose }: Props) {
           とじる
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto overscroll-contain">
         <div className="mx-auto w-full max-w-3xl p-4">
           <SessionRecord session={session} />
         </div>

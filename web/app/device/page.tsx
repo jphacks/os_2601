@@ -93,7 +93,11 @@ function Device() {
   // 同じ文字が続けて来ても 3 秒を数え直すように、受け取るたびに新しいオブジェクトにする
   const [heard, setHeard] = useState<{ text: string } | null>(null);
   const [openAttempt, setOpenAttempt] = useState(0);
-  const closeRecord = useCallback(() => setRecord(null), []);
+  const recordButtonRef = useRef<HTMLButtonElement>(null);
+  const closeRecord = useCallback(() => {
+    setRecord(null);
+    requestAnimationFrame(() => recordButtonRef.current?.focus());
+  }, []);
 
   useEffect(() => {
     if (sessionId && token) return;
@@ -471,76 +475,79 @@ function Device() {
   }
 
   return (
-    <main className="relative isolate flex flex-1 flex-col overflow-hidden bg-linear-to-b from-sky-400 via-sky-200 to-cyan-100 text-slate-800">
-      {/* 下の丘（飾り） */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -inset-x-1/2 -bottom-1/3 -z-10 h-1/2 rounded-[50%] bg-linear-to-b from-lime-300 to-green-600"
-      />
-      <div className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-3 p-4">
-        {/* 上：ヘッダと問題文を真ん中、映像は右上に小さく（映像は常に表示する。docs/06） */}
-        <div className="flex items-start gap-3">
-          <div className="flex min-w-0 flex-1 flex-col items-center gap-2">
-            <Header mode={session?.mode ?? null} connected={connected} />
-            <ProblemText text={problemText} />
+    <>
+      <main inert={record !== null} className="relative isolate flex flex-1 flex-col overflow-hidden bg-linear-to-b from-sky-400 via-sky-200 to-cyan-100 text-slate-800">
+        {/* 下の丘（飾り） */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -inset-x-1/2 -bottom-1/3 -z-10 h-1/2 rounded-[50%] bg-linear-to-b from-lime-300 to-green-600"
+        />
+        <div className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-3 p-4">
+          {/* 上：ヘッダと問題文を真ん中、映像は右上に小さく（映像は常に表示する。docs/06） */}
+          <div className="flex items-start gap-3">
+            <div className="flex min-w-0 flex-1 flex-col items-center gap-2">
+              <Header mode={session?.mode ?? null} connected={connected} />
+              <ProblemText text={problemText} />
+            </div>
+            <div className="flex w-28 shrink-0 flex-col gap-3">
+              <VideoFrame
+                videoRef={videoRef}
+                dark={brightness !== null && brightness < DARK_BRIGHTNESS}
+                debugText={debug ? `輝度 ${brightness === null ? "-" : Math.round(brightness)} / 静止 ${stillSeconds} 秒 / 声 ${voiceStatus()}` : null}
+              />
+              {state === "ended" && (
+                <button
+                  ref={recordButtonRef}
+                  type="button"
+                  onClick={handleShowRecord}
+                  disabled={recordStatus === "loading"}
+                  className="rounded-full bg-white px-3 py-2.5 text-sm font-bold text-sky-700 shadow-md ring-2 ring-sky-300 disabled:opacity-60"
+                >
+                  {recordStatus === "loading" ? "読み込み中…" : "記録を見る"}
+                </button>
+              )}
+              {recordStatus === "failed" && (
+                <p className="rounded-lg bg-white/80 px-2 py-1 text-center text-xs font-bold text-red-700">記録を読めませんでした</p>
+              )}
+            </div>
           </div>
-          <div className="flex w-28 shrink-0 flex-col gap-3">
-            <VideoFrame
-              videoRef={videoRef}
-              dark={brightness !== null && brightness < DARK_BRIGHTNESS}
-              debugText={debug ? `輝度 ${brightness === null ? "-" : Math.round(brightness)} / 静止 ${stillSeconds} 秒 / 声 ${voiceStatus()}` : null}
+          {/* 真ん中：キャラクターを左下に大きく、吹き出しを右に重ねる（Tolan の会話画面の並び） */}
+          <div className="relative flex min-h-48 flex-1 items-end">
+            <Character state={state} id={characterId} className="absolute bottom-0 -left-4 h-full max-h-[28rem] w-auto" />
+            <div className="relative ml-[38%] flex w-[62%] flex-col gap-3 self-center">
+              {heard && <HeardBubble text={heard.text} />}
+              <Caption text={caption} />
+            </div>
+          </div>
+          {/* 下：入力欄の位置にボタン */}
+          <div className="relative flex flex-col gap-3 rounded-[2rem] bg-white/70 p-3 shadow-lg backdrop-blur">
+            {state !== "ended" && <CharacterPicker
+              value={characterId}
+              onChange={(id) => void handlePersonaChange(id === "handsome" ? "ikemen" : "teacher")}
+              disabled={!session || busy || personaUpdating || finishing || !canChangePersona}
+            />}
+            <div role="status">{personaError && <p className="px-2 text-sm text-red-700">{personaError}</p>}</div>
+            {state === "created" && selectedSeconds !== null && (
+              <SecondsPicker value={selectedSeconds} onChange={setStuckSeconds} />
+            )}
+            <Buttons
+              state={state}
+              busy={busy || personaUpdating || finishing || !session}
+              onStart={handleStart}
+              onHint={handleHint}
+              onCheck={handleCheck}
+              onNext={handleNext}
+              onRestart={() => {
+                stopSpeaking();
+                window.location.assign(pageWithoutSession());
+              }}
+              onEnd={handleEnd}
             />
-            {state === "ended" && (
-              <button
-                type="button"
-                onClick={handleShowRecord}
-                disabled={recordStatus === "loading"}
-                className="rounded-full bg-white px-3 py-2.5 text-sm font-bold text-sky-700 shadow-md ring-2 ring-sky-300 disabled:opacity-60"
-              >
-                {recordStatus === "loading" ? "読み込み中…" : "記録を見る"}
-              </button>
-            )}
-            {recordStatus === "failed" && (
-              <p className="rounded-lg bg-white/80 px-2 py-1 text-center text-xs font-bold text-red-700">記録を読めませんでした</p>
-            )}
           </div>
         </div>
-        {/* 真ん中：キャラクターを左下に大きく、吹き出しを右に重ねる（Tolan の会話画面の並び） */}
-        <div className="relative flex min-h-48 flex-1 items-end">
-          <Character state={state} id={characterId} className="absolute bottom-0 -left-4 h-full max-h-[28rem] w-auto" />
-          <div className="relative ml-[38%] flex w-[62%] flex-col gap-3 self-center">
-            {heard && <HeardBubble text={heard.text} />}
-            <Caption text={caption} />
-          </div>
-        </div>
-        {/* 下：入力欄の位置にボタン */}
-        <div className="relative flex flex-col gap-3 rounded-[2rem] bg-white/70 p-3 shadow-lg backdrop-blur">
-          {state !== "ended" && <CharacterPicker
-            value={characterId}
-            onChange={(id) => void handlePersonaChange(id === "handsome" ? "ikemen" : "teacher")}
-            disabled={!session || busy || personaUpdating || finishing || !canChangePersona}
-          />}
-          {personaError && <p role="status" className="px-2 text-sm text-red-700">{personaError}</p>}
-          {state === "created" && selectedSeconds !== null && (
-            <SecondsPicker value={selectedSeconds} onChange={setStuckSeconds} />
-          )}
-          <Buttons
-            state={state}
-            busy={busy || personaUpdating || finishing || !session}
-            onStart={handleStart}
-            onHint={handleHint}
-            onCheck={handleCheck}
-            onNext={handleNext}
-            onRestart={() => {
-              stopSpeaking();
-              window.location.assign(pageWithoutSession());
-            }}
-            onEnd={handleEnd}
-          />
-        </div>
-      </div>
+      </main>
       {record && <RecordSheet session={record} onClose={closeRecord} />}
-    </main>
+    </>
   );
 }
 

@@ -7,11 +7,13 @@ export function Header({ mode, connected }: { mode: Mode | null; connected: bool
       {mode === "scripted" && (
         <p className="rounded-full bg-yellow-400 px-4 py-1 text-center text-sm font-bold text-black">scripted</p>
       )}
-      {!connected && (
-        <p role="status" className="rounded-full bg-red-50 px-4 py-1 text-center text-base font-bold text-red-600">
-          つながりにくいみたい
-        </p>
-      )}
+      <div role="status">
+        {!connected && (
+          <p className="rounded-full bg-red-50 px-4 py-1 text-center text-base font-bold text-red-600">
+            つながりにくいみたい
+          </p>
+        )}
+      </div>
     </header>
   );
 }

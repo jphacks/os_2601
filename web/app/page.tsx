@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 const PAGES = [
-  { href: "/device", title: "となり（学習者）", text: "スタンドに立てたスマホで開く。URL はセッションごとに発行する" },
+  { href: "/device", title: "となり（学習者）", text: "スタンドに立てたスマホで開くだけで始まる" },
   { href: "/log", title: "記録（保護者・運営）", text: "何問目で、何回、どこで詰まったか" },
   { href: "/ops", title: "運営", text: "セッションの作成とリセット" },
 ];

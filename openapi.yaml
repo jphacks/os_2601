@@ -81,6 +81,27 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /sessions/open:
+    post:
+      tags: [sessions]
+      operationId: openSession
+      summary: 誰でもセッションを作って始める（ADR 0036）
+      description: |
+        `/device` を `s=`・`t=` 無しで開いたときにデバイスが呼ぶ。FREE・live・既定の設定で作り、`POST /sessions` と同じ応答を返す。`learner_label` は「自分で始めた」。
+        IP ごとに 1 分あたり 3 件、全体で 1 分 30 件まで（超えたら 429）。IP は `X-Forwarded-For` の最後の値（Railway の edge が付ける）。作ったセッションは 30 分で自動的に終わり、終わって 1 日たったら消える。環境変数 `OPEN_SESSIONS=0` なら 404。
+      security: []
+      responses:
+        "201":
+          description: 作った
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionCreated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
   /sessions/{id}:
     parameters:
       - $ref: "#/components/parameters/SessionId"
@@ -675,8 +696,15 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
           example: {"error": {"code": "FORBIDDEN", "message": "..."}}
+    RateLimited:
+      description: 回数の上限（/sessions/open は IP ごとに 1 分 3 件）
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example: {"error": {"code": "RATE_LIMITED", "message": "..."}}
     NotFound:
-      description: セッションかワークシートが無い（/demo/reset は DEMO_MODE が 1 でない）
+      description: セッションかワークシートが無い（/demo/reset は DEMO_MODE が 1 でない、/sessions/open は OPEN_SESSIONS が 0）
       content:
         application/json:
           schema:
@@ -1276,7 +1304,7 @@ components:
           properties:
             code:
               type: string
-              enum: [BAD_REQUEST, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, STATE_CONFLICT, FRAME_TOO_LARGE, VALIDATION_ERROR, HINT_UNAVAILABLE]
-              description: 400 BAD_REQUEST、401 UNAUTHORIZED、403 FORBIDDEN、404 NOT_FOUND、409 STATE_CONFLICT、413 FRAME_TOO_LARGE、422 VALIDATION_ERROR、503 HINT_UNAVAILABLE
+              enum: [BAD_REQUEST, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, STATE_CONFLICT, FRAME_TOO_LARGE, VALIDATION_ERROR, RATE_LIMITED, HINT_UNAVAILABLE]
+              description: 400 BAD_REQUEST、401 UNAUTHORIZED、403 FORBIDDEN、404 NOT_FOUND、409 STATE_CONFLICT、413 FRAME_TOO_LARGE、422 VALIDATION_ERROR、429 RATE_LIMITED、503 HINT_UNAVAILABLE
             message:
               type: string

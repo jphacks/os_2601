@@ -29,7 +29,7 @@ https://youtube.com/shorts/04hRV0uHNMU
 
 紙の問題（学校の宿題や問題集。初めて見る問題でよい）を解いている手元を、スタンドに立てたスマホが見ています。
 
-1. となりに座る人を選びます（先生かイケメン）。絵、ヒントの口調、声が変わります。「はじめる」を押すと、AI が紙の問題文を読み取り、画面の左上に出します。
+1. https://tonari-nine.vercel.app/device を開き、となりに座る人を選びます（先生かイケメン）。絵、ヒントの口調、声が変わります。「はじめる」を押すと、AI が紙の問題文を読み取り、画面の左上に出します。
 2. 手が止まって、本人が選んだ秒数（10 秒〜20 分、既定 20 秒）がたつと、AI が答案を見て「2行目の右辺の 4 を見てみて」のように、見る場所か次の一歩を 1 つだけ声で教えます。答えは言いません。
 3. 直したら、答えまでの次の一歩を問いかけます。それでも止まっていると、もう少し具体的に（する操作を 1 つ）言います。
 4. 「移項って何？」「この後どうするの」と声で聞けば、言葉の意味ややり方を説明します。独り言や周りの会話には答えません。
@@ -190,8 +190,8 @@ Gemini 3.5 Flash-Lite の有料枠（入力 100 万トークンあたり $0.30�
 
 - API：`uv run --directory api --env-file .env uvicorn app.main:app --reload --port 8000`。`.env` に `GEMINI_API_KEY`・`OPERATOR_KEY`（任意で `VOICEVOX_URL`。無ければブラウザの声）
 - 画面：root で `pnpm dev:mock`（モック。API 不要）か `pnpm dev`（本物の API。`web/.env.local` に `NEXT_PUBLIC_API_BASE`）
-- 検査：`pnpm check`（型・lint・ビルド）、`uvx ruff check api`、`uv run --directory api pytest`（158 件）。CI でも同じものを回す
-- セッションの作成：`uv run --directory api --env-file .env tools/create_session.py --worksheet FREE --mode live --stuck 20 --count 1`（`.env` に `API_BASE`・`WEB_BASE` も要る）。出た `/device?s=…&t=…` を手元を撮るスマホで開く。`/ops` からも作れる
+- 検査：`pnpm check`（型・lint・ビルド）、`uvx ruff check api`、`uv run --directory api pytest`。CI でも同じものを回す
+- 始め方：`/device` を開くだけでセッションができる（IP ごとに 1 分 3 件・全体で 1 分 30 件、30 分で自動終了。`OPEN_SESSIONS=0` で止められる）。運営が作って配るなら `uv run --directory api --env-file .env tools/create_session.py --worksheet FREE --mode live --stuck 20 --count 1`（`.env` に `API_BASE`・`WEB_BASE` も要る）か `/ops`。出た `/device?s=…&t=…` を手元を撮るスマホで開く
 
 ## 文書
 

@@ -99,6 +99,7 @@ class Session:
     current_problem_no: int = 1
     leak_blocked_count: int = 0
     ended_at: datetime | None = None
+    auto_end_at: datetime | None = None
     still_since: datetime | None = None
     speaking_until: datetime | None = None
     cooldown_until: datetime | None = None
@@ -375,6 +376,8 @@ def _on_ended(event: Event) -> Result:
 
 def step(session: Session, event: Event, now: datetime, thresholds: Thresholds) -> tuple[Session, Result]:
     next_session = deepcopy(session)
+    if next_session.state != "ended" and next_session.auto_end_at is not None and now >= next_session.auto_end_at:
+        _end_session(next_session, next_session.auto_end_at)
     if next_session.state == "ended":
         return next_session, _on_ended(event)
     _apply_clock(next_session, now, thresholds)

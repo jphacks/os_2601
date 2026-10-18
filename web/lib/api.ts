@@ -256,6 +256,14 @@ export async function createSession(body: SessionCreateRequest, operatorKey: str
   return request("/sessions", jsonInit("POST", { operatorKey }, body));
 }
 
+export async function openSession(): Promise<SessionCreated> {
+  if (USE_MOCK) {
+    resetMockState();
+    return sessionCreatedMock as SessionCreated;
+  }
+  return request("/sessions/open", { method: "POST" });
+}
+
 export async function listSessions(operatorKey: string): Promise<SessionList> {
   if (USE_MOCK) return sessionsListMock as SessionList;
   return request("/sessions", { headers: authHeaders({ operatorKey }) });

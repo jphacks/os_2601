@@ -1,4 +1,4 @@
-import { CHARACTERS, type CharacterId } from "./characters";
+import { CHARACTERS, type CharacterId } from "@/app/_components/characters/characters";
 
 type Props = {
   value: CharacterId;

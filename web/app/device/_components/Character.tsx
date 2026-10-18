@@ -1,6 +1,6 @@
 import Image from "next/image";
 import type { State } from "@/lib/api";
-import { characterOf, type CharacterId } from "./characters";
+import { characterOf, type CharacterId } from "@/app/_components/characters/characters";
 
 // 絵は 1 枚なので、状態は動きで表す。still は watching と同じにする（still を学習者に見せない。docs/06）
 const MOTIONS: Record<State, string> = {

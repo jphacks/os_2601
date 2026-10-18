@@ -299,7 +299,8 @@ def _stuck_points(session: Session) -> list[dict]:
     counts: dict[str, int] = {}
     for problem in session.problems:
         for hint in problem.hints:
-            counts[hint.stuck_point] = counts.get(hint.stuck_point, 0) + 1
+            if hint.source == "gpt":
+                counts[hint.stuck_point] = counts.get(hint.stuck_point, 0) + 1
     return [{"label": label, "count": count} for label, count in sorted(counts.items(), key=lambda item: -item[1])]
 
 

@@ -92,6 +92,15 @@ def test_asking_if_it_is_correct_gets_the_fixed_reply_without_calling_the_ai(dev
     assert ai.requests == []
 
 
+@pytest.mark.parametrize(
+    ("utterance", "stuck_points"),
+    [("移項って何？", [{"label": "その他", "count": 1}]), ("これで合ってる？", [])],
+)
+def test_stuck_points_count_only_the_labels_the_ai_chose(device: Device, ai: ListeningAI, utterance: str, stuck_points: list[dict]) -> None:
+    ask(device, start_watching(device), utterance)
+    assert device.client.get(f"/sessions/{device.session_id}", headers=device.headers).json()["stuck_points"] == stuck_points
+
+
 def test_scripted_session_does_not_answer_what_it_hears(device: Device, ai: ListeningAI) -> None:
     created = device.client.post(
         "/sessions", json={"worksheet_id": "FREE", "mode": "scripted"}, headers={"X-Operator-Key": OPERATOR_KEY}

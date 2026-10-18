@@ -280,6 +280,7 @@ def _problem_record(problem: Problem, session: Session, now: datetime) -> dict:
     check = problem.check
     return {
         "problem_no": problem.problem_no,
+        "problem_text": problem.problem_text,
         "status": problem.status,
         "stuck_count": problem.stuck_count,
         "max_level": max((hint.level for hint in problem.hints), default=0),
@@ -492,6 +493,7 @@ def _issue_hint(
     return {
         "hint_id": hint.hint_id,
         "problem_no": problem_no,
+        "problem_text": recorded.problem_text,
         "level": hint.level,
         "trigger": hint.trigger,
         "speech": hint.speech,

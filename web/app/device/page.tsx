@@ -6,7 +6,7 @@ import { ApiError, getSession, openSession, patchSettings, type SessionDetail, t
 import { startCamera, stopCamera } from "@/lib/camera";
 import { advance, end, requestCheck, requestManualHint, startSession, updateSessionPersona } from "@/lib/loop";
 import { endMessage } from "@/lib/personas";
-import { setSpeechCharacter, speakNext, stopSpeaking, unlockSpeech } from "@/lib/speech";
+import { setSpeechCharacter, speak, stopSpeaking, unlockSpeech } from "@/lib/speech";
 import { primeListening, stopListening, voiceStatus } from "@/lib/voice";
 import { Buttons } from "./_components/Buttons";
 import { Caption, HeardBubble } from "./_components/Caption";
@@ -48,7 +48,6 @@ function pageWithoutSession(): string {
   return rest ? `/device?${rest}` : "/device";
 }
 
-// 状態の食い違い（409）は次の signals で画面がそろうので黙る。それ以外は字幕で知らせる
 function failureCaption(error: unknown): string | null {
   if (!(error instanceof ApiError)) console.warn("[device] 操作に失敗", error);
   if (error instanceof ApiError && error.status === 409) return null;
@@ -73,6 +72,9 @@ function Device() {
   const endSpokenRef = useRef(false);
   const personaUpdatingRef = useRef(false);
   const recordLoadingRef = useRef(false);
+  const checkingRef = useRef(false);
+  const hintWhileCheckingRef = useRef(false);
+  const lastCheckRef = useRef<string | null>(null);
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [record, setRecord] = useState<SessionDetail | null>(null);
   const [recordStatus, setRecordStatus] = useState<"idle" | "loading" | "failed">("idle");
@@ -201,11 +203,12 @@ function Device() {
       const confirmed = sessionRef.current;
       const persona = confirmed?.settings.persona ?? "teacher";
       const message = endMessage(persona, confirmed?.persona_options);
-      setCaption(message);
+      setCaption(lastCheckRef.current ? `${lastCheckRef.current} ${message}` : message);
       if (!endSpokenRef.current) {
         endSpokenRef.current = true;
         stopListening();
-        void speakNext(message).catch((error) => console.warn("[device] 終了の読み上げに失敗", error));
+        stopSpeaking();
+        void speak(message).catch((error) => console.warn("[device] 終了の読み上げに失敗", error));
       }
       return;
     }
@@ -304,7 +307,8 @@ function Device() {
         if (
           version !== requestVersion.current ||
           (signal.state !== "ended" && signal.current_problem_no < problemNoRef.current) ||
-          (signal.state === "checking" && stateRef.current !== "checking")
+          (signal.state !== "ended" && checkingRef.current) ||
+          (signal.state === "checking" && !checkingRef.current)
         ) return;
         applyState(signal.state, signal.current_problem_no);
         setStillSeconds(signal.still_seconds);
@@ -314,6 +318,7 @@ function Device() {
           version !== requestVersion.current || stateRef.current === "ended" ||
           hint.problem_no !== problemNoRef.current
         ) return;
+        if (checkingRef.current) hintWhileCheckingRef.current = true;
         if (hint.speech !== null) setCaption(hint.display);
         setProblemText(hint.problem_text);
       },
@@ -354,24 +359,27 @@ function Device() {
     const before = { state, problemNo, caption };
     setBusy(true);
     applyState("checking", problemNo);
+    checkingRef.current = true;
+    hintWhileCheckingRef.current = false;
     try {
       const check = await requestCheck();
       if (version !== requestVersion.current || checkedProblemNo !== problemNoRef.current || stateRef.current === "ended") return;
-      applyState(check.state, check.next_problem_no ?? check.problem_no);
       if (check.state === "ended") {
-        const confirmed = sessionRef.current;
-        setCaption(`${check.display} ${endMessage(confirmed?.settings.persona ?? "teacher", confirmed?.persona_options)}`);
-      } else if (!FIXED_CAPTIONS[check.state]) {
+        lastCheckRef.current = check.display;
         setCaption(check.display);
+        return;
       }
+      applyState(check.state, check.next_problem_no ?? check.problem_no);
+      if (!FIXED_CAPTIONS[check.state]) setCaption(check.display);
     } catch (error) {
       const message = failureCaption(error);
       if (version === requestVersion.current && checkedProblemNo === problemNoRef.current && stateRef.current === "checking") {
         stateRef.current = before.state;
         setState(before.state);
-        setCaption(message ?? before.caption);
+        if (!hintWhileCheckingRef.current) setCaption(message ?? before.caption);
       }
     } finally {
+      checkingRef.current = false;
       if (version === requestVersion.current) setBusy(false);
     }
   }

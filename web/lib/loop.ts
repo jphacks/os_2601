@@ -96,23 +96,34 @@ function say(session: Session, text: string | null): void {
     });
 }
 
-function finish(session: Session, problemNo: number): void {
+function finish(session: Session, problemNo: number, lastWords: string | null = null): void {
   session.stop();
   stopCamera();
-  session.handlers.onState({
-    state: "ended",
-    still_seconds: 0,
-    current_problem_no: problemNo,
-    next_action: null,
-    cooldown_remaining: 0,
-  });
+  const announce = () =>
+    session.handlers.onState({
+      state: "ended",
+      still_seconds: 0,
+      current_problem_no: problemNo,
+      next_action: null,
+      cooldown_remaining: 0,
+    });
+  if (!lastWords) {
+    announce();
+    return;
+  }
+  speak(lastWords)
+    .catch((error) => console.warn("[loop] 最後の読み上げに失敗", error))
+    .finally(announce);
 }
 
 function applyResponse(session: Session, speech: string | null, state: State, problemNo: number): void {
   if (!session.running) return;
+  if (state === "ended") {
+    finish(session, problemNo, speech);
+    return;
+  }
   say(session, speech);
-  if (state === "ended") finish(session, problemNo);
-  else updateState(session, state, problemNo);
+  updateState(session, state, problemNo);
 }
 
 function scheduleProblemRead(session: Session, delayMs: number): void {

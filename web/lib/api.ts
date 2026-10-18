@@ -29,6 +29,8 @@ export type ProblemStatus = "pending" | "working" | "done" | "skipped";
 
 export type LeakCheck = { ok: boolean; fallback: boolean };
 
+export type VoiceCharacter = "handsome" | "teacher";
+
 export type Settings = { stuck_seconds: number; cooldown_seconds: number; max_level: number };
 
 export type SessionCreateRequest = {
@@ -198,6 +200,7 @@ const USE_MOCK = process.env.NEXT_PUBLIC_MOCK === "1";
 
 const SIGNAL_TIMEOUT_MS = 3000;
 const FRAME_TIMEOUT_MS = 5000;
+const SPEECH_TIMEOUT_MS = 9000;
 const SIGNALS_PER_STATE = 5;
 const SIGNAL_CYCLE = [
   signalsWatchingMock,
@@ -331,6 +334,14 @@ export async function postCheck(id: string, token: string, body: CheckRequest): 
 export async function readProblem(id: string, token: string, body: { frame_id: string }): Promise<ProblemResponse> {
   if (USE_MOCK) return { problem_no: mockAdvanceCount + 1, problem_text: "2x - 7 = 4x + 3", state: "watching" };
   return request(sessionPath(id, "/problem"), jsonInit("POST", { token }, body));
+}
+
+export async function synthesizeSpeech(id: string, token: string, text: string, character: VoiceCharacter): Promise<Blob> {
+  if (USE_MOCK) throw new ApiError(503, "HINT_UNAVAILABLE", "モックでは VOICEVOX を使わない");
+  const timeout = new AbortController();
+  setTimeout(() => timeout.abort(), SPEECH_TIMEOUT_MS);
+  const response = await send(sessionPath(id, "/tts"), { ...jsonInit("POST", { token }, { text, character }), signal: timeout.signal });
+  return response.blob();
 }
 
 export async function postAdvance(id: string, token: string): Promise<AdvanceResponse> {

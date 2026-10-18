@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { ApiError, getSession, patchSettings, type SessionDetail, type State } from "@/lib/api";
 import { startCamera, stopCamera } from "@/lib/camera";
 import { advance, end, requestCheck, requestManualHint, startSession } from "@/lib/loop";
-import { unlockSpeech } from "@/lib/speech";
+import { setSpeechCharacter, unlockSpeech } from "@/lib/speech";
 import { primeListening, stopListening, voiceStatus } from "@/lib/voice";
 import { Buttons } from "./_components/Buttons";
 import { Caption, HeardBubble } from "./_components/Caption";
@@ -257,7 +257,13 @@ function Device() {
         </div>
         {/* 下：入力欄の位置にボタン */}
         <div className="relative flex flex-col gap-3 rounded-[2rem] bg-white/70 p-3 shadow-lg backdrop-blur">
-          {state === "created" && <CharacterPicker value={characterId} onChange={setCharacterId} />}
+          {state === "created" && <CharacterPicker
+              value={characterId}
+              onChange={(id) => {
+                setCharacterId(id);
+                setSpeechCharacter(id);
+              }}
+            />}
           {state === "created" && selectedSeconds !== null && (
             <SecondsPicker value={selectedSeconds} onChange={setStuckSeconds} />
           )}

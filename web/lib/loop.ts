@@ -17,7 +17,7 @@ import {
 } from "./api";
 import { captureFrame, stopCamera } from "./camera";
 import { startMotionLoop } from "./motion";
-import { speak, stopSpeaking } from "./speech";
+import { setSpeechSession, speak, stopSpeaking } from "./speech";
 import { startListening, stopListening, voiceStatus } from "./voice";
 
 export type SessionHandlers = {
@@ -261,6 +261,7 @@ export function startSession(
   handlers: SessionHandlers,
 ): () => void {
   activeSession?.stop();
+  setSpeechSession(sessionId, token);
   const session: Session = {
     id: sessionId,
     token,

@@ -170,7 +170,7 @@ Hack Day 版はヒント 2 段階（H1 固定文・H2 GPT）、SSE なし（記�
 - `cooldown`（一度声をかけた後の沈黙）が止めるのは `auto` だけ。`manual` と `voice` は本人が頼んだので `cooldown` 中でも通る（`speaking`・`checking`・`stuck` 中は 409）。
 - `leak_check.ok: false` かつ `fallback: true` は、GPT の文が答え漏れ検査に一致したので固定 H2 に差し替えたことを示す。`leak_blocked_count` が 1 増える。
 - GPT がタイムアウト（8 秒）・エラーのときは固定 H2 で返し `source: "fallback"`、`leak_check.ok: true`。固定ヒントも読めないほど壊れていれば 503。
-- `auto` は `stuck` のときだけ受理（受理の判定はリクエスト到着時。GPT を待つ間に `signals` の途絶で `watching` に戻っていても、応答時に `speaking` へ進める）。それ以外は 409（デバイスは無視する）。`manual` と `voice` は `watching`・`still`・`cooldown` だけ受理し、`created`・`stuck`・`speaking`・`checking`・`ended` で 409。
+- `auto` は `stuck` のときだけ受理（受理の判定はリクエスト到着時。GPT を待つ間に `signals` の途絶で `watching` に戻っていても、応答時に `speaking` へ進める）。それ以外は 409（デバイスは無視する）。合成中に「できた」「次へ」を受けて状態が変わっていたら、応答時に 409（デバイスは捨てる。ADR 0037）。`manual` と `voice` は `watching`・`still`・`cooldown` だけ受理し、`created`・`stuck`・`speaking`・`checking`・`ended` で 409。
 - 応答を返した時点でサーバは `speaking` にし、読み上げ推定時間（`speech` の文字数 × 0.15 秒 + 1 秒）後に `cooldown`、`cooldown_seconds` 後に `watching` へ戻す。デバイスからの「読み終わった」通知は作らない。
 - `speech` が `null` になることは Hack Day 版では無い（不在判定は作らない）。デバイスは念のため `null` なら読まない。
 
@@ -194,7 +194,7 @@ Hack Day 版はヒント 2 段階（H1 固定文・H2 GPT）、SSE なし（記�
 - `speech`・`display` は固定文で、`display` は `speech` と同じ文（`correct` は `fixed_check_correct`、`incorrect` は `fixed_check_incorrect`。問題に無ければ既定文「正解。その調子」「もう一回、途中の式を見てみて」）。GPT には `verdict` だけを出させる（正答を渡した呼び出しなので、文を作らせると答えを言いうる）。`incorrect` のとき問題は `working` のまま、`next_problem_no` は現在の番号。
 - `unreadable` は 2 文：GPT が読めないと言ったら「もう少し明るいところで、もう一回見せて」、GPT が 8 秒で返らない・例外・フレーム無しなら「うまく読めなかった。もう一回、できたを押してみて」。
 - `scripted` モードでは GPT を呼ばず常に `correct`（`fixed_check_correct`）。
-- 正答の値は応答に含めない。`watching`・`still`・`cooldown` だけ受理し、`created`・`stuck`・`speaking`・`checking`・`ended` では 409。
+- 正答の値は応答に含めない。`watching`・`still`・`cooldown`・`stuck` で受理し（`stuck` なら作りかけの自動ヒントは捨てる。ADR 0037）、`created`・`speaking`・`checking`・`ended` では 409。
 
 ## 進行
 
@@ -204,7 +204,7 @@ Hack Day 版はヒント 2 段階（H1 固定文・H2 GPT）、SSE なし（記�
 
 ### POST /sessions/{id}/advance（device）
 
-`{"reason": "skip"}` → `{"current_problem_no": 3, "state": "watching"}`。前の問題は `skipped`（`done` なら変えない）。最後の問題なら `state: "ended"`、`current_problem_no` はそのまま。`watching`・`still`・`cooldown`・`speaking` で受理し（`speaking` なら読み上げを打ち切って `watching`）、`created`・`stuck`・`checking`・`ended` では 409。
+`{"reason": "skip"}` → `{"current_problem_no": 3, "state": "watching"}`。前の問題は `skipped`（`done` なら変えない）。最後の問題なら `state: "ended"`、`current_problem_no` はそのまま。`watching`・`still`・`cooldown`・`speaking`・`stuck` で受理し（`stuck` なら作りかけの自動ヒントは捨てる。ADR 0037。`speaking` なら読み上げを打ち切って `watching`）、`created`・`stuck`・`checking`・`ended` では 409。
 
 ### POST /sessions/{id}/end（device・operator）
 

@@ -11,6 +11,7 @@ from app.state import (
     CheckRequested,
     End,
     Hint,
+    HintAbandoned,
     HintIssued,
     HintRequested,
     LeakCheck,
@@ -72,7 +73,7 @@ def speak_hint(session: Session, second: float) -> tuple[Session, int]:
     trigger = "manual" if session.state != "stuck" else "auto"
     session, accepted = step(session, HintRequested(trigger), at(second), THRESHOLDS)
     assert isinstance(accepted, Accepted)
-    session, _ = step(session, HintIssued(len(H1_TEXT)), at(second), THRESHOLDS)
+    session, _ = step(session, HintIssued(len(H1_TEXT), accepted.ticket), at(second), THRESHOLDS)
     session.current_problem.hints.append(
         Hint("hnt_test", accepted.level, trigger, H1_TEXT, H1_TEXT, "符号", "gpt", LeakCheck(True, False), None, 0, at(second))
     )
@@ -214,9 +215,52 @@ def test_second_request_while_the_ai_is_answering_is_rejected() -> None:
     session, accepted = step(new_session(), HintRequested("manual"), START, THRESHOLDS)
     assert isinstance(accepted, Accepted)
     assert isinstance(step(session, HintRequested("voice"), at(1), THRESHOLDS)[1], Rejected)
-    assert isinstance(step(session, CheckRequested(), at(1), THRESHOLDS)[1], Rejected)
-    session, _ = step(session, HintIssued(len(H1_TEXT)), at(2), THRESHOLDS)
+    session, _ = step(session, HintIssued(len(H1_TEXT), accepted.ticket), at(2), THRESHOLDS)
     assert session.pending_until is None
+
+
+def test_check_and_advance_are_accepted_while_stuck_and_drop_the_hint_in_progress() -> None:
+    session, _ = step(new_session(), Signal(motion=None, camera_ok=False, force_stuck=True), START, THRESHOLDS)
+    session, accepted = step(session, HintRequested("auto"), at(1), THRESHOLDS)
+    assert isinstance(accepted, Accepted)
+    checked, result = step(session, CheckRequested(), at(2), THRESHOLDS)
+    assert (result, checked.state) == (Accepted(), "checking")
+    assert isinstance(step(checked, HintIssued(len(H1_TEXT), accepted.ticket), at(3), THRESHOLDS)[1], Rejected)
+    advanced, result = step(session, Advance(), at(2), THRESHOLDS)
+    assert (result, advanced.state, advanced.pending_until, advanced.current_problem_no) == (Accepted(), "watching", None, 2)
+
+
+def test_abandoning_a_hint_frees_the_next_request() -> None:
+    session, accepted = step(new_session(), HintRequested("manual"), START, THRESHOLDS)
+    assert isinstance(step(session, HintRequested("manual"), at(1), THRESHOLDS)[1], Rejected)
+    session, _ = step(session, HintAbandoned(accepted.ticket), at(1), THRESHOLDS)
+    assert isinstance(step(session, HintRequested("manual"), at(2), THRESHOLDS)[1], Accepted)
+
+
+def test_a_stale_hint_cannot_use_or_release_a_newer_request() -> None:
+    session, _ = step(new_session(), Signal(motion=None, camera_ok=False, force_stuck=True), START, THRESHOLDS)
+    session, auto = step(session, HintRequested("auto"), at(1), THRESHOLDS)
+    session, _ = step(session, Advance(), at(2), THRESHOLDS)
+    session, manual = step(session, HintRequested("manual"), at(3), THRESHOLDS)
+    released, _ = step(session, HintAbandoned(auto.ticket), at(4), THRESHOLDS)
+    assert released.pending_until == manual.ticket
+    assert isinstance(step(session, HintIssued(len(H1_TEXT), auto.ticket), at(4), THRESHOLDS)[1], Rejected)
+    assert isinstance(step(session, HintIssued(len(H1_TEXT), manual.ticket), at(4), THRESHOLDS)[1], Accepted)
+
+
+def test_abandoning_does_not_release_a_check_in_progress() -> None:
+    session, hint = step(new_session(), HintRequested("manual"), START, THRESHOLDS)
+    session, _ = step(session, HintAbandoned(hint.ticket), at(1), THRESHOLDS)
+    session, _ = step(session, CheckRequested(), at(2), THRESHOLDS)
+    checking = session.pending_until
+    session, _ = step(session, HintAbandoned(hint.ticket), at(3), THRESHOLDS)
+    assert (session.state, session.pending_until) == ("checking", checking)
+
+
+def test_abandoning_after_the_end_is_harmless() -> None:
+    session, hint = step(new_session(), HintRequested("manual"), START, THRESHOLDS)
+    session, _ = step(session, End(), at(1), THRESHOLDS)
+    assert isinstance(step(session, HintAbandoned(hint.ticket), at(2), THRESHOLDS)[1], Accepted)
 
 
 def test_check_that_never_finishes_returns_to_watching_after_the_pending_window() -> None:

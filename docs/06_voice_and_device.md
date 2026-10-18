@@ -107,12 +107,12 @@ PC（横持ち）では映像を左、字幕とボタンを右に置く。部品
 |---|---|---|
 | はじめる | `created` | 音声アンロック、カメラ開始、`startSession` でループ開始 |
 | ヒント | `watching` `still` `cooldown` のときだけ | `requestManualHint()`（フレームを送ってから `POST /hints {trigger: "manual"}`）。段階は現在の段階 |
-| できた | `watching` `still` `cooldown` のときだけ | `requestCheck()`（フレームを送ってから `POST /check`）。結果を読み上げ。`correct` なら問題番号が進む |
-| 次へ | `watching` `still` `cooldown` `speaking` のときだけ | 確認ダイアログなしで `advance()`。最後なら `ended` |
+| できた | `watching` `still` `cooldown` `stuck` のときだけ | `requestCheck()`（フレームを送ってから `POST /check`）。結果を読み上げ。`correct` なら問題番号が進む |
+| 次へ | `watching` `still` `cooldown` `speaking` `stuck` のときだけ | 確認ダイアログなしで `advance()`。最後なら `ended` |
 | おわる | `created` `ended` 以外 | 確認ダイアログの後 `end()`（`POST /end` → ループ停止 → カメラ停止） |
 | 記録を見る | `ended`（映像の下に出る） | `getSession`（トークン）→「今日の記録」を重ねて開く。「とじる」で戻る |
 
-`stuck`（「考え中？」）の数秒間は主ボタンも「次へ」も押せない。自動ヒントの要求と競合させないため。
+`stuck`（「考え中？」）の数秒間は「ヒント」だけ押せない（自動ヒントと二重にならないため）。「できた」「次へ」は押せて、作りかけの自動ヒントは捨てる（ADR 0037）。
 | 静かに | 作らない（Kaizen Sprint） | |
 
 - `hints` の応答の `speech` が `null` のときは読まず、字幕も変えない（Hack Day 版では起きないが念のため）。

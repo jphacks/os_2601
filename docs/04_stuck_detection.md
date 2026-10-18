@@ -48,6 +48,8 @@ stateDiagram-v2
   still --> watching: motion ≥ motion_exit_threshold
   still --> stuck: still_seconds ≥ stuck_seconds
   stuck --> speaking: hints 要求を受理
+  stuck --> checking: できた（ADR 0037）
+  stuck --> watching: 次へ（ADR 0037）
   speaking --> cooldown: 読み上げ推定時間 経過
   cooldown --> watching: cooldown_seconds 経過
 ```

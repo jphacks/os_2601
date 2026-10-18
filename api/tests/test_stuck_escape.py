@@ -2,7 +2,10 @@ from dataclasses import replace
 
 import pytest
 from conftest import Device
+from test_state import THRESHOLDS
 from test_voice_answer import ListeningAI, start_watching
+
+from app.state import CheckRequested, step
 
 
 @pytest.fixture
@@ -46,3 +49,28 @@ def test_a_hint_abandoned_because_the_persona_changed_does_not_block_the_next_re
         f"/sessions/{device.session_id}/hints", json={"trigger": "manual", "frame_id": frame_id}, headers=device.headers
     )
     assert retry.status_code == 200
+
+
+def test_an_auto_hint_finished_after_check_is_dropped_and_check_proceeds(device: Device, ai: ListeningAI) -> None:
+    frame_id = start_watching(device)
+    assert device.force_stuck(2)["state"] == "stuck"
+    store = device.client.app.state.context.store
+
+    def check_during_generation() -> None:
+        session = store.get(device.session_id)
+        store.put(step(session, CheckRequested(), session.last_signal_at, THRESHOLDS)[0])
+
+    ai.on_call = check_during_generation
+    late = device.client.post(
+        f"/sessions/{device.session_id}/hints", json={"trigger": "auto", "frame_id": frame_id}, headers=device.headers
+    )
+    assert late.status_code == 409
+    assert store.get(device.session_id).state == "checking"
+    assert device.recorded_hints() == []
+
+
+def test_asking_if_correct_holds_and_then_releases_the_hint_lock(device: Device, ai: ListeningAI) -> None:
+    frame_id = start_watching(device)
+    body = {"trigger": "voice", "frame_id": frame_id, "utterance": "これで合ってる？"}
+    assert device.client.post(f"/sessions/{device.session_id}/hints", json=body, headers=device.headers).status_code == 200
+    assert device.client.app.state.context.store.get(device.session_id).pending_until is None

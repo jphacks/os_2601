@@ -134,11 +134,12 @@ class HintRequested:
 @dataclass(frozen=True)
 class HintIssued:
     speech_chars: int
+    ticket: datetime
 
 
 @dataclass(frozen=True)
 class HintAbandoned:
-    pass
+    ticket: datetime
 
 
 @dataclass(frozen=True)
@@ -174,6 +175,7 @@ Event = Signal | ChangeSettings | HintRequested | HintIssued | HintAbandoned | C
 class Accepted:
     next_action: str | None = None
     level: int | None = None
+    ticket: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -322,7 +324,7 @@ def _on_hint_requested(session: Session, request: HintRequested, now: datetime) 
         asked_before = sum(hint.trigger != "auto" and hint.source == "gpt" for hint in problem.hints)
         level = min(asked_before + 1, session.settings.max_level)
     session.pending_until = now + timedelta(seconds=PENDING_SECONDS)
-    return Accepted(level=level)
+    return Accepted(level=level, ticket=session.pending_until)
 
 
 def _on_check_done(session: Session, done: CheckDone, now: datetime, thresholds: Thresholds) -> Result:
@@ -366,7 +368,7 @@ def _on_advance(session: Session, now: datetime) -> Result:
 def _on_ended(event: Event) -> Result:
     if isinstance(event, Signal) and not event.force_stuck:
         return Accepted()
-    if isinstance(event, (Tick, End)):
+    if isinstance(event, (Tick, End, HintAbandoned)):
         return Accepted()
     return Rejected()
 
@@ -384,14 +386,15 @@ def step(session: Session, event: Event, now: datetime, thresholds: Thresholds) 
             return next_session, _on_change_settings(next_session, event)
         case HintRequested():
             return next_session, _on_hint_requested(next_session, event, now)
-        case HintIssued(speech_chars=chars):
-            if next_session.pending_until is None or next_session.state == "checking":
+        case HintIssued(speech_chars=chars, ticket=ticket):
+            if next_session.pending_until != ticket or next_session.state == "checking":
                 return next_session, Rejected()
             next_session.pending_until = None
             _enter_speaking(next_session, now, chars, thresholds)
             return next_session, Accepted()
-        case HintAbandoned():
-            next_session.pending_until = None
+        case HintAbandoned(ticket=ticket):
+            if next_session.pending_until == ticket and next_session.state != "checking":
+                next_session.pending_until = None
             return next_session, Accepted()
         case CheckRequested():
             if next_session.state not in CHECKABLE_STATES:

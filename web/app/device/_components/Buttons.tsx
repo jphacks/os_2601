@@ -1,8 +1,8 @@
 import type { State } from "@/lib/api";
 
-// docs/06 の「ボタンの動き」。speaking と stuck の間は主ボタンを押せない
-const PRIMARY_STATES: State[] = ["watching", "still", "cooldown"];
-const NEXT_STATES: State[] = ["watching", "still", "cooldown", "speaking"];
+const HINT_STATES: State[] = ["watching", "still", "cooldown"];
+const CHECK_STATES: State[] = ["watching", "still", "cooldown", "stuck"];
+const NEXT_STATES: State[] = ["watching", "still", "cooldown", "speaking", "stuck"];
 
 type Props = {
   state: State;
@@ -28,14 +28,13 @@ export function Buttons({ state, busy, onStart, onHint, onCheck, onNext, onEnd }
     );
   }
 
-  const primaryEnabled = !busy && PRIMARY_STATES.includes(state);
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-3">
-        <button type="button" onClick={onHint} disabled={!primaryEnabled} className={PRIMARY}>
+        <button type="button" onClick={onHint} disabled={busy || !HINT_STATES.includes(state)} className={PRIMARY}>
           ヒント
         </button>
-        <button type="button" onClick={onCheck} disabled={!primaryEnabled} className={PRIMARY}>
+        <button type="button" onClick={onCheck} disabled={busy || !CHECK_STATES.includes(state)} className={PRIMARY}>
           できた
         </button>
       </div>

@@ -742,9 +742,28 @@ components:
         fallback:
           type: boolean
           description: true なら固定の問い返しに差し替えた
+    Persona:
+      type: string
+      enum: [teacher, ikemen]
+      default: teacher
+      description: 家庭教師かイケメン。旧 friend は新規入力としては受理しない
+    PersonaOption:
+      type: object
+      required: [id, display_name, end_message]
+      properties:
+        id:
+          $ref: "#/components/schemas/Persona"
+        display_name:
+          type: string
+        description:
+          type: string
+        end_message:
+          type: string
+          maxLength: 40
+          description: 終了字幕と読み上げに共通して使う事前定義文
     Settings:
       type: object
-      required: [stuck_seconds, cooldown_seconds, max_level]
+      required: [stuck_seconds, cooldown_seconds, max_level, persona]
       additionalProperties: false
       properties:
         stuck_seconds:
@@ -764,6 +783,8 @@ components:
           minimum: 1
           maximum: 2
           default: 2
+        persona:
+          $ref: "#/components/schemas/Persona"
 
     SessionCreateRequest:
       type: object
@@ -786,6 +807,8 @@ components:
               $ref: "#/components/schemas/Settings/properties/cooldown_seconds"
             max_level:
               $ref: "#/components/schemas/Settings/properties/max_level"
+            persona:
+              $ref: "#/components/schemas/Persona"
 
     SessionCreated:
       type: object
@@ -853,7 +876,7 @@ components:
 
     SessionDetail:
       type: object
-      required: [session_id, worksheet_id, worksheet_title, problem_count, learner_label, mode, state, current_problem_no, still_seconds, settings, problems, stuck_points, leak_blocked_count, created_at, ended_at]
+      required: [session_id, worksheet_id, worksheet_title, problem_count, learner_label, mode, state, current_problem_no, still_seconds, settings, persona_options, problems, stuck_points, leak_blocked_count, created_at, ended_at]
       properties:
         session_id:
           type: string
@@ -879,6 +902,12 @@ components:
           description: still のときだけ正、他は 0
         settings:
           $ref: "#/components/schemas/Settings"
+        persona_options:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items:
+            $ref: "#/components/schemas/PersonaOption"
         problems:
           type: array
           items:
@@ -981,6 +1010,8 @@ components:
           $ref: "#/components/schemas/Settings/properties/stuck_seconds"
         cooldown_seconds:
           $ref: "#/components/schemas/Settings/properties/cooldown_seconds"
+        persona:
+          $ref: "#/components/schemas/Persona"
 
     SignalRequest:
       type: object

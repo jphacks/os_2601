@@ -49,6 +49,7 @@ from app.hints import (
     read_problem,
 )
 from app.store import SessionStore
+from app.personas import persona_options
 from app.voicevox import Voicevox, VoiceUnavailable
 from app.worksheets import PRINT_LAYOUT, Worksheet
 
@@ -66,6 +67,7 @@ class Prefetch:
     problem_no: int
     stuck_count: int
     composing: asyncio.Task[ComposedHint]
+    persona: str = "teacher"
 
 
 @dataclass
@@ -94,6 +96,7 @@ class SettingsInput(BaseModel):
     stuck_seconds: StuckSeconds | None = None
     cooldown_seconds: CooldownSeconds | None = None
     max_level: MaxLevel | None = None
+    persona: Literal["teacher", "ikemen"] | None = None
 
 
 class SessionCreateRequest(BaseModel):
@@ -107,11 +110,12 @@ class SettingsPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
     stuck_seconds: StuckSeconds | None = None
     cooldown_seconds: CooldownSeconds | None = None
+    persona: Literal["teacher", "ikemen"] | None = None
 
     @model_validator(mode="after")
     def require_one(self) -> "SettingsPatch":
-        if self.stuck_seconds is None and self.cooldown_seconds is None:
-            raise ValueError("stuck_seconds か cooldown_seconds のどちらかが要る")
+        if self.stuck_seconds is None and self.cooldown_seconds is None and self.persona is None:
+            raise ValueError("stuck_seconds、cooldown_seconds、persona のどれかが要る")
         return self
 
 
@@ -214,15 +218,15 @@ def _ai_hints(problem: Problem) -> list[str]:
     return [hint.display for hint in problem.hints if hint.source == "gpt"]
 
 
-async def _compose(context: AppContext, problem: Problem, level: int, frame: bytes | None) -> ComposedHint:
+async def _compose(context: AppContext, problem: Problem, level: int, frame: bytes | None, persona: str = "teacher") -> ComposedHint:
     return await compose_hint(
-        context.ai, context.hint_model, frame, level, _ai_hints(problem), problem.problem_text, problem.leak_strings
+        context.ai, context.hint_model, frame, level, _ai_hints(problem), problem.problem_text, problem.leak_strings, persona
     )
 
 
-async def _compose_ahead(context: AppContext, session_id: str, problem: Problem, level: int, frame: bytes) -> ComposedHint:
+async def _compose_ahead(context: AppContext, session_id: str, problem: Problem, level: int, frame: bytes, persona: str = "teacher") -> ComposedHint:
     started = time.monotonic()
-    composed = await _compose(context, problem, level, frame)
+    composed = await _compose(context, problem, level, frame, persona)
     logger.info(
         "prefetch session=%s level=%s source=%s ai_ms=%s",
         session_id,
@@ -243,7 +247,9 @@ def _take_prefetch(context: AppContext, session: Session) -> asyncio.Task[Compos
     prefetch = context.prefetches.pop(session.session_id, None)
     if prefetch is None:
         return None
-    if (prefetch.problem_no, prefetch.stuck_count) == (session.current_problem_no, session.current_problem.stuck_count):
+    if (prefetch.problem_no, prefetch.stuck_count, prefetch.persona) == (
+        session.current_problem_no, session.current_problem.stuck_count, session.settings.persona
+    ):
         return prefetch.composing
     prefetch.composing.cancel()
     return None
@@ -393,6 +399,7 @@ async def get_session(session_id: str, request: Request, context: AppContext = D
         "still_seconds": still_seconds(session, now),
         "settings": asdict(session.settings),
         "problems": [_problem_record(problem, session, now) for problem in session.problems],
+        "persona_options": persona_options(),
         "stuck_points": _stuck_points(session),
         "leak_blocked_count": session.leak_blocked_count,
         "created_at": _iso(session.created_at),
@@ -406,7 +413,10 @@ async def patch_settings(
 ) -> dict:
     session = _find_session(context, session_id)
     _require_device(request, context, session)
-    session, _ = _apply(context, session, ChangeSettings(body.stuck_seconds, body.cooldown_seconds), _now())
+    old_persona = session.settings.persona
+    session, _ = _apply(context, session, ChangeSettings(body.stuck_seconds, body.cooldown_seconds, body.persona), _now())
+    if session.settings.persona != old_persona:
+        _discard_prefetch(context, session_id)
     context.store.save()
     return {"settings": asdict(session.settings), "state": session.state}
 
@@ -457,8 +467,8 @@ async def post_frame(
         problem = session.current_problem
         stuck_count = problem.stuck_count + 1
         level = auto_hint_level(stuck_count, session.settings)
-        composing = asyncio.create_task(_compose_ahead(context, session.session_id, problem, level, data))
-        context.prefetches[session.session_id] = Prefetch(session.current_problem_no, stuck_count, composing)
+        composing = asyncio.create_task(_compose_ahead(context, session.session_id, problem, level, data, session.settings.persona))
+        context.prefetches[session.session_id] = Prefetch(session.current_problem_no, stuck_count, composing, session.settings.persona)
     return {"frame_id": frame_id, "received_at": _iso(_now()), "bytes": len(data)}
 
 
@@ -539,7 +549,7 @@ async def _answer_utterance(context: AppContext, session: Session, utterance: st
             problem_no=problem_no,
             level=acceptable.level,
             trigger="voice",
-            composed=check_reply(problem.leak_strings),
+            composed=check_reply(problem.leak_strings, session.settings.persona),
             started=started,
             requested_at=now,
             prefetched=False,
@@ -553,12 +563,13 @@ async def _answer_utterance(context: AppContext, session: Session, utterance: st
             _ai_hints(problem),
             problem.problem_text,
             problem.leak_strings,
+            session.settings.persona,
         )
     except AIUnavailable:
         logger.warning("answer session=%s ai_unavailable=True", session.session_id)
-        composed = answer_fallback(problem.leak_strings) if asks_for_help(utterance) else None
+        composed = answer_fallback(problem.leak_strings, session.settings.persona) if asks_for_help(utterance) else None
     latest = _find_session(context, session.session_id)
-    if composed is None or latest.current_problem_no != problem_no:
+    if composed is None or latest.current_problem_no != problem_no or latest.settings.persona != session.settings.persona:
         logger.info("answer session=%s answered=False", session.session_id)
         return Response(status_code=204)
     latest, accepted = _apply(context, latest, HintRequested("voice"), _now())
@@ -589,11 +600,17 @@ async def request_hint(
     problem = session.current_problem
     composing = _take_prefetch(context, session) if body.trigger == "auto" else None
     if session.mode == "scripted":
-        composed = fixed_hint(FALLBACK_HINTS[accepted.level], "scripted", LeakCheck(ok=True, fallback=False), problem.leak_strings)
+        composed = fixed_hint(
+            FALLBACK_HINTS[accepted.level], "scripted", LeakCheck(ok=True, fallback=False), problem.leak_strings,
+            session.settings.persona,
+        )
     elif composing:
         composed = await composing
     else:
-        composed = await _compose(context, problem, accepted.level, _latest_frame(context, session_id))
+        composed = await _compose(context, problem, accepted.level, _latest_frame(context, session_id), session.settings.persona)
+    latest = _find_session(context, session_id)
+    if latest.current_problem_no != session.current_problem_no or latest.settings.persona != session.settings.persona:
+        _fail(409, "ヒント生成中に問題か人格が変わったため、もう一度お試しください")
     return _issue_hint(
         context,
         session_id,

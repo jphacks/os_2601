@@ -38,6 +38,7 @@ class SessionSettings:
     stuck_seconds: int
     cooldown_seconds: int
     max_level: int
+    persona: Literal["teacher", "ikemen"] = "teacher"
 
 
 @dataclass
@@ -121,6 +122,7 @@ class Signal:
 class ChangeSettings:
     stuck_seconds: int | None
     cooldown_seconds: int | None
+    persona: Literal["teacher", "ikemen"] | None = None
 
 
 @dataclass(frozen=True)
@@ -287,12 +289,16 @@ def _on_signal(session: Session, signal: Signal, now: datetime, thresholds: Thre
 
 
 def _on_change_settings(session: Session, change: ChangeSettings) -> Result:
-    if session.state not in SETTINGS_EDITABLE_STATES:
+    if session.state not in SETTINGS_EDITABLE_STATES or session.pending_until is not None:
+        return Rejected()
+    if change.persona is not None and change.persona not in ("teacher", "ikemen"):
         return Rejected()
     if change.stuck_seconds is not None:
         session.settings.stuck_seconds = change.stuck_seconds
     if change.cooldown_seconds is not None:
         session.settings.cooldown_seconds = change.cooldown_seconds
+    if change.persona is not None:
+        session.settings.persona = change.persona
     return Accepted()
 
 

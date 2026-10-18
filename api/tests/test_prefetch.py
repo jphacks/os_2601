@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 import pytest
 from conftest import Device
+from app.personas import get_persona
 
 MOVING = 0.05
 STILL = 0.01
@@ -15,9 +16,11 @@ class SlowAI:
         self.delay = 0.05
         self.started = 0
         self.cancelled = 0
+        self.systems: list[str] = []
 
     async def generate_json(self, model: str, system: str, text: str, image_jpeg: bytes, schema: dict) -> dict:
         self.started += 1
+        self.systems.append(system)
         try:
             await asyncio.sleep(self.delay)
         except asyncio.CancelledError:
@@ -96,3 +99,24 @@ def test_hint_prepared_for_an_earlier_stuck_is_not_used_for_the_next_one(device:
     hint = device.hint(frame_id)
     assert (hint["level"], hint["source"]) == (2, "gpt")
     assert ai.started == 3
+
+
+def test_switching_persona_discards_the_old_prefetch_and_uses_the_new_style(device: Device, ai: SlowAI) -> None:
+    ai.delay = 30
+    stay_still_until_frame_is_requested(device)
+    frame_id = device.frame()
+    wait_until(lambda: ai.started == 1)
+    assert get_persona("teacher").style_instruction in ai.systems[0]
+    response = device.client.patch(
+        f"/sessions/{device.session_id}/settings", json={"persona": "ikemen"}, headers=device.headers
+    )
+    assert response.status_code == 200
+    wait_until(lambda: ai.cancelled == 1)
+    ai.delay = 0
+    for second in range(9, 12):
+        device.signal(second, STILL)
+    hint = device.hint(frame_id)
+    assert (hint["speech"], hint["display"], hint["source"]) == (HINT_SPEECH, HINT_SPEECH, "gpt")
+    assert ai.started == 2
+    assert get_persona("ikemen").style_instruction in ai.systems[-1]
+    assert get_persona("teacher").style_instruction not in ai.systems[-1]

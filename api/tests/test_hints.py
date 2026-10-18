@@ -1,4 +1,6 @@
 import asyncio
+from dataclasses import replace
+from unittest.mock import patch
 
 import pytest
 
@@ -6,6 +8,7 @@ from app.check import CORRECT_TEXT, FAILED_TEXT, judge
 from app.gemini import AIUnavailable
 from app.hints import (
     ANSWER_FALLBACK,
+    ANSWER_DISPLAY_MAX_CHARS,
     UNREADABLE_ANSWER,
     ANSWER_SPEECH_MAX_CHARS,
     DISPLAY_MAX_CHARS,
@@ -16,6 +19,7 @@ from app.hints import (
     compose_hint,
 )
 from app.state import LeakCheck
+from app.personas import PERSONAS, fallback_message, get_persona
 
 FRAME = b"\xff\xd8jpeg"
 MODEL = "gemini-test"
@@ -26,9 +30,15 @@ class FakeAI:
         self.reply = reply
         self.error = error
         self.requests: list[str] = []
+        self.systems: list[str] = []
+        self.schemas: list[dict] = []
+        self.frames: list[bytes] = []
 
     async def generate_json(self, model: str, system: str, text: str, image_jpeg: bytes, schema: dict) -> dict:
         self.requests.append(text)
+        self.systems.append(system)
+        self.schemas.append(schema)
+        self.frames.append(image_jpeg)
         if self.error:
             raise self.error
         return self.reply
@@ -46,8 +56,8 @@ def ai_hint(speech: str) -> dict:
     }
 
 
-def compose(ai: FakeAI | None, frame: bytes | None = FRAME, level: int = 1, known_leaks: list[str] | None = None):
-    return asyncio.run(compose_hint(ai, MODEL, frame, level, ["前のヒント"], "2x - 7 = 4x + 3", known_leaks or []))
+def compose(ai: FakeAI | None, frame: bytes | None = FRAME, level: int = 1, known_leaks: list[str] | None = None, persona: str = "teacher"):
+    return asyncio.run(compose_hint(ai, MODEL, frame, level, ["前のヒント"], "2x - 7 = 4x + 3", known_leaks or [], persona))
 
 
 def test_ai_hint_is_used_from_the_first_stuck_and_answer_is_kept_server_side() -> None:
@@ -204,3 +214,92 @@ def test_answer_with_nothing_to_check_leaks_against_is_not_used() -> None:
     reply = ai_answer("移項は、項を反対の辺に移すことだよ")
     reply.update(final_answer="", key_values=[])
     assert answer(FakeAI(reply)).speech == ANSWER_FALLBACK
+
+
+@pytest.mark.parametrize("persona", ["teacher", "ikemen"])
+def test_gemini_keeps_the_specific_location_operation_and_separate_display(persona: str) -> None:
+    speech = "1行目の左辺の定数項を、反対の辺へ移してみて"
+    display = "1行目の左辺の -7 を、右辺へ移してみて"
+    reply = {**ai_hint(speech), "display": display}
+    ai = FakeAI(reply)
+    hint = compose(ai, level=2, persona=persona)
+    assert (hint.speech, hint.display, hint.source) == (speech, display, "gpt")
+    assert len(ai.requests) == 1 and ai.frames == [FRAME]
+    assert get_persona(persona).style_instruction in ai.systems[0]
+    other = "ikemen" if persona == "teacher" else "teacher"
+    assert get_persona(other).style_instruction not in ai.systems[0]
+    assert {"speech", "display"} <= set(ai.schemas[0]["required"])
+    assert not {"focus", "action", "variant"} & set(ai.schemas[0]["properties"])
+
+
+def test_only_the_style_changes_in_the_hint_request_between_personas() -> None:
+    teacher = FakeAI(ai_hint("1行目の左辺の符号を、もう一度確認してみましょう。"))
+    ikemen = FakeAI(ai_hint("1行目の左辺の符号を、もう一度確認してみよう。"))
+    teacher_hint = compose(teacher, persona="teacher")
+    ikemen_hint = compose(ikemen, persona="ikemen")
+    assert teacher.requests == ikemen.requests
+    assert teacher.frames == ikemen.frames
+    assert teacher.schemas == ikemen.schemas
+    assert teacher.systems[0].replace(get_persona("teacher").style_instruction, "STYLE") == ikemen.systems[0].replace(get_persona("ikemen").style_instruction, "STYLE")
+    assert teacher_hint.display != ikemen_hint.display
+    assert "1行目の左辺の符号" in teacher_hint.display and "1行目の左辺の符号" in ikemen_hint.display
+
+
+def test_changing_the_persona_setting_updates_the_next_prompt() -> None:
+    custom = replace(PERSONAS["ikemen"], style_instruction="穏やかなタメ口で、一つだけ問いかける。")
+    ai = FakeAI(ai_hint("左辺を見てみて"))
+    with patch.dict(PERSONAS, {"ikemen": custom}):
+        assert compose(ai, persona="ikemen").source == "gpt"
+    assert custom.style_instruction in ai.systems[0]
+
+
+@pytest.mark.parametrize("persona", ["teacher", "ikemen"])
+def test_both_personas_keep_the_main_hint_and_answer_length_limits(persona: str) -> None:
+    assert (SPEECH_MAX_CHARS, DISPLAY_MAX_CHARS) == (60, 80)
+    assert (ANSWER_SPEECH_MAX_CHARS, ANSWER_DISPLAY_MAX_CHARS) == (100, 120)
+    reply = {**ai_hint("見" * 60), "display": "見" * 80}
+    hint = compose(FakeAI(reply), persona=persona)
+    assert (len(hint.speech), len(hint.display), hint.source) == (60, 80, "gpt")
+    for field, limit in (("speech", 60), ("display", 80)):
+        assert compose(FakeAI({**reply, field: "見" * (limit + 1)}), persona=persona).source == "fallback"
+    reply = {**ai_answer("見" * 100), "display": "見" * 120}
+    hint = asyncio.run(compose_answer(FakeAI(reply), MODEL, FRAME, "移項って何？", [], None, [], persona))
+    assert (len(hint.speech), len(hint.display), hint.source) == (100, 120, "gpt")
+    for field, limit in (("speech", 100), ("display", 120)):
+        too_long = {**reply, field: "見" * (limit + 1)}
+        assert asyncio.run(compose_answer(FakeAI(too_long), MODEL, FRAME, "移項って何？", [], None, [], persona)).source == "fallback"
+
+
+@pytest.mark.parametrize("field", ["speech", "display"])
+@pytest.mark.parametrize("persona", ["teacher", "ikemen"])
+def test_each_generated_output_still_runs_through_the_answer_leak_check(field: str, persona: str) -> None:
+    reply = {**ai_hint("左辺を見てみて"), field: "答えは x=-5 だよ"}
+    hint = compose(FakeAI(reply), level=2, persona=persona)
+    assert hint.leak_check == LeakCheck(ok=False, fallback=True)
+    assert hint.speech == fallback_message(FALLBACK_HINTS[2], persona).speech
+    assert "x=-5" not in hint.display
+
+
+@pytest.mark.parametrize("persona", ["teacher", "ikemen"])
+def test_fixed_failures_and_unreadable_replies_use_the_persona_without_more_ai_calls(persona: str) -> None:
+    assert compose(None, persona=persona).speech == fallback_message(FALLBACK_HINTS[1], persona).speech
+    ai = FakeAI({**ai_hint("左辺を見てみて"), "readable": False, "unreadable_reason": "dark"})
+    hint = compose(ai, persona=persona)
+    assert hint.speech == hint.display == fallback_message("もう少し明るいところで見せてみて", persona).speech
+    assert hint.source == "fallback" and len(ai.requests) == 1
+
+
+@pytest.mark.parametrize("persona", ["teacher", "ikemen"])
+def test_voice_answer_uses_the_same_style_and_preserves_gemini_display(persona: str) -> None:
+    speech = "移項は、項を反対の辺に移すことだよ"
+    display = "移項は、項を反対の辺へ移し、符号を変えることです。"
+    ai = FakeAI({**ai_answer(speech), "display": display})
+    hint = asyncio.run(compose_answer(ai, MODEL, FRAME, "移項って何？", [], None, [], persona))
+    assert (hint.speech, hint.display, hint.source) == (speech, display, "gpt")
+    assert get_persona(persona).style_instruction in ai.systems[0]
+    assert len(ai.requests) == 1 and ai.frames == [FRAME]
+
+
+def test_unknown_persona_is_rejected_before_a_missing_frame_fallback() -> None:
+    with pytest.raises(ValueError):
+        compose(None, persona="friend")

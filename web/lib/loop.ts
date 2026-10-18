@@ -17,6 +17,7 @@ import {
 } from "./api";
 import { captureFrame, stopCamera } from "./camera";
 import { startMotionLoop } from "./motion";
+import type { Persona } from "./personas";
 import { setSpeechSession, speak, stopSpeaking } from "./speech";
 import { startListening, stopListening, voiceStatus } from "./voice";
 
@@ -32,6 +33,7 @@ export type SessionHandlers = {
 type Session = {
   id: string;
   token: string;
+  persona: Persona;
   handlers: SessionHandlers;
   running: boolean;
   state: State;
@@ -120,12 +122,17 @@ function scheduleProblemRead(session: Session, delayMs: number): void {
 
 async function readCurrentProblem(session: Session): Promise<void> {
   if (!session.running) return;
+  const problemNo = session.problemNo;
   try {
-    const response = await readProblem(session.id, session.token, { frame_id: await sendFrame(session) });
-    if (session.running && response.problem_no === session.problemNo) session.handlers.onProblem(response.problem_text);
+    const frameId = await sendFrame(session);
+    if (!session.running || problemNo !== session.problemNo) return;
+    const response = await readProblem(session.id, session.token, { frame_id: frameId });
+    if (session.running && problemNo === session.problemNo && response.problem_no === session.problemNo) {
+      session.handlers.onProblem(response.problem_text);
+    }
   } catch (error) {
     console.warn("[loop] 問題文の読み取りに失敗", error);
-    if (session.problemReadRetried) return;
+    if (!session.running || problemNo !== session.problemNo || session.problemReadRetried) return;
     session.problemReadRetried = true;
     session.problemReadTimer = setTimeout(() => void readCurrentProblem(session), PROBLEM_READ_RETRY_MS);
   }
@@ -259,12 +266,14 @@ export function startSession(
   sessionId: string,
   token: string,
   handlers: SessionHandlers,
+  persona: Persona = "teacher",
 ): () => void {
   activeSession?.stop();
   setSpeechSession(sessionId, token);
   const session: Session = {
     id: sessionId,
     token,
+    persona,
     handlers,
     running: true,
     state: "created",
@@ -303,6 +312,11 @@ export function startSession(
   };
   activeSession = session;
   return session.stop;
+}
+
+// 設定APIの成功後だけ呼ぶ。別セッションの遅い応答は適用しない。
+export function updateSessionPersona(sessionId: string, persona: Persona): void {
+  if (activeSession?.id === sessionId) activeSession.persona = persona;
 }
 
 export async function requestManualHint(): Promise<HintResponse> {

@@ -1,9 +1,0 @@
-{
-  "check_id": "chk_mock_unreadable",
-  "problem_no": 2,
-  "verdict": "unreadable",
-  "speech": "もう少し明るいところで、もう一回見せて",
-  "display": "もう少し明るいところで、もう一回見せて",
-  "next_problem_no": 2,
-  "state": "speaking"
-}

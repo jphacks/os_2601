@@ -9,6 +9,21 @@ from typing import Annotated, Literal, NoReturn
 from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.check import CORRECT_TEXT, Judgement, judge
+from app.gemini import AIUnavailable, Gemini
+from app.hints import (
+    FALLBACK_HINTS,
+    ComposedHint,
+    answer_fallback,
+    asks_for_help,
+    asks_if_correct,
+    check_reply,
+    compose_answer,
+    compose_hint,
+    fixed_hint,
+    read_problem,
+)
+from app.personas import persona_options
 from app.state import (
     Accepted,
     Advance,
@@ -34,23 +49,8 @@ from app.state import (
     step,
     still_seconds,
 )
-from app.check import CORRECT_TEXT, Judgement, judge
-from app.gemini import AIUnavailable, Gemini
-from app.hints import (
-    FALLBACK_HINTS,
-    ComposedHint,
-    answer_fallback,
-    asks_for_help,
-    asks_if_correct,
-    check_reply,
-    compose_answer,
-    compose_hint,
-    fixed_hint,
-    read_problem,
-)
 from app.store import SessionStore
-from app.personas import persona_options
-from app.voicevox import Voicevox, VoiceUnavailable
+from app.voicevox import VoiceUnavailable, Voicevox
 from app.worksheets import PRINT_LAYOUT, Worksheet
 
 logger = logging.getLogger(__name__)
@@ -224,7 +224,9 @@ async def _compose(context: AppContext, problem: Problem, level: int, frame: byt
     )
 
 
-async def _compose_ahead(context: AppContext, session_id: str, problem: Problem, level: int, frame: bytes, persona: str = "teacher") -> ComposedHint:
+async def _compose_ahead(
+    context: AppContext, session_id: str, problem: Problem, level: int, frame: bytes, persona: str = "teacher"
+) -> ComposedHint:
     started = time.monotonic()
     composed = await _compose(context, problem, level, frame, persona)
     logger.info(

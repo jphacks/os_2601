@@ -97,7 +97,10 @@ function Device() {
         setProblemNo(detail.current_problem_no);
         setProblemText(detail.problems[detail.current_problem_no - 1]?.problem_text ?? null);
       })
-      .catch((error) => console.warn("[device] getSession に失敗", error));
+      .catch((error) => {
+        console.warn("[device] getSession に失敗", error);
+        if (!cancelled) setConnected(false);
+      });
     return () => {
       cancelled = true;
       requestVersion.current += 1;

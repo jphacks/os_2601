@@ -153,7 +153,7 @@ async function fetchHint(
 }
 
 function deliverHint(session: Session, hint: HintResponse): void {
-  if (!session.running) return;
+  if (!session.running || hint.problem_no !== session.problemNo) return;
   session.handlers.onHint(hint);
   applyResponse(session, hint.speech, hint.state, hint.problem_no);
 }
@@ -324,7 +324,7 @@ export async function requestManualHint(): Promise<HintResponse> {
   session.requestInFlight = true;
   try {
     const hint = await fetchHint(session, "manual");
-    applyResponse(session, hint.speech, hint.state, hint.problem_no);
+    if (hint.problem_no === session.problemNo) applyResponse(session, hint.speech, hint.state, hint.problem_no);
     return hint;
   } finally {
     session.requestInFlight = false;

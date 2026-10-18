@@ -6,9 +6,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.gemini import Gemini  # noqa: E402
-from app.hints import read_problem  # noqa: E402
-from photos import photo  # noqa: E402
+from photos import photo
+
+from app.gemini import Gemini
+from app.hints import read_problem
 
 MODEL = os.environ.get("HINT_MODEL", "gemini-3.5-flash-lite")
 PAPERS = {

@@ -12,7 +12,7 @@ import {
   type SessionList,
 } from "@/lib/api";
 
-const WORKSHEETS = ["WS-01", "WS-02", "WS-03"];
+const WORKSHEETS = ["FREE"];
 const MODES: Mode[] = ["live", "scripted"];
 // openapi.yaml の Settings の既定値
 const DEFAULT_STUCK_SECONDS = 20;

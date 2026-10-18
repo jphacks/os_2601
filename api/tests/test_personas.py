@@ -24,9 +24,8 @@ def test_invalid_and_removed_personas_are_rejected(persona):
 
 
 def test_mismatched_configuration_is_rejected():
-    with patch.dict(PERSONAS, {"teacher": PERSONAS["ikemen"]}):
-        with pytest.raises(ValueError, match="人格ID"):
-            get_persona("teacher")
+    with patch.dict(PERSONAS, {"teacher": PERSONAS["ikemen"]}), pytest.raises(ValueError, match="人格ID"):
+        get_persona("teacher")
 
 
 def test_teacher_and_ikemen_supply_distinct_wording_instructions():

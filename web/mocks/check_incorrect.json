@@ -1,9 +1,0 @@
-{
-  "check_id": "chk_mock_incorrect",
-  "problem_no": 2,
-  "verdict": "incorrect",
-  "speech": "もう一回、2 行目の符号を見てみて",
-  "display": "もう一回、2 行目の符号を見てみて",
-  "next_problem_no": 2,
-  "state": "speaking"
-}

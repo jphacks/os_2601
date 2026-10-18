@@ -3,7 +3,7 @@ import logging
 import secrets
 import time
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal, NoReturn
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
@@ -50,12 +50,15 @@ from app.hints import (
 )
 from app.store import SessionStore
 from app.personas import persona_options
+from app.voicevox import Voicevox, VoiceUnavailable
 from app.worksheets import PRINT_LAYOUT, Worksheet
 
 logger = logging.getLogger(__name__)
 
 MAX_FRAME_BYTES = 600 * 1024
 MAX_UTTERANCE_CHARS = 200
+SPEECH_REQUEST_MAX_CHARS = 200
+SPEECH_AFTER_END_SECONDS = 60
 MODE_DEFAULT = "live"
 
 
@@ -80,6 +83,7 @@ class AppContext:
     check_model: str
     frames: dict[str, tuple[str, bytes]] = field(default_factory=dict)
     prefetches: dict[str, Prefetch] = field(default_factory=dict)
+    voice: Voicevox | None = None
 
 
 StuckSeconds = Annotated[int, Field(ge=5, le=1200)]
@@ -140,6 +144,11 @@ class CheckRequest(BaseModel):
 
 class ProblemRequest(BaseModel):
     frame_id: str
+
+
+class SpeechRequest(BaseModel):
+    text: Annotated[str, Field(min_length=1, max_length=SPEECH_REQUEST_MAX_CHARS)]
+    character: Literal["handsome", "teacher"] = "handsome"
 
 
 class AdvanceRequest(BaseModel):
@@ -206,10 +215,7 @@ def _latest_frame(context: AppContext, session_id: str) -> bytes | None:
 
 
 def _ai_hints(problem: Problem) -> list[str]:
-    return [
-        f"着眼点：{hint.focus}、次の行動：{hint.action}" if hint.focus and hint.action else hint.display
-        for hint in problem.hints if hint.source == "gpt"
-    ]
+    return [hint.display for hint in problem.hints if hint.source == "gpt"]
 
 
 async def _compose(context: AppContext, problem: Problem, level: int, frame: bytes | None, persona: str = "teacher") -> ComposedHint:
@@ -491,8 +497,6 @@ def _issue_hint(
         model=composed.model,
         latency_ms=int((time.monotonic() - started) * 1000),
         created_at=requested_at,
-        focus=composed.focus,
-        action=composed.action,
     )
     recorded = session.problems[problem_no - 1]
     recorded.hints.append(hint)
@@ -682,6 +686,30 @@ async def post_problem(
         "problem session=%s read=%s latency_ms=%s", session.session_id, problem_text is not None, int((time.monotonic() - started) * 1000)
     )
     return {"problem_no": problem_no, "problem_text": session.problems[problem_no - 1].problem_text, "state": session.state}
+
+
+@router.post("/sessions/{session_id}/tts")
+async def post_tts(session_id: str, body: SpeechRequest, request: Request, context: AppContext = Depends(get_context)) -> Response:
+    session = _find_session(context, session_id)
+    _require_device(request, context, session)
+    if session.ended_at is not None and _now() - session.ended_at > timedelta(seconds=SPEECH_AFTER_END_SECONDS):
+        raise HTTPException(status_code=409, detail="終わったセッションの読み上げは受け付けない")
+    if context.voice is None:
+        raise HTTPException(status_code=503, detail="読み上げの声が用意されていない")
+    started = time.monotonic()
+    try:
+        audio = await context.voice.synthesize(body.text, body.character)
+    except VoiceUnavailable as error:
+        logger.warning("tts session=%s failed=%s", session.session_id, error)
+        raise HTTPException(status_code=503, detail="読み上げの声を作れなかった") from error
+    logger.info(
+        "tts session=%s character=%s chars=%s latency_ms=%s",
+        session.session_id,
+        body.character,
+        len(body.text),
+        int((time.monotonic() - started) * 1000),
+    )
+    return Response(content=audio, media_type="audio/wav")
 
 
 @router.post("/sessions/{session_id}/advance")

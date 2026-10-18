@@ -60,8 +60,6 @@ class Hint:
     model: str | None
     latency_ms: int
     created_at: datetime
-    focus: str | None = None
-    action: str | None = None
 
 
 @dataclass

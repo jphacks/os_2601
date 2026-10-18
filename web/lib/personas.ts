@@ -16,11 +16,6 @@ const FALLBACK_OPTIONS: readonly PersonaOption[] = [
   },
 ];
 
-export function normalizePersona(value: unknown): Persona {
-  // 保存済みの旧人格や未知の値は復活させず、家庭教師に戻す。
-  return value === "ikemen" ? "ikemen" : "teacher";
-}
-
 export function personaOptions(value: unknown): PersonaOption[] {
   const options = Array.isArray(value) ? value : [];
   return FALLBACK_OPTIONS.map((fallback) => {
@@ -38,5 +33,5 @@ export function personaOptions(value: unknown): PersonaOption[] {
 }
 
 export function endMessage(persona: Persona, options?: unknown): string {
-  return personaOptions(options).find((option) => option.id === normalizePersona(persona))!.end_message;
+  return personaOptions(options).find((option) => option.id === persona)!.end_message;
 }

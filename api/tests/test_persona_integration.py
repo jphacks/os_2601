@@ -8,17 +8,15 @@ import pytest
 from conftest import OPERATOR_KEY, Device
 
 from app.gemini import Gemini
-from app.personas import end_message
-from app.store import SessionStore
+from app.personas import end_message, get_persona
 
 
-def analysis(focus="右辺に移したときの符号"):
+def analysis(speech="右辺に移したときの符号を見てみて", display="右辺に移した項の符号を確認してみて"):
     return {
         "readable": True, "unreadable_reason": "none",
         "problem_text": "2x - 7 = 4x + 3", "final_answer": "x = -5",
         "key_values": ["-2x = 10"], "written_lines": [],
-        "stuck_point": "移項の符号", "focus": focus,
-        "action": "review", "variant": "playful",
+        "stuck_point": "移項の符号", "speech": speech, "display": display,
     }
 
 
@@ -56,14 +54,16 @@ def test_selected_persona_uses_the_camera_and_keeps_answers_private(device: Devi
     assert select(device, persona).json()["settings"]["persona"] == persona
     initial = device.client.get(f"/sessions/{device.session_id}", headers=device.headers).json()
     assert initial["problems"][0]["problem_text"] is None
+    speech = "右辺に移したときの符号を見てみましょう。" if persona == "teacher" else "右辺に移したときの符号を見てごらん。"
+    display = "右辺に移した項の符号を確認してみましょう。" if persona == "teacher" else "右辺に移した項の符号を確認してみようか。"
+    ai.reply = analysis(speech, display)
     result = device.hint(start(device), "manual")
     assert result["source"] == "gpt"
     assert result["problem_text"] == "2x - 7 = 4x + 3"
-    assert result["speech"] == result["display"]
-    assert len(result["speech"]) <= 40 and len(result["display"]) <= 60
-    assert "右辺に移したときの符号" in result["display"]
-    assert result["display"].endswith("ましょう。" if persona == "teacher" else "よう。")
+    assert (result["speech"], result["display"]) == (speech, display)
+    assert len(result["speech"]) <= 60 and len(result["display"]) <= 80
     assert len(ai.calls) == 1 and ai.calls[0][2] == b"\xff\xd8jpeg"
+    assert get_persona(persona).style_instruction in ai.calls[0][0]
     detail = device.client.get(f"/sessions/{device.session_id}", headers=device.headers).json()
     assert detail["problems"][0]["problem_text"] == result["problem_text"]
     assert {option["id"] for option in detail["persona_options"]} == {"teacher", "ikemen"}
@@ -91,10 +91,11 @@ def test_startup_read_remains_separate_from_the_persona_hint_and_keeps_analysis_
 
     hint = device.hint(frame_id, "manual")
     assert hint["source"] == "gpt"
-    assert hint["speech"] == hint["display"] and len(hint["speech"]) <= 40
+    assert (hint["speech"], hint["display"]) == (ai.reply["speech"], ai.reply["display"])
     assert len(ai.calls) == 2
     assert "前に読み取った問題文：2x - 7 = 4x + 3" in ai.calls[1][1]
-    assert {"focus", "action", "variant"} <= set(ai.calls[1][3]["required"])
+    assert {"speech", "display"} <= set(ai.calls[1][3]["required"])
+    assert get_persona(persona).style_instruction in ai.calls[1][0]
     detail = device.client.get(f"/sessions/{device.session_id}", headers=device.headers).json()
     assert detail["stuck_points"] == [{"label": "移項の符号", "count": 1}]
     encoded = json.dumps([read.json(), initial, hint, detail], ensure_ascii=False)
@@ -117,7 +118,7 @@ def test_only_generated_hints_add_labels_when_persona_fallbacks_are_recorded(dev
     assert check["source"] == "fallback" and check["stuck_point"] == "答えの確認"
     assert len(ai.calls) == 2
     for response in (unreadable, check):
-        assert response["speech"] == response["display"] and len(response["speech"]) <= 40
+        assert response["speech"] == response["display"] and len(response["speech"]) <= 60
     detail = device.client.get(f"/sessions/{device.session_id}", headers=device.headers).json()
     assert [hint["source"] for hint in detail["problems"][0]["hints"]] == ["gpt", "fallback", "fallback"]
     assert detail["stuck_points"] == [{"label": "移項の符号", "count": 1}]
@@ -146,21 +147,6 @@ def test_friend_is_rejected_by_both_create_and_patch(device: Device):
     )
     assert response.status_code == 422
     assert device.client.get(f"/sessions/{device.session_id}", headers=device.headers).json()["settings"]["persona"] == "teacher"
-
-
-def test_existing_friend_data_migrates_to_teacher_without_reappearing(device: Device, tmp_path):
-    path = tmp_path / "old-session.json"
-    store = SessionStore(path)
-    store.put(device.client.app.state.context.store.get(device.session_id))
-    store.save()
-    raw = json.loads(path.read_text(encoding="utf-8"))
-    raw["sessions"][device.session_id]["settings"]["persona"] = "friend"
-    path.write_text(json.dumps(raw), encoding="utf-8")
-    restored = SessionStore(path)
-    restored.load()
-    assert restored.get(device.session_id).settings.persona == "teacher"
-    restored.save()
-    assert '"friend"' not in path.read_text(encoding="utf-8")
 
 
 def test_switch_is_rejected_while_normal_hint_is_pending(device: Device):
@@ -204,11 +190,14 @@ def test_gemini_wire_format_sends_one_jpeg_and_structured_result_reaches_respons
     result = device.hint(start(device), "manual")
     assert len(sent) == 1 and result["source"] == "gpt"
     assert result["problem_text"] == "2x - 7 = 4x + 3"
-    assert "右辺に移したときの符号" in result["display"]
+    assert result["speech"] == analysis()["speech"]
+    assert result["display"] == analysis()["display"]
     parts = sent[0]["contents"][0]["parts"]
     assert base64.b64decode(parts[1]["inline_data"]["data"]) == b"\xff\xd8jpeg"
     assert parts[1]["inline_data"]["mime_type"] == "image/jpeg"
-    assert {"focus", "action", "variant"} <= set(sent[0]["generationConfig"]["responseSchema"]["required"])
+    schema = sent[0]["generationConfig"]["responseSchema"]
+    assert {"speech", "display"} <= set(schema["required"])
+    assert not {"focus", "action", "variant"} & set(schema["properties"])
 
 
 def test_failed_reading_prompts_retake_without_inventing_an_error(device: Device, ai):
@@ -216,5 +205,5 @@ def test_failed_reading_prompts_retake_without_inventing_an_error(device: Device
     select(device, "ikemen")
     result = device.hint(start(device), "manual")
     assert result["source"] == "fallback"
-    assert result["speech"] == result["display"] and len(result["speech"]) <= 40
+    assert result["speech"] == result["display"] and len(result["speech"]) <= 60
     assert "明る" in result["display"] and "符号" not in result["display"]

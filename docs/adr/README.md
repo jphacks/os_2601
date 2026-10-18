@@ -75,3 +75,4 @@
 | 0032 | [聞こえた文をすべて AI に渡し、問いには説明も含めて答える](0032-answer-what-the-learner-says.md) | 承認 |
 | 0033 | [ヒントと声の答えの精度の穴を 6 つふさぐ](0033-hint-precision-holes.md) | 承認 |
 | 0034 | [「はじめる」の直後と問題が変わったときに、問題文だけを AI に読ませる](0034-read-problem-at-start.md) | 承認 |
+| 0035 | [読み上げを VOICEVOX の声にし、失敗したらブラウザの音声合成に戻す](0035-voicevox-speech.md) | 承認 |

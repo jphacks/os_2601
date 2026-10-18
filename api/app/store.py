@@ -45,17 +45,13 @@ def _decode_problem(raw: dict) -> Problem:
 
 
 def _decode_session(raw: dict) -> Session:
-    settings = dict(raw["settings"])
-    # 保存済みの旧人格だけを移行する。新規の不正な入力は API 側で拒否する。
-    if settings.get("persona") not in ("teacher", "ikemen"):
-        settings["persona"] = "teacher"
     return Session(
         session_id=raw["session_id"],
         session_token=raw["session_token"],
         worksheet_id=raw["worksheet_id"],
         learner_label=raw["learner_label"],
         mode=raw["mode"],
-        settings=SessionSettings(**settings),
+        settings=SessionSettings(**raw["settings"]),
         problems=[_decode_problem(problem) for problem in raw["problems"]],
         created_at=datetime.fromisoformat(raw["created_at"]),
         state=raw["state"] if raw["state"] == "ended" else "watching",

@@ -5,8 +5,8 @@ import { useSearchParams } from "next/navigation";
 import { ApiError, getSession, patchSettings, type SessionDetail, type State } from "@/lib/api";
 import { startCamera, stopCamera } from "@/lib/camera";
 import { advance, end, requestCheck, requestManualHint, startSession, updateSessionPersona } from "@/lib/loop";
-import { endMessage, normalizePersona } from "@/lib/personas";
-import { speak, stopSpeaking, unlockSpeech } from "@/lib/speech";
+import { endMessage } from "@/lib/personas";
+import { setSpeechCharacter, speak, stopSpeaking, unlockSpeech } from "@/lib/speech";
 import { primeListening, stopListening, voiceStatus } from "@/lib/voice";
 import { Buttons } from "./_components/Buttons";
 import { Caption, HeardBubble } from "./_components/Caption";
@@ -77,6 +77,7 @@ function Device() {
         if (cancelled || version !== requestVersion.current) return;
         const initialState = detail.state === "ended" ? "ended" : "created";
         sessionRef.current = detail;
+        setSpeechCharacter(detail.settings.persona === "ikemen" ? "handsome" : "teacher");
         stateRef.current = initialState;
         problemNoRef.current = detail.current_problem_no;
         endSpokenRef.current = initialState === "ended";
@@ -88,7 +89,7 @@ function Device() {
         setRecordStatus("idle");
         setState(initialState);
         setCaption(initialState === "ended"
-          ? endMessage(normalizePersona(detail.settings.persona), detail.persona_options)
+          ? endMessage(detail.settings.persona, detail.persona_options)
           : FIXED_CAPTIONS.created ?? "");
         setBusy(false);
         setPersonaUpdating(false);
@@ -136,14 +137,14 @@ function Device() {
     setProblemNo(appliedProblemNo);
     if (next === "ended") {
       const confirmed = sessionRef.current;
-      const persona = normalizePersona(confirmed?.settings.persona);
+      const persona = confirmed?.settings.persona ?? "teacher";
       const message = endMessage(persona, confirmed?.persona_options);
       setCaption(message);
       if (!endSpokenRef.current) {
         endSpokenRef.current = true;
         stopListening();
         stopSpeaking();
-        void speak(message, persona);
+        void speak(message).catch((error) => console.warn("[device] 終了の読み上げに失敗", error));
       }
       return;
     }
@@ -153,7 +154,7 @@ function Device() {
 
   const defaultSeconds = session ? nearestChoice(session.settings.stuck_seconds) : null;
   const selectedSeconds = stuckSeconds ?? defaultSeconds;
-  const selectedPersona = normalizePersona(session?.settings.persona);
+  const selectedPersona = session?.settings.persona ?? "teacher";
   // 絵と話し方は、サーバーで保存が確認できた同じ人格にそろえる。
   const characterId = selectedPersona === "ikemen" ? "handsome" : "teacher";
   const canChangePersona = ["created", "watching", "still", "cooldown"].includes(state);
@@ -164,7 +165,7 @@ function Device() {
       !["created", "watching", "still", "cooldown"].includes(stateRef.current)
     ) return;
     const confirmed = sessionRef.current;
-    if (!confirmed || normalizePersona(confirmed.settings.persona) === value) return;
+    if (!confirmed || confirmed.settings.persona === value) return;
     const version = requestVersion.current;
     personaUpdatingRef.current = true;
     setPersonaUpdating(true);
@@ -175,6 +176,7 @@ function Device() {
       const next = { ...sessionRef.current, settings: response.settings };
       sessionRef.current = next;
       setSession(next);
+      setSpeechCharacter(response.settings.persona === "ikemen" ? "handsome" : "teacher");
       updateSessionPersona(sessionId, response.settings.persona);
     } catch (error) {
       if (version === requestVersion.current && stateRef.current !== "ended") {
@@ -205,6 +207,7 @@ function Device() {
       stuckSeconds !== null && stuckSeconds !== session?.settings.stuck_seconds
         ? patchSettings(sessionId, token, { stuck_seconds: stuckSeconds }).catch(ignoreError)
         : null;
+    setSpeechCharacter(characterId);
     unlockSpeech();
     primeListening();
     try {
@@ -226,6 +229,7 @@ function Device() {
     if (updated) {
       sessionRef.current = { ...sessionRef.current, settings: updated.settings };
       setSession(sessionRef.current);
+      setSpeechCharacter(updated.settings.persona === "ikemen" ? "handsome" : "teacher");
     }
     endSpokenRef.current = false;
     stopRef.current = startSession(video, sessionId, token, {
@@ -251,7 +255,7 @@ function Device() {
       onProblem: (text) => {
         if (version === requestVersion.current && stateRef.current !== "ended") setProblemText(text);
       },
-    }, normalizePersona(sessionRef.current.settings.persona));
+    }, sessionRef.current.settings.persona);
     setBusy(false);
     startingRef.current = false;
   }
@@ -369,7 +373,7 @@ function Device() {
               dark={brightness !== null && brightness < DARK_BRIGHTNESS}
               debugText={debug ? `輝度 ${brightness === null ? "-" : Math.round(brightness)} / 静止 ${stillSeconds} 秒 / 声 ${voiceStatus()}` : null}
             />
-            {(state === "ended" || session?.state === "ended") && (
+            {state === "ended" && (
               <button
                 type="button"
                 onClick={handleShowRecord}
@@ -394,11 +398,11 @@ function Device() {
         </div>
         {/* 下：入力欄の位置にボタン */}
         <div className="relative flex flex-col gap-3 rounded-[2rem] bg-white/70 p-3 shadow-lg backdrop-blur">
-          <CharacterPicker
+          {state !== "ended" && <CharacterPicker
             value={characterId}
             onChange={(id) => void handlePersonaChange(id === "handsome" ? "ikemen" : "teacher")}
             disabled={!session || busy || personaUpdating || !canChangePersona}
-          />
+          />}
           {personaError && <p role="status" className="px-2 text-sm text-red-700">{personaError}</p>}
           {state === "created" && selectedSeconds !== null && (
             <SecondsPicker value={selectedSeconds} onChange={setStuckSeconds} />

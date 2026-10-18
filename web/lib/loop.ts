@@ -17,8 +17,8 @@ import {
 } from "./api";
 import { captureFrame, stopCamera } from "./camera";
 import { startMotionLoop } from "./motion";
-import { normalizePersona, type Persona } from "./personas";
-import { speak, stopSpeaking } from "./speech";
+import type { Persona } from "./personas";
+import { setSpeechSession, speak, stopSpeaking } from "./speech";
 import { startListening, stopListening, voiceStatus } from "./voice";
 
 export type SessionHandlers = {
@@ -87,7 +87,7 @@ function say(session: Session, text: string | null): void {
   if (!text) return;
   stopListening();
   session.speechesInProgress += 1;
-  speak(text, session.persona)
+  speak(text)
     .catch((error) => console.warn("[loop] 読み上げに失敗", error))
     .finally(() => {
       session.speechesInProgress -= 1;
@@ -269,10 +269,11 @@ export function startSession(
   persona: Persona = "teacher",
 ): () => void {
   activeSession?.stop();
+  setSpeechSession(sessionId, token);
   const session: Session = {
     id: sessionId,
     token,
-    persona: normalizePersona(persona),
+    persona,
     handlers,
     running: true,
     state: "created",
@@ -315,7 +316,7 @@ export function startSession(
 
 // 設定APIの成功後だけ呼ぶ。別セッションの遅い応答は適用しない。
 export function updateSessionPersona(sessionId: string, persona: Persona): void {
-  if (activeSession?.id === sessionId) activeSession.persona = normalizePersona(persona);
+  if (activeSession?.id === sessionId) activeSession.persona = persona;
 }
 
 export async function requestManualHint(): Promise<HintResponse> {

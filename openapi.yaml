@@ -433,6 +433,55 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
 
+  /sessions/{id}/tts:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      tags: [hints]
+      operationId: synthesizeSpeech
+      summary: 読み上げの文を VOICEVOX の声にする
+      description: |
+        デバイスが読み上げるたびに呼ぶ（ADR 0035）。api が VOICEVOX のエンジン（環境変数 `VOICEVOX_URL`）で、`/device` で選んだキャラの声（handsome は青山龍星のしっとり、teacher は冥鳴ひまり）の wav を作って返す。
+        エンジンが無い・失敗したときは 503（コードは HINT_UNAVAILABLE を使う）で、デバイスはブラウザの音声合成で読む。状態は変えない。
+        終わったセッションは、最後の読み上げ（終わった直後の「正解」など）のため 60 秒だけ受け付け、その後は 409。
+      security:
+        - device: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                character:
+                  type: string
+                  enum: [handsome, teacher]
+                  default: handsome
+            example: {"text": "最初の行のかっこを外したところ、もう一回見てみて", "character": "handsome"}
+      responses:
+        "200":
+          description: 読み上げの音声
+          content:
+            audio/wav:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "503":
+          $ref: "#/components/responses/HintUnavailable"
+
   /sessions/{id}/advance:
     parameters:
       - $ref: "#/components/parameters/SessionId"
@@ -1062,11 +1111,11 @@ components:
           $ref: "#/components/schemas/Trigger"
         speech:
           type: [string, "null"]
-          maxLength: 40
+          maxLength: 100
           description: 読み上げ用。null なら読まない
         display:
           type: string
-          maxLength: 60
+          maxLength: 120
           description: 字幕用。そのまま出す
         stuck_point:
           type: string

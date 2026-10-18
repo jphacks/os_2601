@@ -84,6 +84,7 @@ Hack Day 版はヒント 2 段階（H1 固定文・H2 GPT）、SSE なし（記�
 
 - `problems[].status` は `pending` | `working` | `done` | `skipped`。
 - `hints[]` に `speech` は含めない（読み上げは出した瞬間だけ）。`trigger`（`auto` / `manual` / `voice`）は含める。`stuck_point` は H1（固定文）では典型ミスの 1 つ目。
+- `stuck_points` は AI の文のヒント（`source: gpt`）の `stuck_point` をラベルごとに数え、多い順に並べる。固定文のラベル（「読み取れず」「答えの確認」）は数えない。`/log` の「どこで詰まったか」に出す。
 - `leak_blocked_count` は答え漏れ検査で捨てた回数の合計（「答えを言いそうになって止めた回数」として `/log` に出す）。
 - `seconds_spent` は `working` になってから `done` / `skipped` になるまで（進行中は現在まで）。
 

@@ -902,6 +902,7 @@ components:
                     format: date-time
         stuck_points:
           type: array
+          description: AI の文のヒント（source が gpt）の stuck_point をラベルごとに数え、多い順に並べる。固定文のラベルは数えない
           items:
             type: object
             required: [label, count]

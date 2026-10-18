@@ -26,7 +26,7 @@ function HintRow({ hint }: { hint: Hint }) {
         <span>{dateTime(hint.created_at)}</span>
         <span>{TRIGGER_LABELS[hint.trigger]}</span>
         <span>段階 {hint.level}</span>
-        <span className="rounded bg-amber-100 px-2 text-amber-900">{hint.stuck_point}</span>
+        {byAi && <span className="rounded bg-amber-100 px-2 text-amber-900">{hint.stuck_point}</span>}
         <span className={byAi ? "font-bold text-blue-700" : ""}>
           {SOURCE_LABELS[hint.source]}
           {byAi && `・待ち ${(hint.latency_ms / 1000).toFixed(1)} 秒`}

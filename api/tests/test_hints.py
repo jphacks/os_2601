@@ -17,6 +17,7 @@ from app.hints import (
     asks_if_correct,
     compose_answer,
     compose_hint,
+    read_problem,
 )
 from app.personas import PERSONAS, fallback_message, get_persona
 from app.state import LeakCheck
@@ -379,3 +380,29 @@ def test_an_example_equation_in_an_unguarded_explanation_is_kept() -> None:
     reply = ai_answer("例えば x+2=5 なら、2 を右辺に移すと x=5-2 になるよ")
     reply.update(problem_text="", final_answer="", key_values=[])
     assert answer(FakeAI(reply)).source == "ai"
+
+
+def test_a_photo_without_paper_gets_the_out_of_frame_reply() -> None:
+    reply = {**ai_hint("1行目の右辺の計算を見てみましょう"), "paper_visible": False}
+    hint = compose(FakeAI(reply))
+    assert (hint.speech, hint.source, hint.problem_text) == ("紙を枠の中に入れてみて", "fallback", None)
+
+
+def test_a_readable_photo_with_no_problem_and_no_writing_is_treated_as_no_paper() -> None:
+    reply = {**ai_hint("1行目を見てみましょう"), "problem_text": "", "written_lines": []}
+    assert compose(FakeAI(reply)).speech == "紙を枠の中に入れてみて"
+
+
+def test_a_dark_photo_keeps_its_own_reason() -> None:
+    reply = {**ai_hint("見てみて"), "readable": False, "unreadable_reason": "dark", "problem_text": "", "written_lines": []}
+    assert compose(FakeAI(reply)).speech == "もう少し明るいところで見せてみて"
+
+
+def test_reading_a_photo_without_paper_gives_no_problem_text() -> None:
+    ai = FakeAI({"paper_visible": False, "problem_text": "3x + 5 = 20", "readable": True})
+    assert asyncio.run(read_problem(ai, MODEL, FRAME, None)) is None
+
+
+def test_checking_a_photo_without_paper_is_unreadable() -> None:
+    ai = FakeAI({"paper_visible": False, "readable": True, "final_answer_seen": "x = 5", "verdict": "correct"})
+    assert asyncio.run(judge(ai, MODEL, FRAME, None)).verdict == "unreadable"

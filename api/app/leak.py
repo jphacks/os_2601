@@ -5,6 +5,7 @@ from fractions import Fraction
 MIN_LEAK_CHARS = 3
 MIN_ANSWER_VALUE_CHARS = 2
 MAX_DECIMAL_DIGITS = 6
+MAX_VALUE_CHARS = 30
 ENDS_A_CLAIM = r"(?=$|[、。,.!！?？]|だ|です|かな|になる)"
 SHORT_ANSWER_PHRASES = (
     r"(答え|こたえ)[はがを]?[、,]?{v}(?![\d.])",
@@ -20,13 +21,17 @@ READINGS = {"=": "イコール", "*": "かける", "÷": "わる", "-": "マイ�
 SPOKEN_SYMBOLS = {reading: symbol for symbol, reading in READINGS.items()}
 
 
+def _digit(char: str) -> int:
+    return int(char) if char.isdigit() else KANJI_DIGITS[char]
+
+
 def _kanji_number(word: str) -> str:
-    if word.isdigit():
-        return word
     if "十" not in word:
-        return "".join(str(KANJI_DIGITS[char]) for char in word)
+        return "".join(str(_digit(char)) for char in word)
     tens, ones = word.split("十", 1)
-    return str(KANJI_DIGITS.get(tens, 1) * 10 + KANJI_DIGITS.get(ones, 0))
+    if len(tens) > 1 or len(ones) > 1 or "十" in ones:
+        return word
+    return str((_digit(tens) if tens else 1) * 10 + (_digit(ones) if ones else 0))
 
 
 def _fraction_words(text: str) -> str:
@@ -38,6 +43,8 @@ def _fraction_words(text: str) -> str:
 
 
 def _same_value_spellings(value: str) -> set[str]:
+    if len(value) > MAX_VALUE_CHARS:
+        return set()
     if re.fullmatch(r"-?\d+/\d+", value):
         numerator, denominator = (int(part) for part in value.split("/"))
         if denominator == 0:

@@ -32,5 +32,5 @@ class Voicevox:
                 audio = await self._client.post("/synthesis", params=params, json=query.json())
             audio.raise_for_status()
         except (TimeoutError, httpx.HTTPError, ValueError, KeyError, TypeError) as error:
-            raise VoiceUnavailable(repr(error)) from error
+            raise VoiceUnavailable(type(error).__name__) from error
         return audio.content

@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import { getSession } from "@/lib/api";
 import { dateTime, sessionStatus } from "@/app/_components/record/format";
 import { SessionRecord } from "@/app/_components/record/SessionRecord";
-import { useOperatorPolling } from "../_components/useOperatorPolling";
+import { useOperatorPolling } from "@/app/_components/operator/useOperatorPolling";
 
 export default function LogDetailPage() {
   const { id } = useParams<{ id: string }>();

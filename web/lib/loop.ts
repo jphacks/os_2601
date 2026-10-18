@@ -18,7 +18,6 @@ import {
 import { captureFrame, stopCamera } from "./camera";
 import { startMotionLoop } from "./motion";
 import { keepScreenOn } from "./screen";
-import type { Persona } from "./personas";
 import { setSpeechSession, speak, stopSpeaking } from "./speech";
 import { startListening, stopListening, voiceStatus } from "./voice";
 
@@ -35,7 +34,6 @@ export type SessionHandlers = {
 type Session = {
   id: string;
   token: string;
-  persona: Persona;
   handlers: SessionHandlers;
   running: boolean;
   state: State;
@@ -289,14 +287,12 @@ export function startSession(
   sessionId: string,
   token: string,
   handlers: SessionHandlers,
-  persona: Persona = "teacher",
 ): () => void {
   activeSession?.stop();
   setSpeechSession(sessionId, token);
   const session: Session = {
     id: sessionId,
     token,
-    persona,
     handlers,
     running: true,
     state: "created",
@@ -340,11 +336,6 @@ export function startSession(
   };
   activeSession = session;
   return session.stop;
-}
-
-// 設定APIの成功後だけ呼ぶ。別セッションの遅い応答は適用しない。
-export function updateSessionPersona(sessionId: string, persona: Persona): void {
-  if (activeSession?.id === sessionId) activeSession.persona = persona;
 }
 
 export async function requestManualHint(): Promise<HintResponse> {

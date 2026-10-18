@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { OperatorKeyProvider } from "./_components/OperatorKey";
+import { OperatorKeyProvider } from "@/app/_components/operator/OperatorKey";
 
 export default function LogLayout({ children }: LayoutProps<"/log">) {
   return (

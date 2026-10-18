@@ -222,10 +222,6 @@ def _require_device_or_operator(request: Request, context: AppContext, session: 
         _fail(401, "セッションのトークンかオペレータの鍵が要る")
 
 
-def _same_problem(read: str, known: str | None) -> bool:
-    return known is not None and normalize(read) == normalize(known)
-
-
 def _latest_frame(context: AppContext, session_id: str) -> bytes | None:
     latest = context.frames.get(session_id)
     return latest[1] if latest else None
@@ -788,9 +784,10 @@ async def post_problem(
         )
     session = _find_session(context, session_id)
     problem = session.problems[problem_no - 1]
-    if problem_text and session.current_problem_no == problem_no and not _same_problem(problem_text, problem.problem_text):
+    if problem_text and session.current_problem_no == problem_no and problem_text != problem.problem_text:
+        if problem.problem_text is None or normalize(problem_text) != normalize(problem.problem_text):
+            problem.leak_strings = []
         problem.problem_text = problem_text
-        problem.leak_strings = []
         context.store.put(session)
         context.store.save()
     logger.info(

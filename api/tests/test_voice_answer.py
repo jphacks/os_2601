@@ -141,7 +141,7 @@ def test_the_same_problem_read_with_other_spacing_keeps_the_leak_strings(device:
     store = device.client.app.state.context.store
     leaks = store.get(device.session_id).problems[0].leak_strings
     ai.problem_text = "2x-7=4x+3"
-    read(device, frame_id)
+    assert read(device, frame_id).json()["problem_text"] == "2x-7=4x+3"
     assert store.get(device.session_id).problems[0].leak_strings == leaks != []
 
 

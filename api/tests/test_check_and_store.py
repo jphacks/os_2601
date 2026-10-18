@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -70,16 +71,29 @@ def test_a_broken_save_file_is_set_aside_and_the_app_still_starts(device: Device
     (tmp_path / "tonari.json").write_text('{"sessions": {"ses_x": {"session_id": "ses_x"}}}')
     with TestClient(create_app()) as restarted:
         assert restarted.get("/sessions", headers={"X-Operator-Key": OPERATOR_KEY}).json() == {"sessions": []}
-    assert (tmp_path / "tonari.broken").exists()
+    assert len(list(tmp_path.glob("tonari.*.broken"))) == 1
 
 
-def test_a_session_changed_after_reading_it_is_saved(device: Device, tmp_path: Path) -> None:
+def test_a_save_writes_changed_sessions_and_drops_removed_ones(device: Device, tmp_path: Path) -> None:
     store = device.client.app.state.context.store
     store.save()
-    store.get(device.session_id).learner_label = "変えた"
+    session = store.get(device.session_id)
+    session.learner_label = "変えた"
+    store.put(session)
+    other = replace(session, session_id="ses_other", learner_label="消す")
+    store.put(other)
+    store.save()
+    store.remove("ses_other")
     store.save()
     saved = json.loads((tmp_path / "tonari.json").read_text())
-    assert saved["sessions"][device.session_id]["learner_label"] == "変えた"
+    assert {session_id: body["learner_label"] for session_id, body in saved["sessions"].items()} == {device.session_id: "変えた"}
+
+
+@pytest.mark.parametrize("content", ['{"sessions": []}', '{"sessions": "x"}', "not json"])
+def test_any_unreadable_save_file_is_set_aside(device: Device, tmp_path: Path, content: str) -> None:
+    (tmp_path / "tonari.json").write_text(content)
+    with TestClient(create_app()) as restarted:
+        assert restarted.get("/sessions", headers={"X-Operator-Key": OPERATOR_KEY}).json() == {"sessions": []}
 
 
 def test_ended_sessions_are_listed_without_being_advanced(device: Device) -> None:

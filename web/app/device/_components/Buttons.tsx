@@ -12,6 +12,7 @@ type Props = {
   onCheck: () => void;
   onNext: () => void;
   onEnd: () => void;
+  onRestart: () => void;
 };
 
 const PRIMARY =
@@ -19,7 +20,14 @@ const PRIMARY =
 const SECONDARY =
   "min-h-11 flex-1 rounded-full bg-white px-4 text-base font-bold text-slate-600 shadow-sm transition active:scale-95 disabled:opacity-40";
 
-export function Buttons({ state, busy, onStart, onHint, onCheck, onNext, onEnd }: Props) {
+export function Buttons({ state, busy, onStart, onHint, onCheck, onNext, onEnd, onRestart }: Props) {
+  if (state === "ended") {
+    return (
+      <button type="button" onClick={onRestart} className={PRIMARY}>
+        もう一度はじめる
+      </button>
+    );
+  }
   if (state === "created") {
     return (
       <button type="button" onClick={onStart} disabled={busy} className={PRIMARY}>
@@ -42,7 +50,7 @@ export function Buttons({ state, busy, onStart, onHint, onCheck, onNext, onEnd }
         <button type="button" onClick={onNext} disabled={busy || !NEXT_STATES.includes(state)} className={SECONDARY}>
           次へ
         </button>
-        <button type="button" onClick={onEnd} disabled={busy || state === "ended"} className={SECONDARY}>
+        <button type="button" onClick={onEnd} disabled={busy} className={SECONDARY}>
           おわる
         </button>
       </div>

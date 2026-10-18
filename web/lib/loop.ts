@@ -17,6 +17,7 @@ import {
 } from "./api";
 import { captureFrame, stopCamera } from "./camera";
 import { startMotionLoop } from "./motion";
+import { keepScreenOn } from "./screen";
 import type { Persona } from "./personas";
 import { setSpeechSession, speak, stopSpeaking } from "./speech";
 import { startListening, stopListening, voiceStatus } from "./voice";
@@ -302,8 +303,10 @@ export function startSession(
   });
   const timer = setInterval(() => void sendSignal(session), SIGNAL_INTERVAL_MS);
 
+  const releaseScreen = keepScreenOn();
   session.stop = () => {
     session.running = false;
+    releaseScreen();
     clearInterval(timer);
     clearTimeout(session.problemReadTimer);
     stopMotion();

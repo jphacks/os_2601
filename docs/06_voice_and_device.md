@@ -66,7 +66,7 @@ PC（横持ち）では映像を左、字幕とボタンを右に置く。部品
 6. 「はじめる」の前に学習者が秒数を選んでいたら、1 の前に `patchSettings(id, token, {stuck_seconds})` を送る（既定のままなら送らない）。
 
 - セッションは `/ops` でオペレータが作り、URL（`/device?s=ses_…&t=tok_…`）でスマホに渡す。`/device` を `s=`・`t=` 無しで開いたときは、`openSession` でセッションを自動で作り、同じページに `s=`・`t=` 付きで移る（ADR 0036）。回数の上限（429）なら字幕に「少し待ってから、もう一度開いてね」、それ以外で作れなければ「セッションの URL から開いてね」。
-- `startCamera` が throw したら、B は字幕に「設定からカメラを許可してね。LINE などの中のブラウザなら Safari か Chrome で開いてね」を出し、状態は `created` のまま（もう一度「はじめる」を押せる）。
+- `startCamera` が throw したら、許可されなかったとき（`CameraDenied`）とカメラの仕組みが無いとき（アプリ内ブラウザなど、`TypeError`）は字幕に「設定からカメラを許可してね。LINE などの中のブラウザなら Safari か Chrome で開いてね」、それ以外（ほかのアプリが使用中、カメラが無い）は「カメラを使えなかったよ。ほかのアプリでカメラを使っていたら閉じて、もう一度はじめてね」を出し、状態は `created` のまま（もう一度「はじめる」を押せる）。
 
 ## PC（Mac）で iPhone を連係カメラとして使うとき
 
@@ -108,6 +108,7 @@ PC（横持ち）では映像を左、字幕とボタンを右に置く。部品
 | はじめる | `created` | 音声アンロック、カメラ開始、`startSession` でループ開始 |
 | ヒント | `watching` `still` `cooldown` のときだけ | `requestManualHint()`（フレームを送ってから `POST /hints {trigger: "manual"}`）。段階は現在の段階 |
 | できた | `watching` `still` `cooldown` `stuck` のときだけ | `requestCheck()`（フレームを送ってから `POST /check`）。結果を読み上げ。`correct` なら問題番号が進む |
+| もう一度はじめる | `ended` のときだけ（ほかのボタンの代わりに出る） | `s=`・`t=` を外した `/device` を開き直し、新しいセッションを作る（ADR 0036） |
 | 次へ | `watching` `still` `cooldown` `speaking` `stuck` のときだけ | 確認ダイアログなしで `advance()`。最後なら `ended` |
 | おわる | `created` `ended` 以外 | 確認ダイアログの後 `end()`（`POST /end` → ループ停止 → カメラ停止） |
 | 記録を見る | `ended`（映像の下に出る） | `getSession`（トークン）→「今日の記録」を重ねて開く。「とじる」で戻る |
@@ -170,7 +171,7 @@ PC（横持ち）では映像を左、字幕とボタンを右に置く。部品
 
 ## 字幕の表示
 
-- `state` が `created`・`checking`・`ended` のときは「状態と表示」の表の固定文。それ以外は直近の `display`（`onHint`・`requestManualHint`・`requestCheck` の応答）を 1 つだけ大きく出す。履歴は出さない（記録画面の仕事）。
+- `state` が `created`・`checking`・`ended` のときは「状態と表示」の表の固定文。それ以外は直近の `display`（`onHint`・`requestManualHint`・`requestCheck` の応答）を 1 つだけ大きく出す。「次へ」で問題が進んだら「次の問題も、見てるよ」に替える。履歴は出さない（記録画面の仕事）。
 - 画面の初期 `state` は `created`。ただし最初の `getSession` の `state` が `ended` なら、最初から `ended` の画面（「おつかれさま」と「記録を見る」。「はじめる」とキャラ選択は出さない）にする。終わったセッションは始め直せないため。それ以外の `state` は `onState` でだけ更新する（リロードしたら「はじめる」からやり直す）。
 - 数式は `display` の文字列をそのまま等幅で出す。自分で整形しない。
 - 文字は 24px 以上。机の横 50 cm から読める大きさ。
@@ -191,3 +192,13 @@ PC（横持ち）では映像を左、字幕とボタンを右に置く。部品
 - `NEXT_PUBLIC_MOCK=1` で API はモックになるが、カメラと音声は本物を使う。
 - モックの `postSignal` は各状態 5 秒、`watching → still → stuck → speaking → cooldown` の順で一巡 25 秒（03 の表）。`stuck` の 5 秒の間に `onHint` が 1 回来る。モックの `requestHint` は 1 回目 `hint_level1.json`、2 回目から `hint_level2.json`（文が変わるのは正常）。`postCheck` は `check_correct.json`。`checking` と `ended` はモックの一巡に出ないので、字幕の固定文は `state` を手で切り替えて確認するか、B1-6 の実機で見る。これで B は API なしに全状態の表示を確認できる。
 - 開発中の表示確認は PC Chrome で `localhost`。スマホでの確認は Vercel のプレビュー URL（HTTPS）で行う。`http://<PCのIP>:3000` ではカメラが取れない。
+
+## 10/18 夜に足した文言と動き
+
+- 「次へ」で問題が進んだら、字幕を「次の問題も、見てるよ」にする（前の問題のヒントを残さない）
+- カメラが拒否以外の理由で使えないとき（ほかのアプリが使用中、カメラが無い）は「カメラを使えなかったよ。ほかのアプリでカメラを使っていたら閉じて、もう一度はじめてね」
+- 最初の `getSession` が 404（消えたセッション）なら、`s=`・`t=` を外して新しいセッションを作る。401（トークンの違い）は今までどおり「つながりにくいみたい」
+- 見守りの間は画面を点けたままにする（Screen Wake Lock。使えないブラウザでは何もしない）。画面を隠して戻ったら取り直す
+- `openSession` の後は、今のクエリ（`debug`・`voice`・`cam`）を残して `s=`・`t=` を足す
+- 時間切れ：`fetch` は 15 秒で打ち切る（signals・frames・tts は今までどおり短い）。ブラウザの声は最長 30 秒で終わったとみなす
+- `/log` を鍵なしで開いたら「運営用の画面です。運営の鍵を入れてください。学習者の記録は、/device の『おわる』→『記録を見る』で見られます。」

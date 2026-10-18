@@ -9,6 +9,7 @@ const MIC_BUSY_ERROR = "audio-capture";
 const FATAL_ERRORS = new Set(["service-not-allowed", "language-not-supported"]);
 const QUIET_ERRORS = new Set(["no-speech", "aborted"]);
 const EVENTS_SHOWN = 4;
+const INTERIM_SETTLE_MS = 2000;
 
 type RecognitionResultEvent = { resultIndex: number; results: SpeechRecognitionResultList };
 
@@ -36,6 +37,8 @@ let heardSinceStart = false;
 let notBefore = 0;
 let nextBeginDelayMs = RESTART_DELAY_MS;
 let restartTimer: ReturnType<typeof setTimeout> | undefined;
+let settleTimer: ReturnType<typeof setTimeout> | undefined;
+let deniedBefore = false;
 const events: string[] = ["未開始"];
 
 function note(event: string): void {
@@ -60,11 +63,14 @@ function createRecognizer(): Recognizer | null {
   created.onresult = (event) => {
     if (!wanted) return;
     heardSinceStart = true;
+    deniedBefore = false;
+    clearTimeout(settleTimer);
     for (let i = event.resultIndex; i < event.results.length; i += 1) {
       const text = event.results[i][0].transcript.trim();
       if (!text) continue;
       if (!event.results[i].isFinal) {
         note(`途中 ${text.length} 字`);
+        settleTimer = setTimeout(() => settle(text), INTERIM_SETTLE_MS);
         continue;
       }
       note(`聞こえた ${text.length} 字`);
@@ -73,8 +79,13 @@ function createRecognizer(): Recognizer | null {
   };
   created.onerror = (event) => {
     note(`error:${event.error}`);
-    if (event.error === NEEDS_GESTURE_ERROR) {
+    if (event.error === NEEDS_GESTURE_ERROR && deniedBefore) {
+      console.warn("[voice] マイクが許可されなかったので、このページではもう聞かない");
+      blocked = true;
+      wanted = false;
+    } else if (event.error === NEEDS_GESTURE_ERROR) {
       console.warn("[voice] 操作の直後でないと始められない。次のタップで始め直す");
+      deniedBefore = true;
       waitingForTap = true;
     } else if (FATAL_ERRORS.has(event.error)) {
       console.warn("[voice] 聞き取りをやめる", event.error);
@@ -92,6 +103,7 @@ function createRecognizer(): Recognizer | null {
   };
   created.onend = () => {
     running = false;
+    clearTimeout(settleTimer);
     note("end");
     const endedQuickly = !heardSinceStart && Date.now() - startedAt < QUICK_END_MS;
     const delayMs = endedQuickly ? Math.max(nextBeginDelayMs, QUICK_END_RETRY_DELAY_MS) : nextBeginDelayMs;
@@ -105,6 +117,13 @@ function createRecognizer(): Recognizer | null {
     begin();
   });
   return created;
+}
+
+// iOS では確定が来ないまま止まることがある。途中の文が 2 秒変わらなければ、それを確定として切り上げる（Issue #40）
+function settle(text: string): void {
+  note(`途中で確定 ${text.length} 字`);
+  onHeard(text);
+  recognizer?.abort();
 }
 
 function scheduleBegin(delayMs: number): void {
@@ -153,5 +172,6 @@ export function voiceStatus(): string {
 export function stopListening(): void {
   wanted = false;
   clearTimeout(restartTimer);
+  clearTimeout(settleTimer);
   if (running) recognizer?.abort();
 }

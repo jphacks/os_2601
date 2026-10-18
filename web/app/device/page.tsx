@@ -6,7 +6,7 @@ import { ApiError, getSession, openSession, patchSettings, type SessionDetail, t
 import { startCamera, stopCamera } from "@/lib/camera";
 import { advance, end, requestCheck, requestManualHint, startSession, updateSessionPersona } from "@/lib/loop";
 import { endMessage } from "@/lib/personas";
-import { setSpeechCharacter, speak, stopSpeaking, unlockSpeech } from "@/lib/speech";
+import { setSpeechCharacter, speakNext, stopSpeaking, unlockSpeech } from "@/lib/speech";
 import { primeListening, stopListening, voiceStatus } from "@/lib/voice";
 import { Buttons } from "./_components/Buttons";
 import { Caption, HeardBubble } from "./_components/Caption";
@@ -27,7 +27,13 @@ const CAMERA_DENIED_CAPTION = "設定からカメラを許可してね。LINE �
 const CAMERA_FAILED_CAPTION = "カメラを使えなかったよ。ほかのアプリでカメラを使っていたら閉じて、もう一度はじめてね";
 const NEXT_CAPTION = "次の問題も、見てるよ";
 const NO_SESSION_CAPTION = "セッションの URL から開いてね";
+const OPENING_CAPTION = "準備しているよ…";
 const BUSY_CAPTION = "少し待ってから、もう一度開いてね";
+const FAILED_CAPTION = "うまくいかなかったよ。もう一度押してみてね";
+const RATE_LIMITED_CAPTION = "少し待ってから、もう一度押してね";
+const SETTINGS_FAILED_CAPTION = "秒数を変えられなかったよ。前の秒数のまま見守るね";
+const END_FAILED_CAPTION = "つながりにくくて、終わったことを伝えられなかったよ";
+const OPEN_RETRY_MS = 20000;
 const END_CONFIRM = "おわる？";
 // 平均輝度がこれ未満なら「明るさが足りません」を重ねる（docs/tasks/b.md の B1-4）
 const DARK_BRIGHTNESS = 60;
@@ -42,9 +48,11 @@ function pageWithoutSession(): string {
   return rest ? `/device?${rest}` : "/device";
 }
 
-// ApiError は画面に何も出さない。それ以外はコンソールにだけ残す
-function ignoreError(error: unknown) {
+// 状態の食い違い（409）は次の signals で画面がそろうので黙る。それ以外は字幕で知らせる
+function failureCaption(error: unknown): string | null {
   if (!(error instanceof ApiError)) console.warn("[device] 操作に失敗", error);
+  if (error instanceof ApiError && error.status === 409) return null;
+  return error instanceof ApiError && error.status === 429 ? RATE_LIMITED_CAPTION : FAILED_CAPTION;
 }
 
 function Device() {
@@ -71,7 +79,7 @@ function Device() {
   const [state, setState] = useState<State>("created");
   const [problemNo, setProblemNo] = useState(1);
   const [problemText, setProblemText] = useState<string | null>(null);
-  const [caption, setCaption] = useState(FIXED_CAPTIONS.created ?? "");
+  const [caption, setCaption] = useState(sessionId && token ? FIXED_CAPTIONS.created ?? "" : OPENING_CAPTION);
   const [stuckSeconds, setStuckSeconds] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [personaUpdating, setPersonaUpdating] = useState(false);
@@ -81,10 +89,12 @@ function Device() {
   const [connected, setConnected] = useState(true);
   // 同じ文字が続けて来ても 3 秒を数え直すように、受け取るたびに新しいオブジェクトにする
   const [heard, setHeard] = useState<{ text: string } | null>(null);
+  const [openAttempt, setOpenAttempt] = useState(0);
 
   useEffect(() => {
     if (sessionId && token) return;
     let cancelled = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
     openingRef.current ??= openSession();
     openingRef.current
       .then((created) => {
@@ -96,14 +106,24 @@ function Device() {
         router.replace(`/device?${query}`);
       })
       .catch((error) => {
+        openingRef.current = null;
         if (cancelled) return;
-        ignoreError(error);
-        setCaption(error instanceof ApiError && error.status === 429 ? BUSY_CAPTION : NO_SESSION_CAPTION);
+        console.warn("[device] openSession に失敗", error);
+        if (error instanceof ApiError && error.status === 429) {
+          setCaption(BUSY_CAPTION);
+          retry = setTimeout(() => {
+            setCaption(OPENING_CAPTION);
+            setOpenAttempt((attempt) => attempt + 1);
+          }, OPEN_RETRY_MS);
+          return;
+        }
+        setCaption(NO_SESSION_CAPTION);
       });
     return () => {
       cancelled = true;
+      clearTimeout(retry);
     };
-  }, [sessionId, token, router]);
+  }, [sessionId, token, router, openAttempt]);
 
   useEffect(() => {
     if (!sessionId || !token) return;
@@ -185,8 +205,7 @@ function Device() {
       if (!endSpokenRef.current) {
         endSpokenRef.current = true;
         stopListening();
-        stopSpeaking();
-        void speak(message).catch((error) => console.warn("[device] 終了の読み上げに失敗", error));
+        void speakNext(message).catch((error) => console.warn("[device] 終了の読み上げに失敗", error));
       }
       return;
     }
@@ -223,7 +242,7 @@ function Device() {
     } catch (error) {
       if (version === requestVersion.current && stateRef.current !== "ended") {
         setPersonaError("切り替えられませんでした。もう一度試してね。");
-        ignoreError(error);
+        console.warn("[device] 人格を切り替えられなかった", error);
       }
     } finally {
       if (version === requestVersion.current) {
@@ -247,7 +266,10 @@ function Device() {
     // 学習者が選んだときだけ送る。選択肢に無い秒数（/ops で 12 秒など）を一番近い選択肢で上書きしない
     const patching =
       stuckSeconds !== null && stuckSeconds !== session?.settings.stuck_seconds
-        ? patchSettings(sessionId, token, { stuck_seconds: stuckSeconds }).catch(ignoreError)
+        ? patchSettings(sessionId, token, { stuck_seconds: stuckSeconds }).catch((error) => {
+          console.warn("[device] 秒数を変えられなかった", error);
+          return null;
+        })
         : null;
     setSpeechCharacter(characterId);
     unlockSpeech();
@@ -273,13 +295,16 @@ function Device() {
       sessionRef.current = { ...sessionRef.current, settings: updated.settings };
       setSession(sessionRef.current);
       setSpeechCharacter(updated.settings.persona === "ikemen" ? "handsome" : "teacher");
+    } else if (patching) {
+      setCaption(SETTINGS_FAILED_CAPTION);
     }
     endSpokenRef.current = false;
     stopRef.current = startSession(video, sessionId, token, {
       onState: (signal) => {
         if (
           version !== requestVersion.current ||
-          (signal.state !== "ended" && signal.current_problem_no < problemNoRef.current)
+          (signal.state !== "ended" && signal.current_problem_no < problemNoRef.current) ||
+          (signal.state === "checking" && stateRef.current !== "checking")
         ) return;
         applyState(signal.state, signal.current_problem_no);
         setStillSeconds(signal.still_seconds);
@@ -316,7 +341,8 @@ function Device() {
       setProblemText(hint.problem_text);
       applyState(hint.state, hint.problem_no);
     } catch (error) {
-      if (version === requestVersion.current) ignoreError(error);
+      const message = failureCaption(error);
+      if (version === requestVersion.current && message && stateRef.current !== "ended") setCaption(message);
     } finally {
       if (version === requestVersion.current) setBusy(false);
     }
@@ -332,13 +358,18 @@ function Device() {
       const check = await requestCheck();
       if (version !== requestVersion.current || checkedProblemNo !== problemNoRef.current || stateRef.current === "ended") return;
       applyState(check.state, check.next_problem_no ?? check.problem_no);
-      if (check.state !== "ended" && !FIXED_CAPTIONS[check.state]) setCaption(check.display);
+      if (check.state === "ended") {
+        const confirmed = sessionRef.current;
+        setCaption(`${check.display} ${endMessage(confirmed?.settings.persona ?? "teacher", confirmed?.persona_options)}`);
+      } else if (!FIXED_CAPTIONS[check.state]) {
+        setCaption(check.display);
+      }
     } catch (error) {
-      if (version === requestVersion.current && checkedProblemNo === problemNoRef.current && stateRef.current !== "ended") {
-        ignoreError(error);
+      const message = failureCaption(error);
+      if (version === requestVersion.current && checkedProblemNo === problemNoRef.current && stateRef.current === "checking") {
         stateRef.current = before.state;
         setState(before.state);
-        setCaption(before.caption);
+        setCaption(message ?? before.caption);
       }
     } finally {
       if (version === requestVersion.current) setBusy(false);
@@ -354,7 +385,8 @@ function Device() {
       applyState(response.state, response.current_problem_no);
       if (response.state !== "ended") setCaption(NEXT_CAPTION);
     } catch (error) {
-      if (version === requestVersion.current) ignoreError(error);
+      const message = failureCaption(error);
+      if (version === requestVersion.current && message && stateRef.current !== "ended") setCaption(message);
     } finally {
       if (version === requestVersion.current) setBusy(false);
     }
@@ -368,7 +400,8 @@ function Device() {
     try {
       await end();
     } catch (error) {
-      if (version === requestVersion.current) ignoreError(error);
+      console.warn("[device] 終わりを伝えられなかった", error);
+      if (version === requestVersion.current) setCaption(END_FAILED_CAPTION);
     } finally {
       if (version === requestVersion.current) {
         stopRef.current = null;
@@ -389,7 +422,7 @@ function Device() {
       setRecordStatus("idle");
     } catch (error) {
       if (version === requestVersion.current) {
-        ignoreError(error);
+        console.warn("[device] 記録を読めなかった", error);
         setRecordStatus("failed");
       }
     } finally {

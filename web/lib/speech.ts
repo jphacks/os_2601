@@ -11,6 +11,7 @@ let character: VoiceCharacter = "handsome";
 let player: HTMLAudioElement | null = null;
 let speechTurn = 0;
 let abandonSynthesis: (() => void) | null = null;
+let speaking: Promise<void> = Promise.resolve();
 const PLAYBACK_LIMIT_MS = 30000;
 
 function isSupported(): boolean {
@@ -80,7 +81,20 @@ function playAudio(audioPlayer: HTMLAudioElement, audio: Blob): Promise<void> {
   });
 }
 
-export async function speak(text: string): Promise<void> {
+export function speak(text: string): Promise<void> {
+  const spoken = speakNow(text);
+  speaking = spoken.catch(() => undefined);
+  return spoken;
+}
+
+// 今の読み上げ（「できた」の判定など）を言い終えてから読む。間に止められたら読まない
+export async function speakNext(text: string): Promise<void> {
+  const turn = speechTurn;
+  await speaking;
+  if (turn === speechTurn) await speak(text);
+}
+
+async function speakNow(text: string): Promise<void> {
   stopSpeaking();
   const turn = speechTurn;
   if (speaker && player) {

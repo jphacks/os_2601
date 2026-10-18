@@ -216,25 +216,27 @@ stateDiagram-v2
 - 同じ問題で `stuck` になるたびに `stuck_count` が増え、自動ヒントの段階は `min(stuck_count, max_level)`（既定 2）。次の問題に進むと 0 に戻る。
 - `ended` からは出ない。`signals` には `{"state": "ended"}` を返す。
 
-## GPT の呼び出し
+## 生成 AI の呼び出し
 
-- `hints.py` と `check.py` の 2 箇所。ヒントは `HINT_MODEL`（既定 `gpt-6.1-sol`）、正誤は `CHECK_MODEL`（既定 `gpt-6-luna`。判定だけなので速いモデル）。`reasoning.effort = "low"`、構造化出力（Pydantic、`responses.parse`）。タイムアウト **8 秒**、リトライなし。
-- ヒント：駄目なら固定 H2（`source: "fallback"`）。正誤：GPT は判定だけ、読み上げ文は固定。駄目なら `unreadable`。
-- 画像は長辺 1024 の JPEG を base64 の `input_image`（`detail: "low"`）として渡す。1 回の呼び出しで 1 枚。
-- 遅延の目標は「詰まり判定からヒントの読み上げ開始まで 4 秒以内」。超えるようなら `HINT_MODEL` を `gpt-6-luna` に切り替える（環境変数の変更だけ）。
+- `hints.py`（ヒント・声の答え・問題文の読み取り）と `check.py`（正誤）の 2 箇所。モデルは `HINT_MODEL`・`CHECK_MODEL`（既定はどちらも `gemini-3.5-flash-lite`）。`api/app/gemini.py` が REST で `responseSchema` の構造化出力を受け取る。タイムアウト **8 秒**、リトライなし（ADR 0025）。
+- ヒント：駄目なら固定の問い返し（`source: "fallback"`）。正誤：AI は判定だけ、読み上げ文は固定。駄目なら `unreadable`。
+- 画像は長辺 1024 の JPEG を base64 の `inline_data` で渡す。1 回の呼び出しで 1 枚。
+- 遅延の目標は「詰まり判定からヒントの読み上げ開始まで 4 秒以内」。詰まりの 3 秒前に写真を送ってヒントを先に作る（ADR 0028）。
+- 回数の上限はセッションごとに 1 分 12 回（ADR 0039）。
 
 ## 環境変数
 
 | 変数 | 置き場所 | 用途 |
 |---|---|---|
 | `GEMINI_API_KEY` | Railway | 生成 AI（Gemini）の呼び出し。10/17 に `OPENAI_API_KEY` から変更（ADR 0025） |
-| `HINT_MODEL` / `CHECK_MODEL` | Railway | 既定 `gpt-6.1-sol` / `gpt-6-luna`。ヒントが遅ければ `HINT_MODEL` も `gpt-6-luna` |
+| `VOICEVOX_URL` | Railway | VOICEVOX のエンジン（内部の通信、`http://voicevox.railway.internal:50021`）。無ければブラウザの声（ADR 0035） |
+| `OPEN_SESSIONS` | Railway | `0` で `/sessions/open` を閉じる。既定は開く（ADR 0036） |
+| `HINT_MODEL` / `CHECK_MODEL` | Railway | 既定 `gemini-3.5-flash-lite` / `gemini-3.5-flash-lite`。ヒントが遅ければ `HINT_MODEL` も `gemini-3.5-flash-lite` |
 | `OPERATOR_KEY` | Railway・オペレータの手元 | オペレータ系統の認可。Hack Day 後に変える |
 | `CORS_ORIGINS` | Railway | カンマ区切りの正規オリジン（`http://localhost:3000`、Vercel の本番 URL） |
 | `CORS_ORIGIN_REGEX` | Railway | 既定 `https://.*\.vercel\.app\|https://.*\.trycloudflare\.com`（`\|` は正規表現の「または」。B・C のプレビュー用）。許可ヘッダに `Authorization` と `X-Operator-Key` |
 | `DATA_PATH` | Railway | JSON ファイルの置き場（既定 `./data/tonari.json`） |
 | `DEMO_MODE` | Railway | `1` のときだけ `/demo/reset` を有効化（Hack Day 中は `1`） |
-| `WORKSHEETS_DIR` | 任意 | 既定は `api/` の 2 つ上の `worksheets/` |
 | `WEB_BASE` / `API_BASE` | 高橋の手元（`api/.env`） | `create_session.py` が `/device?s=&t=` と `/log/<id>?k=` の URL を組む |
 | `PORT` | Railway が注入 | `uvicorn --port $PORT` |
 | `NEXT_PUBLIC_API_BASE` | Vercel | バックエンドの URL |

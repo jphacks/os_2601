@@ -1,6 +1,6 @@
 # 0014. openapi の Error は web/lib では ApiErrorBody の名前で export する
 
-- ステータス: 提案
+- ステータス: 承認
 - 日付: 2026-10-17
 
 ## 文脈

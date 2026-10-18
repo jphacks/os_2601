@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, 
 
 from app.auth import require_device, require_device_or_operator, require_operator
 from app.check import CORRECT_TEXT, Judgement, judge
-from app.composer import ai_hints, compose
+from app.composer import answer, compose
 from app.context import AppContext, get_context
 from app.errors import fail
 from app.gemini import AIUnavailable
@@ -19,14 +19,13 @@ from app.hints import (
     asks_for_help,
     asks_if_correct,
     check_reply,
-    compose_answer,
     fixed_hint,
     read_problem,
 )
 from app.leak import same_problem
 from app.limits import AI_CALLS_PER_MINUTE, SPEECHES_PER_MINUTE, allow_open, client_ip, count_call, one_at_a_time
 from app.personas import persona_options
-from app.prefetch import discard_prefetch, start_prefetch, take_prefetch
+from app.prefetch import discard_prefetch, settle_prefetch, start_prefetch, take_prefetch
 from app.schemas import CheckRequest, HintRequest, ProblemRequest, SessionCreateRequest, SettingsPatch, SignalRequest, SpeechRequest
 from app.state import (
     Accepted,
@@ -114,9 +113,7 @@ def _apply(context: AppContext, session: Session, event: Event, now: datetime) -
     next_session, result = step(session, event, now, context.thresholds)
     if next_session is not session:
         context.store.put(next_session)
-    keeps_prefetch = next_session.state == "stuck" or (next_session.state == "still" and next_session.prefetch_requested)
-    if not keeps_prefetch:
-        discard_prefetch(context, next_session.session_id)
+    settle_prefetch(context, next_session)
     if next_session.state == "ended":
         context.frames.pop(next_session.session_id, None)
     if isinstance(result, Rejected):
@@ -372,18 +369,9 @@ async def _answer_utterance(context: AppContext, session: Session, utterance: st
             requested_at=now,
             prefetched=False,
         )
-    count_call(context.ai_calls, session.session_id, AI_CALLS_PER_MINUTE, _now())
+    count_call(context.ai_calls, session.session_id, AI_CALLS_PER_MINUTE, now)
     try:
-        composed = await compose_answer(
-            context.ai,
-            context.hint_model,
-            _latest_frame(context, session.session_id),
-            utterance,
-            ai_hints(problem),
-            problem.problem_text,
-            problem.leak_strings,
-            session.settings.persona,
-        )
+        composed = await answer(context, problem, _latest_frame(context, session.session_id), utterance, session.settings.persona)
     except AIUnavailable:
         logger.warning("answer session=%s ai_unavailable=True", session.session_id)
         composed = answer_fallback(problem.leak_strings, session.settings.persona) if asks_for_help(utterance) else None
@@ -430,7 +418,7 @@ async def request_hint(
             composed = await composing
         else:
             if body.trigger != "auto":
-                count_call(context.ai_calls, session_id, AI_CALLS_PER_MINUTE, _now())
+                count_call(context.ai_calls, session_id, AI_CALLS_PER_MINUTE, now)
             composed = await compose(context, problem, accepted.level, _latest_frame(context, session_id), session.settings.persona)
     except Exception:
         _abandon_hint(context, session_id, accepted.ticket)
@@ -497,13 +485,14 @@ async def post_problem(
 ) -> dict:
     session = _find_session(context, session_id)
     require_device(request, context, session)
-    session, _ = _apply(context, session, Tick(), _now())
+    now = _now()
+    session, _ = _apply(context, session, Tick(), now)
     if session.state == "ended":
         fail(409, "終了したセッションでは読み取れない")
     problem_no = session.current_problem_no
     started = time.monotonic()
     with one_at_a_time(context, session_id, f"problem-{problem_no}"):
-        count_call(context.ai_calls, session_id, AI_CALLS_PER_MINUTE, _now())
+        count_call(context.ai_calls, session_id, AI_CALLS_PER_MINUTE, now)
         problem_text = await read_problem(
             context.ai, context.hint_model, _latest_frame(context, session_id), session.current_problem.problem_text
         )
@@ -525,10 +514,11 @@ async def post_problem(
 async def post_tts(session_id: str, body: SpeechRequest, request: Request, context: AppContext = Depends(get_context)) -> Response:
     session = _find_session(context, session_id)
     require_device(request, context, session)
-    session, _ = _apply(context, session, Tick(), _now())
-    if session.ended_at is not None and _now() - session.ended_at > timedelta(seconds=SPEECH_AFTER_END_SECONDS):
+    now = _now()
+    session, _ = _apply(context, session, Tick(), now)
+    if session.ended_at is not None and now - session.ended_at > timedelta(seconds=SPEECH_AFTER_END_SECONDS):
         fail(409, "終わったセッションの読み上げは受け付けない")
-    count_call(context.speeches, session_id, SPEECHES_PER_MINUTE, _now())
+    count_call(context.speeches, session_id, SPEECHES_PER_MINUTE, now)
     if context.voice is None:
         fail(503, "読み上げの声が用意されていない")
     started = time.monotonic()

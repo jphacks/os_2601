@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 async def _compose_ahead(
-    context: AppContext, session_id: str, problem: Problem, level: int, frame: bytes, persona: str = "teacher"
+    context: AppContext, session_id: str, problem: Problem, level: int, frame: bytes, persona: str
 ) -> ComposedHint:
     started = time.monotonic()
     composed = await compose(context, problem, level, frame, persona)
@@ -33,6 +33,12 @@ def start_prefetch(context: AppContext, session: Session, frame: bytes) -> None:
     level = auto_hint_level(stuck_count, session.settings)
     composing = asyncio.create_task(_compose_ahead(context, session.session_id, problem, level, frame, session.settings.persona))
     context.prefetches[session.session_id] = Prefetch(session.current_problem_no, stuck_count, composing, session.settings.persona)
+
+
+def settle_prefetch(context: AppContext, session: Session) -> None:
+    if session.state == "stuck" or (session.state == "still" and session.prefetch_requested):
+        return
+    discard_prefetch(context, session.session_id)
 
 
 def discard_prefetch(context: AppContext, session_id: str) -> None:

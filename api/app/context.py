@@ -16,7 +16,7 @@ class Prefetch:
     problem_no: int
     stuck_count: int
     composing: asyncio.Task[ComposedHint]
-    persona: str = "teacher"
+    persona: str
 
 
 @dataclass

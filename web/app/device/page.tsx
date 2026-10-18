@@ -11,6 +11,7 @@ import { Buttons } from "./_components/Buttons";
 import { Caption, HeardBubble } from "./_components/Caption";
 import { Character } from "./_components/Character";
 import { Header } from "./_components/Header";
+import { RecordSheet } from "./_components/RecordSheet";
 import { nearestChoice, SecondsPicker } from "./_components/SecondsPicker";
 import { ProblemText } from "./_components/ProblemText";
 import { VideoFrame } from "./_components/VideoFrame";
@@ -43,6 +44,7 @@ function Device() {
   const stopRef = useRef<(() => void) | null>(null);
   const startingRef = useRef(false);
   const [session, setSession] = useState<SessionDetail | null>(null);
+  const [record, setRecord] = useState<SessionDetail | null>(null);
   const [state, setState] = useState<State>("created");
   const [problemNo, setProblemNo] = useState(1);
   const [problemText, setProblemText] = useState<string | null>(null);
@@ -195,6 +197,14 @@ function Device() {
     }
   }
 
+  async function handleShowRecord() {
+    try {
+      setRecord(await getSession(sessionId, { token }));
+    } catch (error) {
+      ignoreError(error);
+    }
+  }
+
   return (
     <main className="relative isolate flex flex-1 flex-col overflow-hidden bg-linear-to-b from-sky-400 via-sky-200 to-cyan-100 text-slate-800">
       {/* 下の丘（飾り） */}
@@ -209,11 +219,22 @@ function Device() {
             <Header mode={session?.mode ?? null} connected={connected} />
             <ProblemText text={problemText} />
           </div>
-          <VideoFrame
-            videoRef={videoRef}
-            dark={brightness !== null && brightness < DARK_BRIGHTNESS}
-            debugText={debug ? `輝度 ${brightness === null ? "-" : Math.round(brightness)} / 静止 ${stillSeconds} 秒 / 声 ${voiceStatus()}` : null}
-          />
+          <div className="flex w-28 shrink-0 flex-col gap-3">
+            <VideoFrame
+              videoRef={videoRef}
+              dark={brightness !== null && brightness < DARK_BRIGHTNESS}
+              debugText={debug ? `輝度 ${brightness === null ? "-" : Math.round(brightness)} / 静止 ${stillSeconds} 秒 / 声 ${voiceStatus()}` : null}
+            />
+            {state === "ended" && (
+              <button
+                type="button"
+                onClick={handleShowRecord}
+                className="rounded-full bg-white px-3 py-2 text-sm font-bold text-sky-700 shadow-md ring-2 ring-sky-300"
+              >
+                記録を見る
+              </button>
+            )}
+          </div>
         </div>
         {/* 真ん中：キャラクターを左下に大きく、吹き出しを右に重ねる（Tolan の会話画面の並び） */}
         <div className="relative flex min-h-80 flex-1 items-end">
@@ -239,6 +260,7 @@ function Device() {
           />
         </div>
       </div>
+      {record && <RecordSheet session={record} onClose={() => setRecord(null)} />}
     </main>
   );
 }

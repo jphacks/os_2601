@@ -22,7 +22,7 @@ export default function LogDetailPage() {
       {session && (
         <>
           <header className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-            <h1 className="text-2xl font-bold">{session.learner_label} の記録</h1>
+            <h1 className="text-2xl font-bold">記録：{session.learner_label}</h1>
             <span className="text-gray-500">
               {dateTime(session.created_at)}・{sessionStatus(session.state)}
             </span>

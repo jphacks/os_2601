@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ApiError, getSession, openSession, patchSettings, type SessionDetail, type State } from "@/lib/api";
 import { startCamera, stopCamera } from "@/lib/camera";
@@ -93,6 +93,7 @@ function Device() {
   // 同じ文字が続けて来ても 3 秒を数え直すように、受け取るたびに新しいオブジェクトにする
   const [heard, setHeard] = useState<{ text: string } | null>(null);
   const [openAttempt, setOpenAttempt] = useState(0);
+  const closeRecord = useCallback(() => setRecord(null), []);
 
   useEffect(() => {
     if (sessionId && token) return;
@@ -538,7 +539,7 @@ function Device() {
           />
         </div>
       </div>
-      {record && <RecordSheet session={record} onClose={() => setRecord(null)} />}
+      {record && <RecordSheet session={record} onClose={closeRecord} />}
     </main>
   );
 }

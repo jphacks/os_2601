@@ -57,7 +57,7 @@ export function ProblemRecord({ problem }: { problem: Problem }) {
       )}
       {problem.check && (
         <p className="text-sm">
-          <span className="font-bold">できた：{VERDICT_LABELS[problem.check.verdict]}</span>　{problem.check.display}
+          <span className="font-bold">答え合わせ：{VERDICT_LABELS[problem.check.verdict]}</span>　{problem.check.display}
         </p>
       )}
     </section>

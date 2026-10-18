@@ -34,14 +34,15 @@ const DARK_BRIGHTNESS = 60;
 // 聞き取った文字を字幕の下に出しておく時間（docs/06 の「声のトリガー」）
 const HEARD_MS = 3000;
 
-// ApiError は画面に何も出さない。それ以外はコンソールにだけ残す
 function pageWithoutSession(): string {
   const query = new URLSearchParams(window.location.search);
   query.delete("s");
   query.delete("t");
-  return query.size > 0 ? `/device?${query}` : "/device";
+  const rest = query.toString();
+  return rest ? `/device?${rest}` : "/device";
 }
 
+// ApiError は画面に何も出さない。それ以外はコンソールにだけ残す
 function ignoreError(error: unknown) {
   if (!(error instanceof ApiError)) console.warn("[device] 操作に失敗", error);
 }
@@ -136,7 +137,7 @@ function Device() {
       .catch((error) => {
         console.warn("[device] getSession に失敗", error);
         if (cancelled) return;
-        if (error instanceof ApiError && (error.status === 404 || error.status === 401)) router.replace(pageWithoutSession());
+        if (error instanceof ApiError && error.status === 404) router.replace(pageWithoutSession());
         else setConnected(false);
       });
     return () => {
@@ -257,7 +258,8 @@ function Device() {
       if (version !== requestVersion.current) return;
       console.warn("[device] startCamera に失敗", error);
       stopListening();
-      setCaption(error instanceof Error && error.name === "CameraDenied" ? CAMERA_DENIED_CAPTION : CAMERA_FAILED_CAPTION);
+      const denied = error instanceof TypeError || (error instanceof Error && error.name === "CameraDenied");
+      setCaption(denied ? CAMERA_DENIED_CAPTION : CAMERA_FAILED_CAPTION);
       setBusy(false);
       startingRef.current = false;
       return;
@@ -456,7 +458,10 @@ function Device() {
             onHint={handleHint}
             onCheck={handleCheck}
             onNext={handleNext}
-            onRestart={() => window.location.assign(pageWithoutSession())}
+            onRestart={() => {
+              stopSpeaking();
+              window.location.assign(pageWithoutSession());
+            }}
             onEnd={handleEnd}
           />
         </div>

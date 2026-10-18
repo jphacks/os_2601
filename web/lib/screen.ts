@@ -1,29 +1,34 @@
 let lock: WakeLockSentinel | null = null;
-let wanted = false;
+let generation = 0;
 
-async function acquire(): Promise<void> {
-  if (!wanted || lock || typeof navigator === "undefined" || !("wakeLock" in navigator)) return;
+async function acquire(owner: number): Promise<void> {
+  if (owner !== generation || lock || typeof navigator === "undefined" || !("wakeLock" in navigator)) return;
   try {
-    lock = await navigator.wakeLock.request("screen");
-    lock.addEventListener("release", () => {
-      lock = null;
+    const sentinel = await navigator.wakeLock.request("screen");
+    if (owner !== generation || lock) {
+      void sentinel.release();
+      return;
+    }
+    lock = sentinel;
+    sentinel.addEventListener("release", () => {
+      if (lock === sentinel) lock = null;
     });
   } catch (error) {
     console.warn("[screen] 画面を点けたままにできなかった", error);
   }
 }
 
-function onVisible(): void {
-  if (document.visibilityState === "visible") void acquire();
-}
-
 export function keepScreenOn(): () => void {
-  wanted = true;
-  void acquire();
+  const owner = ++generation;
+  const onVisible = () => {
+    if (document.visibilityState === "visible") void acquire(owner);
+  };
+  void acquire(owner);
   document.addEventListener("visibilitychange", onVisible);
   return () => {
-    wanted = false;
     document.removeEventListener("visibilitychange", onVisible);
+    if (owner !== generation) return;
+    generation += 1;
     void lock?.release();
     lock = null;
   };

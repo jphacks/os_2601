@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { endMessage, personaOptions } from "./personas.ts";
+import { endMessage, personaOf, personaOptions, voiceOf } from "./personas.ts";
 
 test("サーバの終わりのセリフを使う", () => {
   const options = [{ id: "ikemen", display_name: "イケメン", end_message: "またな。" }];
@@ -25,4 +25,13 @@ test("サーバが逆の順で返しても、画面の並びは先生・イケ�
     { id: "teacher", end_message: "またね。" },
   ];
   assert.deepEqual(personaOptions(reversed).map((option) => option.id), ["teacher", "ikemen"]);
+});
+
+test("人格ごとに声が決まる", () => {
+  assert.equal(voiceOf("ikemen"), "handsome");
+  assert.equal(voiceOf("teacher"), "teacher");
+});
+
+test("声から人格に戻すと元の人格になる", () => {
+  for (const persona of ["teacher", "ikemen"] as const) assert.equal(personaOf(voiceOf(persona)), persona);
 });

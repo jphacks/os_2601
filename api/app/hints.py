@@ -81,9 +81,11 @@ LEVEL_INSTRUCTIONS = {
 
 ANSWER_FALLBACK = "一緒に考えよう。今どこまでできたか、声に出してみて"
 CHECK_REPLY = "できたボタンを押してみて"
-CHECK_WORDS = ("合ってる", "あってる", "合ってます", "あってます", "合ってい", "あってい", "できてる")
-CHECK_QUESTION = re.compile(r"(正解|正しい)(ですか|でしょう|だよね|かな|か?[？?]|か?$|か(どうか)?(わからない|わかんない|分からない))")
-ASKS_WHAT = re.compile(r"何|なに|どこ|どう")
+CHECK_WORDS = re.compile(r"(?<![しけちせりみび])(合って|あって)(る|ます|いる|います)|できてる")
+CHECK_QUESTION = re.compile(
+    r"(正解|正しい)(ですか|でしょう|だよね|よね|かな|か?[？?]|か?$|か(どうか)?(わからない|わかんない|分からない|教えて|おしえて))"
+)
+ASKS_WHAT = re.compile(r"何が|何を|なにが|なにを|どこ|どうすれば|どうやって|どうしたら")
 HELP_WORDS = (
     "わからない",
     "わかんない",
@@ -201,11 +203,12 @@ def _context_lines(previous: list[str], known_problem: str | None) -> list[str]:
 
 def _read_problem(out: dict, known_problem: str | None, known_leaks: list[str]) -> tuple[str | None, list[str], bool]:
     problem_text = out["problem_text"] or None
-    inherited = known_leaks if same_problem(problem_text, known_problem) or not problem_text else []
+    same = same_problem(problem_text, known_problem)
+    inherited = known_leaks if same or not problem_text else []
     from_answer = leak_strings(out["final_answer"], [])
     written = out.get("written_lines") or []
     guarded = set(inherited) | set(leak_strings(out["final_answer"], out["key_values"]))
-    answer_guarded = bool(from_answer) or (bool(inherited) and same_problem(problem_text, known_problem))
+    answer_guarded = bool(from_answer) or (same and bool(known_leaks))
     return problem_text, without_written(sorted(guarded), written), answer_guarded
 
 
@@ -235,9 +238,9 @@ def asks_for_help(utterance: str) -> bool:
 
 
 def asks_if_correct(utterance: str) -> bool:
-    if any(word in utterance for word in CHECK_WORDS):
+    if CHECK_WORDS.search(utterance):
         return True
-    return CHECK_QUESTION.search(utterance.strip()) is not None and ASKS_WHAT.search(utterance) is None
+    return CHECK_QUESTION.search(utterance.strip().rstrip("。.")) is not None and ASKS_WHAT.search(utterance) is None
 
 
 def _unchecked_fallback(known_leaks: list[str], fallback: str, persona: str) -> ComposedHint:

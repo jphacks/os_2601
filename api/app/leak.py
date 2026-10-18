@@ -17,6 +17,9 @@ SHORT_ANSWER_PHRASES = (
     r"(?<![\d.a-z])[xy](は|が){v}" + ENDS_A_CLAIM,
 )
 NUMBER = re.compile(r"-?[\d./]+")
+STANDALONE_KANJI_NUMBER = re.compile(
+    r"(?<![\u4e00-\u9fff々〆ーァ-ヶ])[〇一二三四五六七八九十]+(?=$|です|でしょ|だ|かな|に|が|は|を|と|[、。,.!！?？])"
+)
 KANJI_NUMBER = r"[\d〇一二三四五六七八九十]+"
 READINGS = {"=": "イコール", "*": "かける", "÷": "わる", "-": "マイナス", "+": "プラス", "x": "エックス"}
 SPOKEN_SYMBOLS = {reading: symbol for symbol, reading in READINGS.items()}
@@ -50,7 +53,7 @@ def normalize(text: str) -> str:
     text = unicodedata.normalize("NFKC", text).replace("⁄", "/")
     text = re.sub(r"\s+", "", text)
     text = _fraction_words(text)
-    text = re.sub(r"[〇一二三四五六七八九十]+", lambda match: kanji_number(match.group(0)), text)
+    text = re.sub(STANDALONE_KANJI_NUMBER, lambda match: kanji_number(match.group(0)), text)
     for spoken, symbol in SPOKEN_SYMBOLS.items():
         text = text.replace(spoken, symbol)
     text = re.sub(r"の(\d)乗", r"^\1", text)
@@ -89,7 +92,8 @@ def _mentions(normalized: str, string: str) -> bool:
 
 def states_an_answer(text: str) -> bool:
     normalized = normalize(text)
-    return any(re.search(phrase.format(v=r"-?\d[\d./]*"), normalized) for phrase in SHORT_ANSWER_PHRASES)
+    claims = [phrase for phrase in SHORT_ANSWER_PHRASES if not phrase.startswith(r"(?<![\d.])=")]
+    return any(re.search(phrase.format(v=r"(?<![+\-*/=])-?\d[\d./]*"), normalized) for phrase in claims)
 
 
 def contains_leak(text: str, strings: list[str]) -> bool:

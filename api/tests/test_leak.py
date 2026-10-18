@@ -113,3 +113,9 @@ def test_squares_are_read_aloud() -> None:
 def test_an_answer_said_in_kanji_is_still_caught() -> None:
     assert contains_leak("答えは十二だよ", leak_strings("x = 12", []))
     assert contains_leak("x は五だよ", leak_strings("x = 5", []))
+
+
+@pytest.mark.parametrize("text", ["答えを一度代入して確かめてみて", "十の位を見てみて", "十分だよ", "唯一です", "コーナー一つ"])
+def test_kanji_inside_words_is_not_read_as_a_number(text: str) -> None:
+    assert not contains_leak(text, leak_strings("x = 1", [])) and not contains_leak(text, leak_strings("x = -1", []))
+    assert not contains_leak(text, leak_strings("x = 10", []))

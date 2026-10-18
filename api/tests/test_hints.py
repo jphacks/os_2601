@@ -353,12 +353,12 @@ def test_check_questions_in_other_words(utterance: str) -> None:
     assert asks_if_correct(utterance)
 
 
-@pytest.mark.parametrize("utterance", ["これで正しいですか", "正解ですか？", "これ正解だよね？", "あってますか", "合っていますか"])
+@pytest.mark.parametrize("utterance", ["これで正しいですか", "正解ですか？", "これ正解だよね？", "あってますか", "合っていますか", "正解かどうかわからない", "正しいか教えて", "これで正解。"])
 def test_polite_check_questions_are_recognized(utterance: str) -> None:
     assert asks_if_correct(utterance)
 
 
-@pytest.mark.parametrize("utterance", ["何が正解かわからない", "どうすれば正解か教えて", "正しいか教えて"])
+@pytest.mark.parametrize("utterance", ["何が正解かわからない", "どうすれば正解か教えて", "話し合っているの？"])
 def test_help_that_mentions_the_right_answer_is_not_a_check_question(utterance: str) -> None:
     assert not asks_if_correct(utterance)
 
@@ -373,3 +373,9 @@ def test_an_empty_problem_text_does_not_count_as_the_same_problem() -> None:
     reply = {**ai_hint("エックスは3だよ"), "problem_text": "", "final_answer": "", "key_values": []}
     hint = asyncio.run(compose_hint(FakeAI(reply), MODEL, FRAME, 1, [], "2x - 7 = 4x + 3", ["x=-5"], "teacher"))
     assert hint.source == "fallback"
+
+
+def test_an_example_equation_in_an_unguarded_explanation_is_kept() -> None:
+    reply = ai_answer("例えば x+2=5 なら、2 を右辺に移すと x=5-2 になるよ")
+    reply.update(problem_text="", final_answer="", key_values=[])
+    assert answer(FakeAI(reply)).source == "ai"

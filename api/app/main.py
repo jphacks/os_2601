@@ -22,6 +22,7 @@ SETTINGS_PATH = Path(__file__).resolve().parents[1] / "settings.yaml"
 DEFAULT_DATA_PATH = "./data/tonari.json"
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
 MULTIPART_OVERHEAD_BYTES = 16 * 1024
+logger = logging.getLogger(__name__)
 DEFAULT_CORS_ORIGIN_REGEX = r"https://.*\.vercel\.app|https://.*\.trycloudflare\.com"
 ERROR_CODES = {
     400: "BAD_REQUEST",
@@ -32,6 +33,7 @@ ERROR_CODES = {
     413: "FRAME_TOO_LARGE",
     422: "VALIDATION_ERROR",
     429: "RATE_LIMITED",
+    500: "INTERNAL",
     503: "HINT_UNAVAILABLE",
 }
 
@@ -77,6 +79,15 @@ def create_app() -> FastAPI:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     app = FastAPI(title="となり API")
     app.state.context = _build_context()
+
+    @app.middleware("http")
+    async def unexpected_error(request: Request, call_next):
+        try:
+            return await call_next(request)
+        except Exception:
+            logger.exception("unexpected error %s %s", request.method, request.url.path)
+            return _error(500, "サーバの中で問題が起きた")
+
     @app.middleware("http")
     async def refuse_large_frames(request: Request, call_next):
         if request.method == "POST" and request.url.path.endswith("/frames"):
@@ -93,7 +104,6 @@ def create_app() -> FastAPI:
         allow_headers=["Authorization", "X-Operator-Key", "Content-Type"],
     )
     app.include_router(router)
-
 
     @app.exception_handler(HTTPException)
     async def http_error(_: Request, error: HTTPException) -> JSONResponse:

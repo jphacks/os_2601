@@ -25,8 +25,9 @@ def test_anyone_can_open_a_session_and_start(device: Device) -> None:
     assert detail["learner_label"] == "自分で始めた"
 
 
-def test_an_ip_can_open_three_sessions_a_minute(device: Device) -> None:
-    assert [open_session(device).status_code for _ in range(4)] == [201, 201, 201, 429]
+def test_an_ip_can_open_ten_sessions_a_minute(device: Device) -> None:
+    limit = limits.OPEN_SESSIONS_PER_MINUTE
+    assert [open_session(device).status_code for _ in range(limit + 1)] == [201] * limit + [429]
     assert open_session(device, ip="203.0.113.2").status_code == 201
     device.now += timedelta(minutes=1, seconds=1)
     assert open_session(device).status_code == 201
@@ -53,8 +54,9 @@ def test_operator_sessions_never_end_by_themselves(device: Device) -> None:
 
 
 def test_the_rightmost_forwarded_address_is_the_one_counted(device: Device) -> None:
-    statuses = [open_session(device, ip=f"10.0.0.{number}, 203.0.113.9").status_code for number in range(4)]
-    assert statuses == [201, 201, 201, 429]
+    limit = limits.OPEN_SESSIONS_PER_MINUTE
+    statuses = [open_session(device, ip=f"10.0.0.{number}, 203.0.113.9").status_code for number in range(limit + 1)]
+    assert statuses == [201] * limit + [429]
 
 
 def test_all_addresses_together_are_capped(device: Device) -> None:

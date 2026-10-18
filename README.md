@@ -20,7 +20,7 @@ iPhone の画面を録画したもの（1.5 倍速、音なし）。はじめる
 4. 途中まで解いて、手を止めて 20 秒待つ。答えを言わずに、見る場所か次の一歩を声で教える。「移項って何？」と声で聞いてもよい
 5. 解けたら「できた」。最後に「おわる」を 2 回（1 回目で「本当におわる？」に変わる）→「記録を見る」で、どこで詰まったかの記録が開く
 
-- セッションは 30 分で自動的に終わる（同じ回線からは 1 分に 3 回まで作れる）。もう一度は「もう一度はじめる」
+- セッションは 30 分で自動的に終わる（同じ回線からは 1 分に 10 回まで作れる）。もう一度は「もう一度はじめる」
 - 送った写真は Google の Gemini API（無料枠）に送られ、Google のサービス改善に使われることがある（既知の制約）
 - `/log`（全体の記録）と `/ops` は運営の鍵が要る
 
@@ -205,7 +205,7 @@ Gemini 3.5 Flash-Lite の有料枠（入力 100 万トークンあたり $0.30�
 - API：`uv run --directory api --env-file .env uvicorn app.main:app --reload --port 8000`。`api/.env` に `GEMINI_API_KEY`・`OPERATOR_KEY`（任意で `VOICEVOX_URL`。無ければブラウザの声）
 - 画面：root で `pnpm dev:mock`（モック。API 不要）か `pnpm dev`（本物の API。`web/.env.local` に `NEXT_PUBLIC_API_BASE`）
 - 検査：`pnpm check`（型・lint・web のテスト・ビルド。Node 22.18 以上）、`uvx ruff check api`、`uv run --directory api pytest`。CI でも同じものを回す
-- 始め方：`/device` を開くだけでセッションができる（IP ごとに 1 分 3 件・全体で 1 分 30 件、30 分で自動終了。`OPEN_SESSIONS=0` で止められる）。運営が作って配るなら `uv run --directory api --env-file .env tools/create_session.py --mode live --stuck 20 --count 1`（`.env` に `API_BASE`・`WEB_BASE` も要る）か `/ops`。出た `/device?s=…&t=…` を手元を撮るスマホで開く
+- 始め方：`/device` を開くだけでセッションができる（IP ごとに 1 分 10 件・全体で 1 分 30 件、30 分で自動終了。`OPEN_SESSIONS=0` で止められる）。運営が作って配るなら `uv run --directory api --env-file .env tools/create_session.py --mode live --stuck 20 --count 1`（`.env` に `API_BASE`・`WEB_BASE` も要る）か `/ops`。出た `/device?s=…&t=…` を手元を撮るスマホで開く
 
 ## 文書
 

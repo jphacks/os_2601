@@ -8,7 +8,7 @@ from app.context import AppContext
 from app.errors import fail
 
 MAX_FRAME_BYTES = 600 * 1024
-OPEN_SESSIONS_PER_MINUTE = 3
+OPEN_SESSIONS_PER_MINUTE = 10
 OPEN_SESSIONS_PER_MINUTE_TOTAL = 30
 AI_CALLS_PER_MINUTE = 20
 SPEECHES_PER_MINUTE = 40
@@ -34,11 +34,17 @@ def allow_open(context: AppContext, ip: str, now: datetime) -> bool:
     return True
 
 
-def count_call(calls: dict[str, list[datetime]], session_id: str, limit: int, now: datetime) -> None:
+def try_count_call(calls: dict[str, list[datetime]], session_id: str, limit: int, now: datetime) -> bool:
     recent = [called for called in calls.get(session_id, []) if now - called < timedelta(minutes=1)]
     if len(recent) >= limit:
-        fail(429, "少し待ってから、もう一度")
+        return False
     calls[session_id] = [*recent, now]
+    return True
+
+
+def count_call(calls: dict[str, list[datetime]], session_id: str, limit: int, now: datetime) -> None:
+    if not try_count_call(calls, session_id, limit, now):
+        fail(429, "少し待ってから、もう一度")
 
 
 @contextmanager

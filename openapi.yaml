@@ -6,7 +6,7 @@ info:
     フロント（B・C）とバック（高橋）の契約。docs/03_api_contract.md と同じ内容で、食い違ったらこのファイルを信じる。変更は高橋だけ。
 
     - 認可は 3 系統。デバイスは `Authorization: Bearer <session_token>`、オペレータは `X-Operator-Key`、公開はヘッダなし。
-    - 鍵が無いか一致しなければ 401。鍵は正しいが系統が違えば 403（デバイス専用のエンドポイントにオペレータの鍵で来た、`force_stuck` の無い signals にオペレータの鍵で来た）。
+    - 鍵が無いか一致しなければ 401。鍵は正しいが系統が違えば 403（デバイス専用のエンドポイントにオペレータの鍵で来た）。
     - 時刻は ISO 8601（UTC、`Z` 付き）。ID は推測できない乱数で、接頭辞は `ses_`・`tok_`・`frm_`・`hnt_`・`chk_`。
     - `speech` は読み上げ用（AI には 35 文字以内で書かせる。記号は言葉に）、`display` は字幕用（50 文字以内、数式は半角）。文が壊れるので切らず、60 文字・80 文字を超えたら固定の問い返しにする（ADR 0029）。フロントは文章を組み立てず値をそのまま出す。
     - 正答・`leak_strings`・典型ミスの一覧・固定ヒントの表は、どのエンドポイントからも返さない。
@@ -155,7 +155,7 @@ paths:
       operationId: patchSettings
       summary: 止まったと判定する秒数を学習者が選ぶ
       description: |
-        `stuck_seconds`（5〜1200。/device の選択肢は 10・20・30・60・180・300・600・1200）と `cooldown_seconds`（0〜300）のどちらか、または両方。
+        `stuck_seconds`（5〜1200。/device の選択肢は 10・20・30・60・180・300・600・1200）、`cooldown_seconds`（0〜300）、`persona`（`teacher`・`ikemen`）のどれか 1 つ以上。
         受理するのは `created`・`watching`・`still`・`cooldown`。`stuck`・`speaking`・`checking`・`ended` では 409。進行中に変えても次の静止から効く。
       security:
         - device: []
@@ -206,7 +206,7 @@ paths:
         - `stuck`・`speaking`・`checking` の間は `motion` を無視する。
         - **`next_action` は `stuck` の間の応答すべてで `send_frame_and_request_hint`。** デバイスはフレームを送ってから `hints` を `trigger: auto` で呼ぶ。一度成功したら、`state` が `stuck` 以外になるまで再要求しない。
         - **`next_action` は、静止がひと続きの間に 1 回だけ、`still_seconds` が `stuck_seconds − prefetch_lead_seconds`（3 秒。`api/settings.yaml`）に達した応答で `send_frame`（`live` のセッションだけ）。** デバイスはフレームを送り、その `frame_id` を覚えておく。stuck になったら撮り直さず、その `frame_id` で `hints` を `trigger: auto` で呼ぶ（ADR 0028）。
-        - `force_stuck: true` は `motion` を無視して `stuck` に入る（/ops の強制 stuck）。受理は `watching`・`still`・`cooldown`。`stuck` なら何もせず 200。`created`・`speaking`・`checking`・`ended` では 409。**このときだけ `X-Operator-Key` でも認可する。** `force_stuck` の無い要求にオペレータの鍵で来たら 403。
+        - `force_stuck: true` は `motion` を無視して `stuck` に入る（/ops の強制 stuck）。受理は `watching`・`still`・`cooldown`。`stuck` なら何もせず 200。`created`・`speaking`・`checking`・`ended` では 409。**このときは `X-Operator-Key` だけで認可し、セッションのトークンでは 401（10/19、ADR 0039 の追記）。** `force_stuck` の無い要求にオペレータの鍵で来たら 403。
         - `ended` の後の通常の signals は 200 で `state: ended` を返す。デバイスはループを止める。
         - `watching`・`still`・`stuck` で 5 秒以上 signals が来なければ、サーバは `watching` に戻す。
       security:
@@ -403,8 +403,6 @@ paths:
           $ref: "#/components/responses/StateConflict"
         "422":
           $ref: "#/components/responses/ValidationError"
-        "429":
-          $ref: "#/components/responses/RateLimited"
 
   /sessions/{id}/problem:
     parameters:
@@ -415,7 +413,7 @@ paths:
       summary: 最新のフレームから問題文だけを読み取る
       description: |
         「はじめる」の 3 秒後と、問題が変わったときにデバイスが呼ぶ（ADR 0034）。AI に問題文だけを読ませ（答案は解かない）、`problems[].problem_text` に入れて返す。
-        読めなければ `problem_text` は今の値のまま（まだなら null）。状態は変えない。`ended` では 409。`frame_id` は照合せず最新 1 枚を使う。
+        読めなければ `problem_text` は今の値のまま（まだなら null）。状態は時刻を進めるだけ（自動の終了時刻を過ぎていれば `ended` にして 409）。`frame_id` は照合せず最新 1 枚を使う。
       security:
         - device: []
       requestBody:
@@ -644,7 +642,7 @@ components:
             $ref: "#/components/schemas/Error"
           example: {"error": {"code": "FORBIDDEN", "message": "..."}}
     RateLimited:
-      description: 回数の上限（/sessions/open は IP ごとに 1 分 3 件。ボタンのヒント・声の質問・問題文の読み取りで AI を実際に呼ぶのはセッションごとに 1 分 20 回、/tts は 1 分 40 回。問題文の読み取り（同じ問題で）と声の質問は同時に 1 本。ADR 0039）
+      description: 回数の上限（/sessions/open は IP ごとに 1 分 10 件。ボタンのヒント・声の質問・問題文の読み取りで AI を実際に呼ぶのはセッションごとに 1 分 20 回、/tts は 1 分 40 回。問題文の読み取り（同じ問題で）と声の質問は同時に 1 本。ADR 0039）
       content:
         application/json:
           schema:
@@ -1193,6 +1191,6 @@ components:
             code:
               type: string
               enum: [BAD_REQUEST, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, STATE_CONFLICT, FRAME_TOO_LARGE, VALIDATION_ERROR, RATE_LIMITED, HINT_UNAVAILABLE]
-              description: 400 BAD_REQUEST、401 UNAUTHORIZED、403 FORBIDDEN、404 NOT_FOUND、409 STATE_CONFLICT、413 FRAME_TOO_LARGE、422 VALIDATION_ERROR、429 RATE_LIMITED、503 HINT_UNAVAILABLE
+              description: 400 BAD_REQUEST、401 UNAUTHORIZED、403 FORBIDDEN、404 NOT_FOUND、409 STATE_CONFLICT、413 FRAME_TOO_LARGE、422 VALIDATION_ERROR、429 RATE_LIMITED、500 INTERNAL、503 HINT_UNAVAILABLE
             message:
               type: string

@@ -6,7 +6,7 @@ import httpx
 import pytest
 from conftest import Device
 
-from app import main, routes
+from app import limits, main, routes
 from app.leak import leak_strings, normalize
 
 WAV = b"RIFF\x00\x00\x00\x00WAVE"
@@ -67,8 +67,8 @@ def test_a_session_can_call_the_ai_only_so_often_a_minute(device: Device, ai: Sl
     device.signal(0, 0.05)
     device.frame()
     path = f"/sessions/{device.session_id}/problem"
-    statuses = [device.client.post(path, json={"frame_id": "frm_x"}, headers=device.headers).status_code for _ in range(routes.AI_CALLS_PER_MINUTE + 1)]
-    assert statuses == [200] * routes.AI_CALLS_PER_MINUTE + [429]
+    statuses = [device.client.post(path, json={"frame_id": "frm_x"}, headers=device.headers).status_code for _ in range(limits.AI_CALLS_PER_MINUTE + 1)]
+    assert statuses == [200] * limits.AI_CALLS_PER_MINUTE + [429]
     device.now += timedelta(minutes=1, seconds=1)
     assert device.client.post(path, json={"frame_id": "frm_x"}, headers=device.headers).status_code == 200
 
@@ -116,7 +116,7 @@ def test_an_unknown_max_level_stops_the_app_at_startup(monkeypatch: pytest.Monke
 def test_requests_that_never_reach_the_ai_do_not_use_up_the_budget(device: Device) -> None:
     device.signal(0, 0.05)
     frame_id = device.frame()
-    for _ in range(routes.AI_CALLS_PER_MINUTE + 5):
+    for _ in range(limits.AI_CALLS_PER_MINUTE + 5):
         body = {"trigger": "voice", "frame_id": frame_id, "utterance": "これで合ってる？"}
         device.client.post(f"/sessions/{device.session_id}/hints", json=body, headers=device.headers)
         device.client.post(f"/sessions/{device.session_id}/hints", json={"trigger": "auto", "frame_id": frame_id}, headers=device.headers)

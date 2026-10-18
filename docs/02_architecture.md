@@ -78,7 +78,13 @@ os_2601/
 ├── api/
 │   ├── app/
 │   │   ├── main.py        # FastAPI、CORS、ルート登録、起動時に設定と保存の読込
-│   │   ├── routes.py      # 全エンドポイント（1 ファイル）
+│   │   ├── routes.py      # 全エンドポイントと、状態機械を当てて保存する処理
+│   │   ├── context.py     # AppContext（設定・保存・写真・先読み・回数をまとめたもの）と fail()
+│   │   ├── schemas.py     # 要求の型（pydantic）
+│   │   ├── auth.py        # トークンと運営の鍵の確認
+│   │   ├── limits.py      # 作成の口・AI・声の回数の上限、同時に 1 本（ADR 0036・0039）
+│   │   ├── prefetch.py    # 詰まりの 3 秒前の先読み（ADR 0028）
+│   │   ├── views.py       # 記録の応答の形（問題・ヒント・詰まりの集計）
 │   │   ├── state.py       # 状態機械（純粋関数 step()＋表駆動テスト）
 │   │   ├── store.py       # JSON ファイル 1 つに保存・読込
 │   │   ├── hints.py       # Gemini の呼び出し、プロンプト、構造化出力、固定の問い返し、scripted

@@ -1,18 +1,15 @@
-import asyncio
 import logging
 import secrets
 import time
-from collections.abc import Iterator
-from contextlib import contextmanager
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Literal, NoReturn
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
 
+from app.auth import require_device, require_device_or_operator, require_operator
 from app.check import CORRECT_TEXT, Judgement, judge
-from app.gemini import AIUnavailable, Gemini
+from app.context import AppContext, fail, get_context
+from app.gemini import AIUnavailable
 from app.hints import (
     FALLBACK_HINTS,
     ComposedHint,
@@ -21,12 +18,14 @@ from app.hints import (
     asks_if_correct,
     check_reply,
     compose_answer,
-    compose_hint,
     fixed_hint,
     read_problem,
 )
 from app.leak import same_problem
+from app.limits import AI_CALLS_PER_MINUTE, SPEECHES_PER_MINUTE, allow_open, client_ip, count_call, one_at_a_time
 from app.personas import persona_options
+from app.prefetch import ai_hints, compose, discard_prefetch, start_prefetch, take_prefetch
+from app.schemas import CheckRequest, HintRequest, ProblemRequest, SessionCreateRequest, SettingsPatch, SignalRequest, SpeechRequest
 from app.state import (
     Accepted,
     Advance,
@@ -47,28 +46,20 @@ from app.state import (
     Session,
     SessionSettings,
     Signal,
-    Thresholds,
     Tick,
-    auto_hint_level,
     cooldown_remaining,
     step,
     still_seconds,
 )
-from app.store import SessionStore
-from app.voicevox import VoiceUnavailable, Voicevox
+from app.views import iso, problem_record, stuck_points
+from app.voicevox import VoiceUnavailable
 
 logger = logging.getLogger(__name__)
 
 MAX_FRAME_BYTES = 600 * 1024
-MAX_UTTERANCE_CHARS = 200
-OPEN_SESSIONS_PER_MINUTE = 3
-OPEN_SESSIONS_PER_MINUTE_TOTAL = 30
 OPEN_SESSION_LIFETIME = timedelta(minutes=30)
 OPEN_SESSION_KEPT_FOR = timedelta(hours=2)
-AI_CALLS_PER_MINUTE = 20
-SPEECHES_PER_MINUTE = 40
 OPEN_SESSION_LABEL = "自分で始めた"
-SPEECH_REQUEST_MAX_CHARS = 200
 SPEECH_AFTER_END_SECONDS = 60
 MODE_DEFAULT = "live"
 WORKSHEET_ID = "FREE"
@@ -76,198 +67,20 @@ WORKSHEET_TITLE = "自由な問題"
 PROBLEM_SLOTS = 20
 
 
-@dataclass
-class Prefetch:
-    problem_no: int
-    stuck_count: int
-    composing: asyncio.Task[ComposedHint]
-    persona: str = "teacher"
-
-
-@dataclass
-class AppContext:
-    thresholds: Thresholds
-    default_settings: SessionSettings
-    store: SessionStore
-    operator_key: str
-    demo_mode: bool
-    open_sessions: bool
-    ai: Gemini | None
-    hint_model: str
-    check_model: str
-    frames: dict[str, tuple[str, bytes]] = field(default_factory=dict)
-    prefetches: dict[str, Prefetch] = field(default_factory=dict)
-    voice: Voicevox | None = None
-    opened_at: dict[str, list[datetime]] = field(default_factory=dict)
-    ai_calls: dict[str, list[datetime]] = field(default_factory=dict)
-    speeches: dict[str, list[datetime]] = field(default_factory=dict)
-    busy: set[tuple[str, str]] = field(default_factory=set)
-
-
-StuckSeconds = Annotated[int, Field(ge=5, le=1200)]
-CooldownSeconds = Annotated[int, Field(ge=0, le=300)]
-MaxLevel = Annotated[int, Field(ge=1, le=2)]
-
-
-class SettingsInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    stuck_seconds: StuckSeconds | None = None
-    cooldown_seconds: CooldownSeconds | None = None
-    max_level: MaxLevel | None = None
-    persona: Literal["teacher", "ikemen"] | None = None
-
-
-class SessionCreateRequest(BaseModel):
-    worksheet_id: Literal["FREE"]
-    learner_label: str = "学習者"
-    mode: Literal["live", "scripted"]
-    settings: SettingsInput = SettingsInput()
-
-
-class SettingsPatch(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    stuck_seconds: StuckSeconds | None = None
-    cooldown_seconds: CooldownSeconds | None = None
-    persona: Literal["teacher", "ikemen"] | None = None
-
-    @model_validator(mode="after")
-    def require_one(self) -> "SettingsPatch":
-        if self.stuck_seconds is None and self.cooldown_seconds is None and self.persona is None:
-            raise ValueError("stuck_seconds、cooldown_seconds、persona のどれかが要る")
-        return self
-
-
-class SignalRequest(BaseModel):
-    motion: float | None = Field(default=None, ge=0, le=1)
-    camera_ok: bool | None = None
-    force_stuck: bool = False
-
-    @model_validator(mode="after")
-    def require_camera_ok(self) -> "SignalRequest":
-        if not self.force_stuck and self.camera_ok is None:
-            raise ValueError("force_stuck でなければ camera_ok が要る")
-        return self
-
-
-class HintRequest(BaseModel):
-    trigger: Literal["auto", "manual", "voice"]
-    frame_id: str
-    utterance: str | None = Field(default=None, max_length=MAX_UTTERANCE_CHARS)
-
-
-class CheckRequest(BaseModel):
-    frame_id: str
-
-
-class ProblemRequest(BaseModel):
-    frame_id: str
-
-
-class SpeechRequest(BaseModel):
-    text: Annotated[str, Field(min_length=1, max_length=SPEECH_REQUEST_MAX_CHARS)]
-    character: Literal["handsome", "teacher"] = "handsome"
-
-
 router = APIRouter()
-
-
-def get_context(request: Request) -> AppContext:
-    return request.app.state.context
-
-
-def _fail(status: int, message: str) -> NoReturn:
-    raise HTTPException(status_code=status, detail=message)
 
 
 def _now() -> datetime:
     return datetime.now(UTC)
 
 
-def _iso(value: datetime | None) -> str | None:
-    return value.isoformat(timespec="seconds").replace("+00:00", "Z") if value else None
-
-
 def _new_id(prefix: str) -> str:
     return f"{prefix}_{secrets.token_urlsafe(12)}"
-
-
-def _matches(given: str | None, expected: str) -> bool:
-    return bool(given) and bool(expected) and secrets.compare_digest(given.encode(), expected.encode())
-
-
-def _operator_ok(request: Request, context: AppContext) -> bool:
-    return _matches(request.headers.get("X-Operator-Key"), context.operator_key)
-
-
-def _device_ok(request: Request, session: Session) -> bool:
-    scheme, _, token = request.headers.get("Authorization", "").partition(" ")
-    return scheme.lower() == "bearer" and _matches(token, session.session_token)
-
-
-def _require_operator(request: Request, context: AppContext) -> None:
-    if not _operator_ok(request, context):
-        _fail(401, "X-Operator-Key が無いか一致しない")
-
-
-def _require_device(request: Request, context: AppContext, session: Session) -> None:
-    if _device_ok(request, session):
-        return
-    if _operator_ok(request, context):
-        _fail(403, "この操作はセッションのトークンでだけできる")
-    _fail(401, "セッションのトークンが無いか一致しない")
-
-
-def _require_device_or_operator(request: Request, context: AppContext, session: Session) -> None:
-    if not (_device_ok(request, session) or _operator_ok(request, context)):
-        _fail(401, "セッションのトークンかオペレータの鍵が要る")
 
 
 def _latest_frame(context: AppContext, session_id: str) -> bytes | None:
     latest = context.frames.get(session_id)
     return latest[1] if latest else None
-
-
-def _ai_hints(problem: Problem) -> list[str]:
-    return [hint.display for hint in problem.hints if hint.source == "ai"]
-
-
-async def _compose(context: AppContext, problem: Problem, level: int, frame: bytes | None, persona: str = "teacher") -> ComposedHint:
-    return await compose_hint(
-        context.ai, context.hint_model, frame, level, _ai_hints(problem), problem.problem_text, problem.leak_strings, persona
-    )
-
-
-async def _compose_ahead(
-    context: AppContext, session_id: str, problem: Problem, level: int, frame: bytes, persona: str = "teacher"
-) -> ComposedHint:
-    started = time.monotonic()
-    composed = await _compose(context, problem, level, frame, persona)
-    logger.info(
-        "prefetch session=%s level=%s source=%s ai_ms=%s",
-        session_id,
-        level,
-        composed.source,
-        int((time.monotonic() - started) * 1000),
-    )
-    return composed
-
-
-def _discard_prefetch(context: AppContext, session_id: str) -> None:
-    prefetch = context.prefetches.pop(session_id, None)
-    if prefetch:
-        prefetch.composing.cancel()
-
-
-def _take_prefetch(context: AppContext, session: Session) -> asyncio.Task[ComposedHint] | None:
-    prefetch = context.prefetches.pop(session.session_id, None)
-    if prefetch is None:
-        return None
-    if (prefetch.problem_no, prefetch.stuck_count, prefetch.persona) == (
-        session.current_problem_no, session.current_problem.stuck_count, session.settings.persona
-    ):
-        return prefetch.composing
-    prefetch.composing.cancel()
-    return None
 
 
 def _abandon_hint(context: AppContext, session_id: str, ticket: datetime) -> None:
@@ -280,59 +93,19 @@ def _abandon_hint(context: AppContext, session_id: str, ticket: datetime) -> Non
 def _find_session(context: AppContext, session_id: str) -> Session:
     session = context.store.get(session_id)
     if session is None:
-        _fail(404, f"セッション {session_id} が無い")
+        fail(404, f"セッション {session_id} が無い")
     return session
-
-
-def _client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for", "")
-    if forwarded:
-        return forwarded.split(",")[-1].strip()
-    return request.client.host if request.client else "unknown"
-
-
-def _allow_open(context: AppContext, ip: str, now: datetime) -> bool:
-    context.opened_at = {
-        key: recent
-        for key, times in context.opened_at.items()
-        if (recent := [opened for opened in times if now - opened < timedelta(minutes=1)])
-    }
-    total = sum(len(times) for times in context.opened_at.values())
-    if total >= OPEN_SESSIONS_PER_MINUTE_TOTAL or len(context.opened_at.get(ip, [])) >= OPEN_SESSIONS_PER_MINUTE:
-        return False
-    context.opened_at[ip] = [*context.opened_at.get(ip, []), now]
-    return True
 
 
 def _forget_old_open_sessions(context: AppContext, now: datetime) -> None:
     for session in context.store.all():
         if session.auto_end_at is not None and now - session.auto_end_at > OPEN_SESSION_KEPT_FOR:
             context.store.remove(session.session_id)
-            _discard_prefetch(context, session.session_id)
+            discard_prefetch(context, session.session_id)
     alive = {session.session_id for session in context.store.all()}
     for calls in (context.frames, context.ai_calls, context.speeches):
         for session_id in [session_id for session_id in calls if session_id not in alive]:
             del calls[session_id]
-
-
-def _count_call(calls: dict[str, list[datetime]], session_id: str, limit: int) -> None:
-    now = _now()
-    recent = [called for called in calls.get(session_id, []) if now - called < timedelta(minutes=1)]
-    if len(recent) >= limit:
-        _fail(429, "少し待ってから、もう一度")
-    calls[session_id] = [*recent, now]
-
-
-@contextmanager
-def _one_at_a_time(context: AppContext, session_id: str, kind: str) -> Iterator[None]:
-    key = (session_id, kind)
-    if key in context.busy:
-        _fail(429, "前の問い合わせが終わってから、もう一度")
-    context.busy.add(key)
-    try:
-        yield
-    finally:
-        context.busy.discard(key)
 
 
 def _apply(context: AppContext, session: Session, event: Event, now: datetime) -> tuple[Session, Accepted]:
@@ -341,56 +114,12 @@ def _apply(context: AppContext, session: Session, event: Event, now: datetime) -
         context.store.put(next_session)
     keeps_prefetch = next_session.state == "stuck" or (next_session.state == "still" and next_session.prefetch_requested)
     if not keeps_prefetch:
-        _discard_prefetch(context, next_session.session_id)
+        discard_prefetch(context, next_session.session_id)
     if next_session.state == "ended":
         context.frames.pop(next_session.session_id, None)
     if isinstance(result, Rejected):
-        _fail(409, f"今の状態（{next_session.state}）では受理できない")
+        fail(409, f"今の状態（{next_session.state}）では受理できない")
     return next_session, result
-
-
-def _seconds_spent(problem: Problem, session: Session, now: datetime) -> int:
-    if problem.started_at is None:
-        return 0
-    finished = problem.finished_at or session.ended_at or now
-    return int((finished - problem.started_at).total_seconds())
-
-
-def _hint_record(hint: Hint) -> dict:
-    return {
-        "hint_id": hint.hint_id,
-        "level": hint.level,
-        "trigger": hint.trigger,
-        "display": hint.display,
-        "stuck_point": hint.stuck_point,
-        "source": hint.source,
-        "leak_check": asdict(hint.leak_check),
-        "latency_ms": hint.latency_ms,
-        "created_at": _iso(hint.created_at),
-    }
-
-
-def _problem_record(problem: Problem, session: Session, now: datetime) -> dict:
-    check = problem.check
-    return {
-        "problem_no": problem.problem_no,
-        "problem_text": problem.problem_text,
-        "status": problem.status,
-        "stuck_count": problem.stuck_count,
-        "max_level": max((hint.level for hint in problem.hints), default=0),
-        "seconds_spent": _seconds_spent(problem, session, now),
-        "hints": [_hint_record(hint) for hint in problem.hints],
-        "check": {"verdict": check.verdict, "display": check.display, "created_at": _iso(check.created_at)} if check else None,
-    }
-
-
-def _stuck_points(session: Session) -> list[dict]:
-    counts: dict[str, int] = {}
-    for problem in session.problems:
-        for hint in problem.hints:
-            if hint.source == "ai":
-                counts[hint.stuck_point] = counts.get(hint.stuck_point, 0) + 1
-    return [{"label": label, "count": count} for label, count in sorted(counts.items(), key=lambda item: -item[1])]
 
 
 def _new_session(
@@ -420,7 +149,7 @@ def _new_session(
         "state": session.state,
         "worksheet": {"worksheet_id": WORKSHEET_ID, "title": WORKSHEET_TITLE, "problem_count": len(problems)},
         "settings": asdict(session.settings),
-        "created_at": _iso(session.created_at),
+        "created_at": iso(session.created_at),
     }
 
 
@@ -428,7 +157,7 @@ def _new_session(
 async def create_session(
     body: SessionCreateRequest, request: Request, context: AppContext = Depends(get_context)
 ) -> dict:
-    _require_operator(request, context)
+    require_operator(request, context)
     settings = SessionSettings(**{**asdict(context.default_settings), **body.settings.model_dump(exclude_none=True)})
     return _new_session(context, body.learner_label, body.mode, settings, None)
 
@@ -436,10 +165,10 @@ async def create_session(
 @router.post("/sessions/open", status_code=201)
 async def open_session(request: Request, context: AppContext = Depends(get_context)) -> dict:
     if not context.open_sessions:
-        _fail(404, "OPEN_SESSIONS が 0")
+        fail(404, "OPEN_SESSIONS が 0")
     now = _now()
-    if not _allow_open(context, _client_ip(request), now):
-        _fail(429, "少し待ってから、もう一度開いてね")
+    if not allow_open(context, client_ip(request), now):
+        fail(429, "少し待ってから、もう一度開いてね")
     _forget_old_open_sessions(context, now)
     settings = replace(context.default_settings)
     return _new_session(context, OPEN_SESSION_LABEL, "live", settings, now + OPEN_SESSION_LIFETIME)
@@ -447,7 +176,7 @@ async def open_session(request: Request, context: AppContext = Depends(get_conte
 
 @router.get("/sessions")
 async def list_sessions(request: Request, context: AppContext = Depends(get_context)) -> dict:
-    _require_operator(request, context)
+    require_operator(request, context)
     now = _now()
     sessions = [_apply(context, session, Tick(), now)[0] for session in context.store.all()]
     sessions.sort(key=lambda session: session.created_at, reverse=True)
@@ -462,8 +191,8 @@ async def list_sessions(request: Request, context: AppContext = Depends(get_cont
                 "problem_done": sum(problem.status == "done" for problem in session.problems),
                 "problem_count": len(session.problems),
                 "stuck_total": sum(problem.stuck_count for problem in session.problems),
-                "created_at": _iso(session.created_at),
-                "ended_at": _iso(session.ended_at),
+                "created_at": iso(session.created_at),
+                "ended_at": iso(session.ended_at),
             }
             for session in sessions
         ]
@@ -473,7 +202,7 @@ async def list_sessions(request: Request, context: AppContext = Depends(get_cont
 @router.get("/sessions/{session_id}")
 async def get_session(session_id: str, request: Request, context: AppContext = Depends(get_context)) -> dict:
     session = _find_session(context, session_id)
-    _require_device_or_operator(request, context, session)
+    require_device_or_operator(request, context, session)
     now = _now()
     session, _ = _apply(context, session, Tick(), now)
     return {
@@ -487,12 +216,12 @@ async def get_session(session_id: str, request: Request, context: AppContext = D
         "current_problem_no": session.current_problem_no,
         "still_seconds": still_seconds(session, now),
         "settings": asdict(session.settings),
-        "problems": [_problem_record(problem, session, now) for problem in session.problems],
+        "problems": [problem_record(problem, session, now) for problem in session.problems],
         "persona_options": persona_options(),
-        "stuck_points": _stuck_points(session),
+        "stuck_points": stuck_points(session),
         "leak_blocked_count": session.leak_blocked_count,
-        "created_at": _iso(session.created_at),
-        "ended_at": _iso(session.ended_at),
+        "created_at": iso(session.created_at),
+        "ended_at": iso(session.ended_at),
     }
 
 
@@ -501,11 +230,11 @@ async def patch_settings(
     session_id: str, body: SettingsPatch, request: Request, context: AppContext = Depends(get_context)
 ) -> dict:
     session = _find_session(context, session_id)
-    _require_device(request, context, session)
+    require_device(request, context, session)
     old_persona = session.settings.persona
     session, _ = _apply(context, session, ChangeSettings(body.stuck_seconds, body.cooldown_seconds, body.persona), _now())
     if session.settings.persona != old_persona:
-        _discard_prefetch(context, session_id)
+        discard_prefetch(context, session_id)
     context.store.save()
     return {"settings": asdict(session.settings), "state": session.state}
 
@@ -516,9 +245,9 @@ async def post_signal(
 ) -> dict:
     session = _find_session(context, session_id)
     if body.force_stuck:
-        _require_device_or_operator(request, context, session)
+        require_device_or_operator(request, context, session)
     else:
-        _require_device(request, context, session)
+        require_device(request, context, session)
     now = _now()
     event = Signal(motion=body.motion, camera_ok=bool(body.camera_ok), force_stuck=body.force_stuck)
     session, result = _apply(context, session, event, now)
@@ -543,22 +272,18 @@ async def post_signal(
 async def post_frame(
     session_id: str, request: Request, frame: UploadFile = File(...), context: AppContext = Depends(get_context)
 ) -> dict:
-    _require_device(request, context, _find_session(context, session_id))
+    require_device(request, context, _find_session(context, session_id))
     data = await frame.read(MAX_FRAME_BYTES + 1)
     if len(data) > MAX_FRAME_BYTES:
-        _fail(413, f"フレームは {MAX_FRAME_BYTES // 1024} KB まで")
+        fail(413, f"フレームは {MAX_FRAME_BYTES // 1024} KB まで")
     session, _ = _apply(context, _find_session(context, session_id), Tick(), _now())
     if session.state == "ended":
-        _fail(409, "終了したセッションにはフレームを送れない")
+        fail(409, "終了したセッションにはフレームを送れない")
     frame_id = _new_id("frm")
     context.frames[session.session_id] = (frame_id, data)
-    if session.state == "still" and session.prefetch_requested and session.session_id not in context.prefetches:
-        problem = session.current_problem
-        stuck_count = problem.stuck_count + 1
-        level = auto_hint_level(stuck_count, session.settings)
-        composing = asyncio.create_task(_compose_ahead(context, session.session_id, problem, level, data, session.settings.persona))
-        context.prefetches[session.session_id] = Prefetch(session.current_problem_no, stuck_count, composing, session.settings.persona)
-    return {"frame_id": frame_id, "received_at": _iso(_now()), "bytes": len(data)}
+    if session.state == "still" and session.prefetch_requested:
+        start_prefetch(context, session, data)
+    return {"frame_id": frame_id, "received_at": iso(_now()), "bytes": len(data)}
 
 
 def _issue_hint(
@@ -627,7 +352,7 @@ async def _answer_utterance(context: AppContext, session: Session, utterance: st
     now = _now()
     _, acceptable = step(session, HintRequested("voice"), now, context.thresholds)
     if isinstance(acceptable, Rejected):
-        _fail(409, f"今の状態（{session.state}）では受理できない")
+        fail(409, f"今の状態（{session.state}）では受理できない")
     if session.mode == "scripted":
         return Response(status_code=204)
     problem_no = session.current_problem_no
@@ -646,14 +371,14 @@ async def _answer_utterance(context: AppContext, session: Session, utterance: st
             requested_at=now,
             prefetched=False,
         )
-    _count_call(context.ai_calls, session.session_id, AI_CALLS_PER_MINUTE)
+    count_call(context.ai_calls, session.session_id, AI_CALLS_PER_MINUTE, _now())
     try:
         composed = await compose_answer(
             context.ai,
             context.hint_model,
             _latest_frame(context, session.session_id),
             utterance,
-            _ai_hints(problem),
+            ai_hints(problem),
             problem.problem_text,
             problem.leak_strings,
             session.settings.persona,
@@ -685,15 +410,15 @@ async def request_hint(
     session_id: str, body: HintRequest, request: Request, context: AppContext = Depends(get_context)
 ) -> dict | Response:
     session = _find_session(context, session_id)
-    _require_device(request, context, session)
+    require_device(request, context, session)
     if body.trigger == "voice" and body.utterance:
-        with _one_at_a_time(context, session_id, "voice"):
+        with one_at_a_time(context, session_id, "voice"):
             return await _answer_utterance(context, session, body.utterance)
     started = time.monotonic()
     now = _now()
     session, accepted = _apply(context, session, HintRequested(body.trigger), now)
     problem = session.current_problem
-    composing = _take_prefetch(context, session) if body.trigger == "auto" else None
+    composing = take_prefetch(context, session) if body.trigger == "auto" else None
     try:
         if session.mode == "scripted":
             composed = fixed_hint(
@@ -704,15 +429,15 @@ async def request_hint(
             composed = await composing
         else:
             if body.trigger != "auto":
-                _count_call(context.ai_calls, session_id, AI_CALLS_PER_MINUTE)
-            composed = await _compose(context, problem, accepted.level, _latest_frame(context, session_id), session.settings.persona)
+                count_call(context.ai_calls, session_id, AI_CALLS_PER_MINUTE, _now())
+            composed = await compose(context, problem, accepted.level, _latest_frame(context, session_id), session.settings.persona)
     except Exception:
         _abandon_hint(context, session_id, accepted.ticket)
         raise
     latest = _find_session(context, session_id)
     if latest.current_problem_no != session.current_problem_no or latest.settings.persona != session.settings.persona:
         _abandon_hint(context, session_id, accepted.ticket)
-        _fail(409, "ヒント生成中に問題か人格が変わったため、もう一度お試しください")
+        fail(409, "ヒント生成中に問題か人格が変わったため、もう一度お試しください")
     return _issue_hint(
         context,
         session_id,
@@ -732,7 +457,7 @@ async def post_check(
     session_id: str, body: CheckRequest, request: Request, context: AppContext = Depends(get_context)
 ) -> dict:
     session = _find_session(context, session_id)
-    _require_device(request, context, session)
+    require_device(request, context, session)
     now = _now()
     session, _ = _apply(context, session, CheckRequested(), now)
     checked_no = session.current_problem_no
@@ -770,14 +495,14 @@ async def post_problem(
     session_id: str, body: ProblemRequest, request: Request, context: AppContext = Depends(get_context)
 ) -> dict:
     session = _find_session(context, session_id)
-    _require_device(request, context, session)
+    require_device(request, context, session)
     session, _ = _apply(context, session, Tick(), _now())
     if session.state == "ended":
-        _fail(409, "終了したセッションでは読み取れない")
+        fail(409, "終了したセッションでは読み取れない")
     problem_no = session.current_problem_no
     started = time.monotonic()
-    with _one_at_a_time(context, session_id, f"problem-{problem_no}"):
-        _count_call(context.ai_calls, session_id, AI_CALLS_PER_MINUTE)
+    with one_at_a_time(context, session_id, f"problem-{problem_no}"):
+        count_call(context.ai_calls, session_id, AI_CALLS_PER_MINUTE, _now())
         problem_text = await read_problem(
             context.ai, context.hint_model, _latest_frame(context, session_id), session.current_problem.problem_text
         )
@@ -798,19 +523,19 @@ async def post_problem(
 @router.post("/sessions/{session_id}/tts")
 async def post_tts(session_id: str, body: SpeechRequest, request: Request, context: AppContext = Depends(get_context)) -> Response:
     session = _find_session(context, session_id)
-    _require_device(request, context, session)
+    require_device(request, context, session)
     session, _ = _apply(context, session, Tick(), _now())
     if session.ended_at is not None and _now() - session.ended_at > timedelta(seconds=SPEECH_AFTER_END_SECONDS):
-        raise HTTPException(status_code=409, detail="終わったセッションの読み上げは受け付けない")
-    _count_call(context.speeches, session_id, SPEECHES_PER_MINUTE)
+        fail(409, "終わったセッションの読み上げは受け付けない")
+    count_call(context.speeches, session_id, SPEECHES_PER_MINUTE, _now())
     if context.voice is None:
-        raise HTTPException(status_code=503, detail="読み上げの声が用意されていない")
+        fail(503, "読み上げの声が用意されていない")
     started = time.monotonic()
     try:
         audio = await context.voice.synthesize(body.text, body.character)
     except VoiceUnavailable as error:
         logger.warning("tts session=%s failed=%s", session.session_id, error)
-        raise HTTPException(status_code=503, detail="読み上げの声を作れなかった") from error
+        fail(503, "読み上げの声を作れなかった")
     logger.info(
         "tts session=%s character=%s chars=%s latency_ms=%s",
         session.session_id,
@@ -826,7 +551,7 @@ async def post_advance(
     session_id: str, request: Request, context: AppContext = Depends(get_context)
 ) -> dict:
     session = _find_session(context, session_id)
-    _require_device(request, context, session)
+    require_device(request, context, session)
     session, _ = _apply(context, session, Advance(), _now())
     context.store.save()
     return {"current_problem_no": session.current_problem_no, "state": session.state}
@@ -835,21 +560,21 @@ async def post_advance(
 @router.post("/sessions/{session_id}/end")
 async def post_end(session_id: str, request: Request, context: AppContext = Depends(get_context)) -> dict:
     session = _find_session(context, session_id)
-    _require_device_or_operator(request, context, session)
+    require_device_or_operator(request, context, session)
     session, _ = _apply(context, session, End(), _now())
     context.store.save()
-    return {"state": session.state, "ended_at": _iso(session.ended_at)}
+    return {"state": session.state, "ended_at": iso(session.ended_at)}
 
 
 @router.post("/demo/reset")
 async def demo_reset(request: Request, context: AppContext = Depends(get_context)) -> dict:
-    _require_operator(request, context)
+    require_operator(request, context)
     if not context.demo_mode:
-        _fail(404, "DEMO_MODE が 1 でない")
+        fail(404, "DEMO_MODE が 1 でない")
     removed = context.store.clear()
     context.frames.clear()
     for session_id in list(context.prefetches):
-        _discard_prefetch(context, session_id)
+        discard_prefetch(context, session_id)
     context.store.save()
     return {"ok": True, "removed_sessions": removed}
 

@@ -113,7 +113,7 @@ AI には同じ呼び出しで問題を解かせておき、ヒント文にそ�
 #### ハッカソンで開発した独自機能・技術
 
 - 静止の判定と状態機械：[`web/lib/motion.ts`](web/lib/motion.ts)、[`api/app/state.py`](api/app/state.py)。[0ea77b6](https://github.com/jphacks/os_2601/commit/0ea77b6)（明るさの補正と抜ける境目）、[def378d](https://github.com/jphacks/os_2601/commit/def378d)
-- 詰まりの 3 秒前の先読み：[`api/app/routes.py`](api/app/routes.py)、[`web/lib/loop.ts`](web/lib/loop.ts)。[44b8abb](https://github.com/jphacks/os_2601/commit/44b8abb)
+- 詰まりの 3 秒前の先読み：[`api/app/prefetch.py`](api/app/prefetch.py)、[`web/lib/loop.ts`](web/lib/loop.ts)。[44b8abb](https://github.com/jphacks/os_2601/commit/44b8abb)
 - 答え漏れの検査と読み上げの正規化：[`api/app/leak.py`](api/app/leak.py)、[`api/app/reading.py`](api/app/reading.py)、[`api/app/hints.py`](api/app/hints.py)。[f4ad5d3](https://github.com/jphacks/os_2601/commit/f4ad5d3)（初見の問題に 1 回目から AI のヒント）、[26d1eae](https://github.com/jphacks/os_2601/commit/26d1eae)（最初の誤りか次の一歩を示す）、[d0a5333](https://github.com/jphacks/os_2601/commit/d0a5333)（精度の穴 6 つ）
 - 声の問いへの答え：[`api/app/hints.py`](api/app/hints.py) の `compose_answer`、[`web/lib/voice.ts`](web/lib/voice.ts)。[acc5d6b](https://github.com/jphacks/os_2601/commit/acc5d6b)
 - 問題文の読み取り（はじめた 3 秒後）：[41c9436](https://github.com/jphacks/os_2601/commit/41c9436)

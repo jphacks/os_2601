@@ -3,6 +3,9 @@ import { ProblemRecord } from "./ProblemRecord";
 import { StuckPointBars } from "./StuckPointBars";
 
 export function SessionRecord({ session }: { session: SessionDetail }) {
+  const recorded = session.problems.filter(
+    (problem) => problem.stuck_count > 0 || problem.hints.length > 0 || problem.check !== null || problem.status === "skipped",
+  );
   return (
     <div className="flex flex-col gap-6">
       <dl className="grid grid-cols-3 gap-3 text-center">
@@ -25,11 +28,10 @@ export function SessionRecord({ session }: { session: SessionDetail }) {
       </section>
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-bold">問題ごと</h2>
-        {session.problems
-          .filter((problem) => problem.status !== "pending")
-          .map((problem) => (
-            <ProblemRecord key={problem.problem_no} problem={problem} />
-          ))}
+        {recorded.length === 0 && <p className="text-gray-500">まだありません</p>}
+        {recorded.map((problem) => (
+          <ProblemRecord key={problem.problem_no} problem={problem} />
+        ))}
       </section>
     </div>
   );

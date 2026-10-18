@@ -10,6 +10,8 @@ import { primeListening, stopListening, voiceStatus } from "@/lib/voice";
 import { Buttons } from "./_components/Buttons";
 import { Caption, HeardBubble } from "./_components/Caption";
 import { Character } from "./_components/Character";
+import { CharacterPicker } from "./_components/CharacterPicker";
+import { DEFAULT_CHARACTER, type CharacterId } from "./_components/characters";
 import { Header } from "./_components/Header";
 import { RecordSheet } from "./_components/RecordSheet";
 import { nearestChoice, SecondsPicker } from "./_components/SecondsPicker";
@@ -51,6 +53,7 @@ function Device() {
   const [problemText, setProblemText] = useState<string | null>(null);
   const [caption, setCaption] = useState(FIXED_CAPTIONS.created ?? "");
   const [stuckSeconds, setStuckSeconds] = useState<number | null>(null);
+  const [characterId, setCharacterId] = useState<CharacterId>(DEFAULT_CHARACTER);
   const [busy, setBusy] = useState(false);
   const [brightness, setBrightness] = useState<number | null>(null);
   const [stillSeconds, setStillSeconds] = useState(0);
@@ -246,7 +249,7 @@ function Device() {
         </div>
         {/* 真ん中：キャラクターを左下に大きく、吹き出しを右に重ねる（Tolan の会話画面の並び） */}
         <div className="relative flex min-h-80 flex-1 items-end">
-          <Character state={state} className="absolute bottom-0 -left-4 h-[95%] max-h-[28rem] w-auto" />
+          <Character state={state} id={characterId} className="absolute bottom-0 -left-4 h-[95%] max-h-[28rem] w-auto" />
           <div className="relative ml-[38%] flex w-[62%] flex-col gap-3 self-center">
             {heard && <HeardBubble text={heard.text} />}
             <Caption text={caption} />
@@ -254,6 +257,7 @@ function Device() {
         </div>
         {/* 下：入力欄の位置にボタン */}
         <div className="relative flex flex-col gap-3 rounded-[2rem] bg-white/70 p-3 shadow-lg backdrop-blur">
+          {state === "created" && <CharacterPicker value={characterId} onChange={setCharacterId} />}
           {state === "created" && selectedSeconds !== null && (
             <SecondsPicker value={selectedSeconds} onChange={setStuckSeconds} />
           )}

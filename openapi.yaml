@@ -441,7 +441,7 @@ paths:
       operationId: synthesizeSpeech
       summary: 読み上げの文を VOICEVOX の声にする
       description: |
-        デバイスが読み上げるたびに呼ぶ（ADR 0035）。api が VOICEVOX のエンジン（環境変数 `VOICEVOX_URL`）で、`/device` で選んだキャラの声（handsome は青山龍星、teacher は冥鳴ひまり）の wav を作って返す。
+        デバイスが読み上げるたびに呼ぶ（ADR 0035）。api が VOICEVOX のエンジン（環境変数 `VOICEVOX_URL`）で、`/device` で選んだキャラの声（handsome は青山龍星のしっとり、teacher は冥鳴ひまり）の wav を作って返す。
         エンジンが無い・失敗したときは 503 で、デバイスはブラウザの音声合成で読む。状態は変えない。
       security:
         - device: []

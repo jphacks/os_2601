@@ -2,6 +2,8 @@ import re
 import unicodedata
 from fractions import Fraction
 
+from app.numerals import kanji_number
+
 MIN_LEAK_CHARS = 3
 MIN_ANSWER_VALUE_CHARS = 2
 MAX_DECIMAL_DIGITS = 6
@@ -15,29 +17,18 @@ SHORT_ANSWER_PHRASES = (
     r"(?<![\d.a-z])[xy](は|が){v}" + ENDS_A_CLAIM,
 )
 NUMBER = re.compile(r"-?[\d./]+")
-KANJI_DIGITS = {"〇": 0, "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+STANDALONE_KANJI_NUMBER = re.compile(
+    r"(?<![\u4e00-\u9fff々〆ーァ-ヶ])[〇一二三四五六七八九十]+(?=$|です|でしょ|だ|かな|に|が|は|を|と|[、。,.!！?？])"
+)
 KANJI_NUMBER = r"[\d〇一二三四五六七八九十]+"
 READINGS = {"=": "イコール", "*": "かける", "÷": "わる", "-": "マイナス", "+": "プラス", "x": "エックス"}
 SPOKEN_SYMBOLS = {reading: symbol for symbol, reading in READINGS.items()}
 
 
-def _digit(char: str) -> int:
-    return int(char) if char.isdigit() else KANJI_DIGITS[char]
-
-
-def _kanji_number(word: str) -> str:
-    if "十" not in word:
-        return "".join(str(_digit(char)) for char in word)
-    tens, ones = word.split("十", 1)
-    if len(tens) > 1 or len(ones) > 1 or "十" in ones:
-        return word
-    return str((_digit(tens) if tens else 1) * 10 + (_digit(ones) if ones else 0))
-
-
 def _fraction_words(text: str) -> str:
     return re.sub(
         rf"({KANJI_NUMBER})分の({KANJI_NUMBER})",
-        lambda match: f"{_kanji_number(match.group(2))}/{_kanji_number(match.group(1))}",
+        lambda match: f"{kanji_number(match.group(2))}/{kanji_number(match.group(1))}",
         text,
     )
 
@@ -62,6 +53,7 @@ def normalize(text: str) -> str:
     text = unicodedata.normalize("NFKC", text).replace("⁄", "/")
     text = re.sub(r"\s+", "", text)
     text = _fraction_words(text)
+    text = re.sub(STANDALONE_KANJI_NUMBER, lambda match: kanji_number(match.group(0)), text)
     for spoken, symbol in SPOKEN_SYMBOLS.items():
         text = text.replace(spoken, symbol)
     text = re.sub(r"の(\d)乗", r"^\1", text)
@@ -96,6 +88,12 @@ def _mentions(normalized: str, string: str) -> bool:
     if NUMBER.fullmatch(string):
         return re.search(rf"(?<![\d./]){re.escape(string)}(?![\d./a-z])", normalized) is not None
     return string in normalized
+
+
+def states_an_answer(text: str) -> bool:
+    normalized = normalize(text)
+    claims = [phrase for phrase in SHORT_ANSWER_PHRASES if not phrase.startswith(r"(?<![\d.])=")]
+    return any(re.search(phrase.format(v=r"(?<![+\-*/=])-?\d[\d./]*"), normalized) for phrase in claims)
 
 
 def contains_leak(text: str, strings: list[str]) -> bool:

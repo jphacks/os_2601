@@ -165,6 +165,7 @@ export type ErrorCode =
   | "FRAME_TOO_LARGE"
   | "VALIDATION_ERROR"
   | "RATE_LIMITED"
+  | "INTERNAL"
   | "HINT_UNAVAILABLE";
 
 export type ApiErrorBody = { error: { code: ErrorCode; message: string } };

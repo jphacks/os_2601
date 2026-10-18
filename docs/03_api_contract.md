@@ -10,7 +10,7 @@ Hack Day 版はヒント 2 段階（どちらも AI が答案を見て作る。A
 - **10/18 の変更（ADR 0040）**：`source` と `/healthz` の `gpt` を `ai` に改名。使っていない `GET /worksheets*` と、`signals` の `ts`・`advance` の `reason` を消した。
 - ベース URL：`NEXT_PUBLIC_API_BASE`（例 `https://tonari-api.up.railway.app`）。
 - 認可（02 参照）：デバイス `Authorization: Bearer <session_token>`、オペレータ `X-Operator-Key: <OPERATOR_KEY>`、公開はヘッダなし。
-- エラー形式：`{"error": {"code": "STATE_CONFLICT", "message": "..."}}`。使う HTTP ステータス：400 / 401 / 403 / 404 / 409（状態競合）/ 413（フレームが大きい）/ 422（検証）/ 429（回数の上限）/ 503（読み上げの声を作れない）。
+- エラー形式：`{"error": {"code": "STATE_CONFLICT", "message": "..."}}`。使う HTTP ステータス：400 / 401 / 403 / 404 / 409（状態競合）/ 413（フレームが大きい）/ 422（検証）/ 429（回数の上限）/ 500（想定外の失敗。コードは `INTERNAL`）/ 503（読み上げの声を作れない）。
 - 時刻は ISO 8601（UTC、`Z` 付き）。ID は推測できない乱数（`ses_`・`tok_`・`frm_`・`hnt_`・`chk_` の接頭辞）。
 - **正答・`leak_strings`・典型ミスの一覧・固定ヒントの表（問題ごと・段階ごとの一覧）は、どのエンドポイントからも返さない。** 出したヒント文はその都度 `display` で返る（それは学習者が聞いた文なので隠さない）。
 - `speech` は読み上げ用（AI には 35 文字以内で書かせる。記号は言葉に）、`display` は字幕用（50 文字以内。数式は半角）。文が壊れるので切らず、60 文字・80 文字を超えたら固定の問い返しにする（ADR 0029）。フロントは文章を組み立てず、値をそのまま出す。
@@ -22,11 +22,11 @@ Hack Day 版はヒント 2 段階（どちらも AI が答案を見て作る。A
 | メソッド | パス | 認可 | 役割 |
 |---|---|---|---|
 | POST | `/sessions` | operator | セッション作成。`session_token` を返す |
-| POST | `/sessions/open` | 公開 | 誰でもセッションを作る（IP ごとに 1 分 3 件・全体で 1 分 30 件、429 `RATE_LIMITED`。30 分で自動終了。10/18、ADR 0036） |
+| POST | `/sessions/open` | 公開 | 誰でもセッションを作る（IP ごとに 1 分 10 件・全体で 1 分 30 件、429 `RATE_LIMITED`。30 分で自動終了。10/18、ADR 0036） |
 | GET | `/sessions` | operator | セッション一覧（`/ops`・`/log`） |
 | GET | `/sessions/{id}` | operator・device | セッションの要約と問題ごとの経過 |
 | PATCH | `/sessions/{id}/settings` | device | 学習者が「止まったと判定する秒数」を選ぶ（10 秒・20 秒・30 秒・1 分・3 分・5 分・10 分・20 分） |
-| POST | `/sessions/{id}/signals` | device（`force_stuck` のときは operator も可） | 1 秒ごとの動きスコア。応答で状態を受け取る |
+| POST | `/sessions/{id}/signals` | device（`force_stuck` は operator だけ） | 1 秒ごとの動きスコア。応答で状態を受け取る |
 | POST | `/sessions/{id}/frames` | device | フレーム 1 枚（JPEG） |
 | POST | `/sessions/{id}/hints` | device | ヒント要求（`auto` はサーバの指示で、`manual` はボタンで） |
 | POST | `/sessions/{id}/check` | device | 「できた」。正誤チェック |
@@ -96,7 +96,7 @@ Hack Day 版はヒント 2 段階（どちらも AI が答案を見て作る。A
 
 → `{"settings": {"stuck_seconds": 60, "cooldown_seconds": 60, "max_level": 2}, "state": "created"}`。
 
-- `stuck_seconds`（5〜1200）と `cooldown_seconds`（0〜300）のどちらか、または両方。`created`・`watching`・`still`・`cooldown` で受理し、それ以外は 409。`/device` は「はじめる」の前に学習者が選んだ値を送る（既定は作成時の値）。進行中に変えても次の静止から効く。
+- `stuck_seconds`（5〜1200）、`cooldown_seconds`（0〜300）、`persona`（`teacher`・`ikemen`）のどれか 1 つ以上。`created`・`watching`・`still`・`cooldown` で受理し、それ以外は 409。`/device` は「はじめる」の前に学習者が選んだ値を送る（既定は作成時の値）。進行中に変えても次の静止から効く。
 
 ### GET /sessions（operator）
 
@@ -124,7 +124,7 @@ Hack Day 版はヒント 2 段階（どちらも AI が答案を見て作る。A
 ```
 
 - `motion` は 0〜1（04）。ウォームアップ中（最初の 3 秒）は `motion` を省略する。`camera_ok: false` または `motion` 省略のときは「信号が来ていない」のと同じ扱い（`still` なら `watching` に戻し `still_seconds` を 0 に）。
-- 省略可の `force_stuck: true` を付けると `motion` を無視して `stuck` に入る（`/ops` の強制 stuck ボタン）。受理するのは `watching`・`still`・`cooldown` だけで、`stuck` なら何もせず 200、それ以外は 409。**このときだけ `X-Operator-Key` でも認可する**（`/ops` はセッショントークンを持たないため。`openapi.yaml` の `security` に両方を書く）。`motion` と `camera_ok` は省略可。
+- 省略可の `force_stuck: true` を付けると `motion` を無視して `stuck` に入る（`/ops` の強制 stuck ボタン）。受理するのは `watching`・`still`・`cooldown` だけで、`stuck` なら何もせず 200、それ以外は 409。**このときは `X-Operator-Key` だけで認可する**（`/ops` はセッショントークンを持たない。学習者のトークンで送れると、自動ヒントを回数の上限の外で何本も呼べたので 10/19 に運営だけにした。ADR 0039 の追記）。`motion` と `camera_ok` は省略可。
 - `still_seconds` は `still` のときだけ正、他は 0。`cooldown_remaining` は `cooldown` のときだけ正、他は 0。
 - `next_action` は `null` | `"send_frame_and_request_hint"` | `"send_frame"`。**`stuck` の間の応答すべてに `"send_frame_and_request_hint"` が付く。** デバイス（`web/lib/loop.ts`）は、直ちにフレーム 1 枚を `frames` に送ってから `hints` を `trigger: "auto"` で呼ぶ。**一度 `auto` が成功したら、`signals` の応答で `state` が `stuck` 以外になるのを見るまで再要求しない**（失敗したときだけ次の秒に再試行）。これで二重要求が出ない。サーバのタイマーで AI を呼ぶ作りにはしない（デバイスの最新フレームが要るため）。
 - **静止がひと続きの間に 1 回だけ、`still_seconds` が `stuck_seconds − prefetch_lead_seconds`（3 秒）に達した応答に `"send_frame"` が付く**（`live` のセッションだけ。10/17 に追加、ADR 0028）。デバイスはフレームを送り、その `frame_id` を覚えておく。サーバはそのフレームで次の自動ヒントを裏で作り始め、静止が途切れたら（`still`・`stuck` 以外になったら）取り消す。stuck になったら、デバイスは撮り直さずに覚えた `frame_id` で `hints`（auto）を呼び、サーバは作っておいたヒントを（まだならできるまで待って）返す。AI の時間とフレームの送信が stuck の前に済むので、詰まったと判定した瞬間とほぼ同時にヒントが届く（声は合成の 1〜2 秒後）。
@@ -198,7 +198,7 @@ Hack Day 版はヒント 2 段階（どちらも AI が答案を見て作る。A
 
 ### POST /sessions/{id}/problem（device）
 
-`{"frame_id": "frm_…"}` → `{"problem_no": 1, "problem_text": "2x - 7 = 4x + 3", "state": "watching"}`。「はじめる」の 3 秒後と、問題が変わった 1 秒後に `web/lib/loop.ts` が呼ぶ（ADR 0034）。AI に問題文だけを読ませ（答案は解かない）、`problems[].problem_text` に入れる。読めなければ今の値のまま（まだなら `null`）。状態は変えない。`ended` では 409。
+`{"frame_id": "frm_…"}` → `{"problem_no": 1, "problem_text": "2x - 7 = 4x + 3", "state": "watching"}`。「はじめる」の 3 秒後と、問題が変わった 1 秒後に `web/lib/loop.ts` が呼ぶ（ADR 0034）。AI に問題文だけを読ませ（答案は解かない）、`problems[].problem_text` に入れる。読めなければ今の値のまま（まだなら `null`）。状態は時刻を進めるだけ（自動の終了時刻を過ぎていれば `ended` にして 409）。
 
 ### POST /sessions/{id}/advance（device）
 
@@ -262,8 +262,9 @@ Hack Day 版はヒント 2 段階（どちらも AI が答案を見て作る。A
 
 ## 回数の上限（ADR 0039）
 
-- 実際に AI を呼ぶときだけ数える：ボタンのヒント、声の質問（固定の返事と scripted は数えない）、問題文の読み取り。セッションごとに 1 分 20 回。`tts` は 1 分 40 回。超えたら 429 `RATE_LIMITED`
-- 自動ヒントと「できた」は数えない（状態と鍵で 1 本ずつにしかならないため）
+- 実際に AI を呼ぶとき（写真と鍵があるとき）だけ数える：ボタンのヒント、声の質問（固定の返事と scripted は数えない）、問題文の読み取り、「できた」。セッションごとに 1 分 20 回。`tts` は 1 分 40 回。超えたら 429 `RATE_LIMITED`
+- 先読みと自動ヒントは別の枠で 1 分 12 回。超えたら 429 にせず、先読みはしない、自動ヒントは AI を呼ばず固定の問い返し（10/19 の追記）
+- `force_stuck` は運営の鍵だけ
 - 問題文の読み取り（同じ問題で）と声の質問は、同じセッションで同時に 1 本。2 本目は 429
 - `frames` は `Content-Length` が上限を大きく超えるとき、本文を読まずに 413（無いときはルートで 600KB を見る）
-- 自動で作ったセッションは 30 分で終わり、終わって 2 時間で記録から消える
+- 自動で作ったセッションは 30 分で終わり、終わって 2 時間で記録から消える（次に誰かが作ったとき）。写真と先読みは、終わった時点で次の作成のときに消える

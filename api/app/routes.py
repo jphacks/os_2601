@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
 
-from app.auth import require_device, require_device_or_operator, require_operator
+from app.auth import require_device, require_device_or_operator, require_operator, require_operator_only
 from app.check import CORRECT_TEXT, Judgement, judge
 from app.composer import answer, compose
 from app.context import AppContext, get_context
@@ -23,7 +23,16 @@ from app.hints import (
     read_problem,
 )
 from app.leak import same_problem
-from app.limits import AI_CALLS_PER_MINUTE, MAX_FRAME_BYTES, SPEECHES_PER_MINUTE, allow_open, client_ip, count_call, one_at_a_time
+from app.limits import (
+    MAX_FRAME_BYTES,
+    SPEECHES_PER_MINUTE,
+    allow_background_call,
+    allow_open,
+    client_ip,
+    count_ai_call,
+    count_call,
+    one_at_a_time,
+)
 from app.personas import persona_options
 from app.prefetch import discard_prefetch, settle_prefetch, start_prefetch, take_prefetch
 from app.schemas import CheckRequest, HintRequest, ProblemRequest, SessionCreateRequest, SettingsPatch, SignalRequest, SpeechRequest
@@ -99,11 +108,16 @@ def _find_session(context: AppContext, session_id: str) -> Session:
 
 def _forget_old_open_sessions(context: AppContext, now: datetime) -> None:
     for session in context.store.all():
-        if session.auto_end_at is not None and now - session.auto_end_at > OPEN_SESSION_KEPT_FOR:
+        if session.auto_end_at is None:
+            continue
+        finished_at = session.ended_at or session.auto_end_at
+        if now - finished_at > OPEN_SESSION_KEPT_FOR:
             context.store.remove(session.session_id)
+        if session.ended_at is not None or now >= session.auto_end_at:
+            context.frames.pop(session.session_id, None)
             discard_prefetch(context, session.session_id)
     alive = {session.session_id for session in context.store.all()}
-    for calls in (context.frames, context.ai_calls, context.speeches):
+    for calls in (context.frames, context.ai_calls, context.background_calls, context.speeches):
         for session_id in [session_id for session_id in calls if session_id not in alive]:
             del calls[session_id]
 
@@ -240,13 +254,15 @@ async def post_signal(
 ) -> dict:
     session = _find_session(context, session_id)
     if body.force_stuck:
-        require_device_or_operator(request, context, session)
+        require_operator_only(request, context, session)
     else:
         require_device(request, context, session)
     now = _now()
+    before = session.state
     event = Signal(motion=body.motion, camera_ok=bool(body.camera_ok), force_stuck=body.force_stuck)
     session, result = _apply(context, session, event, now)
-    logger.info(
+    logger.log(
+        logging.INFO if session.state != before else logging.DEBUG,
         "signal session=%s motion=%s camera_ok=%s force_stuck=%s state=%s",
         session.session_id,
         body.motion,
@@ -277,7 +293,7 @@ async def post_frame(
         fail(409, "終了したセッションにはフレームを送れない")
     frame_id = _new_id("frm")
     context.frames[session.session_id] = (frame_id, data)
-    start_prefetch(context, session, data)
+    start_prefetch(context, session, data, now)
     return {"frame_id": frame_id, "received_at": iso(now), "bytes": len(data)}
 
 
@@ -366,9 +382,10 @@ async def _answer_utterance(context: AppContext, session: Session, utterance: st
             requested_at=now,
             prefetched=False,
         )
-    count_call(context.ai_calls, session.session_id, AI_CALLS_PER_MINUTE, now)
+    frame = _latest_frame(context, session.session_id)
+    count_ai_call(context, session.session_id, frame, now)
     try:
-        composed = await answer(context, problem, _latest_frame(context, session.session_id), utterance, session.settings.persona)
+        composed = await answer(context, problem, frame, utterance, session.settings.persona)
     except AIUnavailable:
         logger.warning("answer session=%s ai_unavailable=True", session.session_id)
         composed = answer_fallback(problem.leak_strings, session.settings.persona) if asks_for_help(utterance) else None
@@ -414,9 +431,12 @@ async def request_hint(
         elif composing:
             composed = await composing
         else:
+            frame = _latest_frame(context, session_id)
             if body.trigger != "auto":
-                count_call(context.ai_calls, session_id, AI_CALLS_PER_MINUTE, now)
-            composed = await compose(context, problem, accepted.level, _latest_frame(context, session_id), session.settings.persona)
+                count_ai_call(context, session_id, frame, now)
+            elif not allow_background_call(context, session_id, frame, now):
+                frame = None
+            composed = await compose(context, problem, accepted.level, frame, session.settings.persona)
     except Exception:
         _abandon_hint(context, session_id, accepted.ticket)
         raise
@@ -445,13 +465,18 @@ async def post_check(
     session = _find_session(context, session_id)
     require_device(request, context, session)
     now = _now()
+    if isinstance(step(session, CheckRequested(), now, context.thresholds)[1], Rejected):
+        _apply(context, session, CheckRequested(), now)
+    frame = _latest_frame(context, session_id)
+    if session.mode != "scripted":
+        count_ai_call(context, session_id, frame, now)
     session, _ = _apply(context, session, CheckRequested(), now)
     checked_no = session.current_problem_no
     problem = session.current_problem
     if session.mode == "scripted":
         judgement = Judgement("correct", CORRECT_TEXT)
     else:
-        judgement = await judge(context.ai, context.check_model, _latest_frame(context, session_id), problem.problem_text)
+        judgement = await judge(context.ai, context.check_model, frame, problem.problem_text)
     session, _ = _apply(
         context, _find_session(context, session_id), CheckDone(judgement.verdict, len(judgement.speech)), _now()
     )
@@ -489,10 +514,9 @@ async def post_problem(
     problem_no = session.current_problem_no
     started = time.monotonic()
     with one_at_a_time(context, session_id, f"problem-{problem_no}"):
-        count_call(context.ai_calls, session_id, AI_CALLS_PER_MINUTE, now)
-        problem_text = await read_problem(
-            context.ai, context.hint_model, _latest_frame(context, session_id), session.current_problem.problem_text
-        )
+        frame = _latest_frame(context, session_id)
+        count_ai_call(context, session_id, frame, now)
+        problem_text = await read_problem(context.ai, context.hint_model, frame, session.current_problem.problem_text)
     session = _find_session(context, session_id)
     problem = session.problems[problem_no - 1]
     if problem_text and session.current_problem_no == problem_no and problem_text != problem.problem_text:

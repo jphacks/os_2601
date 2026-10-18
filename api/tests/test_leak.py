@@ -73,6 +73,9 @@ def test_contains_leak_matches_after_normalization() -> None:
         ("2行目の - エックス を見て", "2行目の マイナス エックス を見て"),
         ("6 ÷ 3", "6 わる 3"),
         ("ニ行目の４", "2行目の4"),
+        ("十行目の x", "10行目の エックス"),
+        ("十一行目", "11行目"),
+        ("二十行目", "20行目"),
         ("3 × 4 を計算して", "3 かける 4 を計算して"),
         ("エックスの係数", "エックスの係数"),
         ("box を見て", "box を見て"),
@@ -105,3 +108,14 @@ def test_fractions_are_spelled_the_same_way() -> None:
 
 def test_squares_are_read_aloud() -> None:
     assert to_reading("x² = 4") == "エックスの2乗 イコール 4"
+
+
+def test_an_answer_said_in_kanji_is_still_caught() -> None:
+    assert contains_leak("答えは十二だよ", leak_strings("x = 12", []))
+    assert contains_leak("x は五だよ", leak_strings("x = 5", []))
+
+
+@pytest.mark.parametrize("text", ["答えを一度代入して確かめてみて", "十の位を見てみて", "十分だよ", "唯一です", "コーナー一つ"])
+def test_kanji_inside_words_is_not_read_as_a_number(text: str) -> None:
+    assert not contains_leak(text, leak_strings("x = 1", [])) and not contains_leak(text, leak_strings("x = -1", []))
+    assert not contains_leak(text, leak_strings("x = 10", []))

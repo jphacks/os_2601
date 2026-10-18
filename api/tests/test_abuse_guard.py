@@ -5,6 +5,7 @@ from pathlib import Path
 import httpx
 import pytest
 from conftest import Device
+from fastapi.testclient import TestClient
 
 from app import limits, main, routes
 from app.leak import leak_strings, normalize
@@ -144,3 +145,76 @@ def test_the_large_frame_refusal_carries_cors_headers(device: Device) -> None:
         headers={"content-length": str(10 * 1024 * 1024), "content-type": "multipart/form-data; boundary=b", "origin": "https://tonari-nine.vercel.app"},
     )
     assert (response.status_code, response.headers.get("access-control-allow-origin")) == (413, "https://tonari-nine.vercel.app")
+
+
+def test_the_learner_token_cannot_force_stuck(device: Device) -> None:
+    body = {"force_stuck": True}
+    response = device.client.post(f"/sessions/{device.session_id}/signals", json=body, headers=device.headers)
+    assert response.status_code == 403
+
+
+def test_reading_without_a_frame_does_not_use_the_ai_budget(device: Device) -> None:
+    device.signal(0, 0.05)
+    device.client.post(f"/sessions/{device.session_id}/problem", json={"frame_id": "frm_x"}, headers=device.headers)
+    assert device.client.app.state.context.ai_calls.get(device.session_id, []) == []
+
+
+def test_frames_of_finished_open_sessions_are_dropped_at_the_next_open(device: Device) -> None:
+    session_id, headers = opened(device)
+    files = {"frame": ("frame.jpg", b"\xff\xd8jpeg", "image/jpeg")}
+    device.client.post(f"/sessions/{session_id}/frames", files=files, headers=headers)
+    device.client.post(f"/sessions/{session_id}/end", headers=headers)
+    device.client.app.state.context.frames[session_id] = ("frm_left", b"jpeg")
+    device.client.post("/sessions/open", headers={"x-forwarded-for": "203.0.113.8"})
+    assert session_id not in device.client.app.state.context.frames
+
+
+def test_an_unexpected_error_comes_back_in_the_error_shape(device: Device, monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken(*_: object) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(routes, "still_seconds", broken)
+    client = TestClient(device.client.app, raise_server_exceptions=False)
+    headers = {**device.headers, "origin": "https://tonari-nine.vercel.app"}
+    response = client.post(f"/sessions/{device.session_id}/signals", json={"motion": 0.05, "camera_ok": True}, headers=headers)
+    assert (response.status_code, response.json()["error"]["code"]) == (500, "INTERNAL")
+    assert response.headers.get("access-control-allow-origin") == "https://tonari-nine.vercel.app"
+
+
+def test_an_auto_hint_over_the_background_budget_uses_the_fixed_question(device: Device, ai: SlowAI) -> None:
+    context = device.client.app.state.context
+    context.background_calls[device.session_id] = [device.now] * limits.BACKGROUND_CALLS_PER_MINUTE
+    device.signal(0, 0.05)
+    frame_id = device.frame()
+    device.force_stuck(1)
+    hint = device.hint(frame_id)
+    assert (hint["source"], ai.calls) == ("fallback", 0)
+
+
+def test_check_counts_toward_the_ai_budget(device: Device) -> None:
+    device.signal(0, 0.05)
+    frame_id = device.frame()
+    device.client.post(f"/sessions/{device.session_id}/check", json={"frame_id": frame_id}, headers=device.headers)
+    assert len(device.client.app.state.context.ai_calls[device.session_id]) == 1
+
+
+def test_a_rejected_check_does_not_use_the_ai_budget(device: Device) -> None:
+    response = device.client.post(f"/sessions/{device.session_id}/check", json={"frame_id": "frm_x"}, headers=device.headers)
+    assert (response.status_code, device.client.app.state.context.ai_calls.get(device.session_id, [])) == (409, [])
+
+
+def test_an_auto_hint_without_a_frame_does_not_use_the_background_budget(device: Device) -> None:
+    device.signal(0, 0.05)
+    device.force_stuck(1)
+    device.client.post(f"/sessions/{device.session_id}/hints", json={"trigger": "auto", "frame_id": "frm_x"}, headers=device.headers)
+    assert device.client.app.state.context.background_calls.get(device.session_id, []) == []
+
+
+def test_a_check_after_the_open_session_expired_ends_it_and_drops_the_frame(device: Device) -> None:
+    session_id, headers = opened(device)
+    files = {"frame": ("frame.jpg", b"\xff\xd8jpeg", "image/jpeg")}
+    device.client.post(f"/sessions/{session_id}/frames", files=files, headers=headers)
+    device.now += timedelta(minutes=31)
+    response = device.client.post(f"/sessions/{session_id}/check", json={"frame_id": "frm_x"}, headers=headers)
+    context = device.client.app.state.context
+    assert (response.status_code, context.store.get(session_id).state, session_id in context.frames) == (409, "ended", False)

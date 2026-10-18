@@ -5,6 +5,7 @@ from collections.abc import Callable
 import pytest
 from conftest import Device
 
+from app import limits
 from app.personas import get_persona
 
 MOVING = 0.05
@@ -121,3 +122,19 @@ def test_switching_persona_discards_the_old_prefetch_and_uses_the_new_style(devi
     assert ai.started == 2
     assert get_persona("ikemen").style_instruction in ai.systems[-1]
     assert get_persona("teacher").style_instruction not in ai.systems[-1]
+
+
+def test_prefetching_counts_toward_the_background_budget(device: Device, ai: SlowAI) -> None:
+    stay_still_until_frame_is_requested(device)
+    device.frame()
+    wait_until(lambda: ai.started == 1)
+    context = device.client.app.state.context
+    assert (len(context.background_calls[device.session_id]), context.ai_calls.get(device.session_id, [])) == (1, [])
+
+
+def test_no_prefetch_once_the_background_budget_is_used_up(device: Device, ai: SlowAI) -> None:
+    context = device.client.app.state.context
+    context.background_calls[device.session_id] = [device.now] * limits.BACKGROUND_CALLS_PER_MINUTE
+    stay_still_until_frame_is_requested(device)
+    device.frame()
+    assert device.session_id not in context.prefetches

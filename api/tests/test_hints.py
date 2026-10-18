@@ -14,6 +14,7 @@ from app.hints import (
     SPEECH_MAX_CHARS,
     UNREADABLE_ANSWER,
     UNREADABLE_HINT,
+    asks_if_correct,
     compose_answer,
     compose_hint,
 )
@@ -300,3 +301,81 @@ def test_voice_answer_uses_the_same_style_and_preserves_gemini_display(persona: 
 def test_unknown_persona_is_rejected_before_a_missing_frame_fallback() -> None:
     with pytest.raises(ValueError):
         compose(None, persona="friend")
+
+
+def test_a_hint_without_the_ai_s_own_answer_falls_back_because_it_cannot_be_checked() -> None:
+    reply = {**ai_hint("エックスは2だよ"), "final_answer": "", "key_values": []}
+    hint = compose(FakeAI(reply))
+    assert (hint.speech, hint.source) == (FALLBACK_HINTS[1], "fallback")
+
+
+@pytest.mark.parametrize("utterance", ["正解がわからない、教えて", "正しいやり方がわからない"])
+def test_asking_for_help_is_not_taken_as_asking_if_the_answer_is_right(utterance: str) -> None:
+    assert not asks_if_correct(utterance)
+
+
+def test_asking_if_the_answer_is_right_is_still_recognized() -> None:
+    assert asks_if_correct("これで合ってる？")
+
+
+def test_a_hint_without_any_problem_text_or_answer_still_falls_back() -> None:
+    reply = {**ai_hint("エックスは2だよ"), "problem_text": "", "final_answer": "", "key_values": []}
+    assert asyncio.run(compose_hint(FakeAI(reply), MODEL, FRAME, 1, [], None, [], "teacher")).source == "fallback"
+
+
+def test_a_hint_is_kept_when_the_learner_already_wrote_every_value() -> None:
+    reply = {**ai_hint("最後の行を見直してみて"), "written_lines": ["2x - 7 = 4x + 3", "-2x = 10", "x = -5"]}
+    assert compose(FakeAI(reply)).source == "ai"
+
+
+def test_asking_if_unsure_whether_it_is_right_is_still_a_check_question() -> None:
+    assert asks_if_correct("これ合ってるかわからない")
+
+
+def test_a_hint_with_only_intermediate_values_on_a_new_problem_falls_back() -> None:
+    reply = {**ai_hint("エックスはマイナス5だよ"), "final_answer": "", "key_values": ["-2x=10"]}
+    assert asyncio.run(compose_hint(FakeAI(reply), MODEL, FRAME, 1, [], None, [], "teacher")).source == "fallback"
+
+
+def test_a_hint_whose_answer_gives_nothing_to_guard_falls_back() -> None:
+    reply = {**ai_hint("答えはイだよ"), "final_answer": "イ", "key_values": []}
+    assert asyncio.run(compose_hint(FakeAI(reply), MODEL, FRAME, 1, [], None, [], "teacher")).source == "fallback"
+
+
+def test_an_unguarded_voice_answer_that_states_a_value_falls_back() -> None:
+    reply = ai_answer("x は 5 だよ")
+    reply.update(problem_text="", final_answer="", key_values=[])
+    assert answer(FakeAI(reply)).source == "fallback"
+
+
+@pytest.mark.parametrize("utterance", ["これ正しいかわからない", "これ正解？", "合ってるかな"])
+def test_check_questions_in_other_words(utterance: str) -> None:
+    assert asks_if_correct(utterance)
+
+
+@pytest.mark.parametrize("utterance", ["これで正しいですか", "正解ですか？", "これ正解だよね？", "あってますか", "合っていますか", "正解かどうかわからない", "正しいか教えて", "これで正解。"])
+def test_polite_check_questions_are_recognized(utterance: str) -> None:
+    assert asks_if_correct(utterance)
+
+
+@pytest.mark.parametrize("utterance", ["何が正解かわからない", "どうすれば正解か教えて", "話し合っているの？"])
+def test_help_that_mentions_the_right_answer_is_not_a_check_question(utterance: str) -> None:
+    assert not asks_if_correct(utterance)
+
+
+def test_an_unguarded_fallback_keeps_the_earlier_problem_and_guard() -> None:
+    reply = {**ai_hint("見てみて"), "problem_text": "2x-7=4x+5", "final_answer": "", "key_values": []}
+    hint = asyncio.run(compose_hint(FakeAI(reply), MODEL, FRAME, 1, [], "2x - 7 = 4x + 3", ["x=-5"], "teacher"))
+    assert (hint.source, hint.problem_text, hint.leak_strings) == ("fallback", None, ["x=-5"])
+
+
+def test_an_empty_problem_text_does_not_count_as_the_same_problem() -> None:
+    reply = {**ai_hint("エックスは3だよ"), "problem_text": "", "final_answer": "", "key_values": []}
+    hint = asyncio.run(compose_hint(FakeAI(reply), MODEL, FRAME, 1, [], "2x - 7 = 4x + 3", ["x=-5"], "teacher"))
+    assert hint.source == "fallback"
+
+
+def test_an_example_equation_in_an_unguarded_explanation_is_kept() -> None:
+    reply = ai_answer("例えば x+2=5 なら、2 を右辺に移すと x=5-2 になるよ")
+    reply.update(problem_text="", final_answer="", key_values=[])
+    assert answer(FakeAI(reply)).source == "ai"

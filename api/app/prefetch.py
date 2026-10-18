@@ -1,10 +1,12 @@
 import asyncio
 import logging
 import time
+from datetime import datetime
 
 from app.composer import compose
 from app.context import AppContext, Prefetch
 from app.hints import ComposedHint
+from app.limits import allow_background_call
 from app.state import Problem, Session, auto_hint_level
 
 logger = logging.getLogger(__name__)
@@ -35,8 +37,10 @@ def _matches(prefetch: Prefetch, session: Session, stuck_count: int) -> bool:
     )
 
 
-def start_prefetch(context: AppContext, session: Session, frame: bytes) -> None:
+def start_prefetch(context: AppContext, session: Session, frame: bytes, now: datetime) -> None:
     if not _wanted(session) or session.session_id in context.prefetches:
+        return
+    if not allow_background_call(context, session.session_id, frame, now):
         return
     problem = session.current_problem
     stuck_count = problem.stuck_count + 1

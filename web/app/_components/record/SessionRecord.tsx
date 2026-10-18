@@ -26,7 +26,7 @@ export function SessionRecord({ session }: { session: SessionDetail }) {
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-bold">問題ごと</h2>
         {session.problems
-          .filter((problem) => problem.status !== "pending")
+          .filter((problem) => problem.hints.length > 0 || problem.check !== null || problem.status === "skipped")
           .map((problem) => (
             <ProblemRecord key={problem.problem_no} problem={problem} />
           ))}

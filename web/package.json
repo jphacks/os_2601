@@ -7,7 +7,8 @@
     "dev:mock": "cross-env NEXT_PUBLIC_MOCK=1 next dev",
     "build": "next build",
     "start": "next start",
-    "check": "next typegen && eslint . && tsc --noEmit && next build"
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test \"lib/**/*.test.mts\"",
+    "check": "next typegen && eslint . && tsc --noEmit && pnpm test && next build"
   },
   "dependencies": {
     "next": "16.4.2",

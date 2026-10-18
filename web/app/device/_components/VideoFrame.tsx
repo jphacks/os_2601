@@ -14,7 +14,7 @@ export function VideoFrame({ videoRef, dark, debugText }: Props) {
         <video ref={videoRef} className="h-full w-full object-cover" muted playsInline autoPlay />
       </div>
       {dark && (
-        <p className="rounded-full bg-slate-900/70 px-2 py-0.5 text-center text-[10px] font-bold text-white">
+        <p className="rounded-lg bg-slate-900/80 px-2 py-0.5 text-center text-sm leading-tight font-bold text-white">
           明るさが足りません
         </p>
       )}

@@ -351,7 +351,7 @@ paths:
         - `speech`・`display` は固定文で同じ文（`correct` は fixed_check_correct、`incorrect` は fixed_check_incorrect、無ければ「正解。その調子」「もう一回、途中の式を見てみて」）。
         - `unreadable` は、GPT が読めないと言ったら「もう少し明るいところで、もう一回見せて」、8 秒で返らない・例外・フレーム無しなら「うまく読めなかった。もう一回、できたを押してみて」。
         - `scripted` は GPT を呼ばず常に `correct`。正答の値は応答に含めない。
-        - 受理は `watching`・`still`・`cooldown`。`created`・`stuck`・`speaking`・`checking`・`ended` では 409。
+        - 受理は `watching`・`still`・`cooldown`・`stuck`（作りかけの自動ヒントは捨てる。ADR 0037）。`created`・`speaking`・`checking`・`ended` では 409。
       security:
         - device: []
       requestBody:
@@ -491,7 +491,7 @@ paths:
       summary: 次の問題へ（スキップ）
       description: |
         前の問題を `skipped` にする（`done` なら変えない）。最後の問題なら `state: ended` で、`current_problem_no` はそのまま。
-        受理は `watching`・`still`・`cooldown`・`speaking`（`speaking` なら読み上げを打ち切って `watching`）。`created`・`stuck`・`checking`・`ended` では 409。
+        受理は `watching`・`still`・`cooldown`・`speaking`・`stuck`（`speaking` なら読み上げを打ち切って `watching`。`stuck` なら作りかけの自動ヒントは捨てる。ADR 0037）。`created`・`checking`・`ended` では 409。
       security:
         - device: []
       requestBody:

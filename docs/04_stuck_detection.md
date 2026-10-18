@@ -62,7 +62,7 @@ stateDiagram-v2
 | `still` | `now − still_since ≥ stuck_seconds` | `stuck` | 応答に `next_action: send_frame_and_request_hint`。`problems.stuck_count += 1` |
 | `created` | 最初の `signals` | `watching` | 「はじめる」が押された合図 |
 | `stuck` | `POST /hints`（auto） | `speaking` | ヒント生成。`speaking_until = now + est`。`auto` は `stuck` 以外では 409 |
-| `stuck` | `motion ≥ τ` | `stuck` のまま | 動きは無視する。`stuck` を抜けるのは `hints` の受理か `signals` の途絶だけ（GPT 呼び出し中に状態が巻き戻る競合をなくす） |
+| `stuck` | `motion ≥ τ` | `stuck` のまま | 動きは無視する。`stuck` を抜けるのは `hints` の受理、`check`・`advance`・`end`、`signals` の途絶（AI 呼び出し中に状態が巻き戻る競合をなくす。ADR 0037） |
 | `stuck` | `signals`（毎回） | `stuck` のまま | 応答に `next_action` を毎回入れる |
 | `watching` `still` `cooldown` | `signals` に `force_stuck: true` | `stuck` | `motion` を無視。`stuck_count += 1`。`stuck` で受けたら何もしない（二重に数えない）。`created` `speaking` `checking` `ended` では 409 |
 | `speaking` / `checking` | `motion` の値 | そのまま | 動きは無視する |
@@ -71,9 +71,9 @@ stateDiagram-v2
 | `cooldown` | `motion < τ` が続く | `cooldown` のまま | 自動ヒントは出さない |
 | `watching` `still` `cooldown` | `POST /hints`（manual / voice） | `speaking` | 段階は「現在の段階」。`created` `stuck` `speaking` `checking` `ended` では 409 |
 | `created` `watching` `still` `cooldown` | `PATCH /settings` | そのまま | `stuck_seconds`・`cooldown_seconds` を差し替える。次の評価から効く |
-| `watching` `still` `cooldown` | `POST /check` | `checking` | 正誤チェック。判定が出たら `speaking`（最後の問題が `correct` なら `ended`） |
+| `watching` `still` `cooldown` `stuck` | `POST /check` | `checking` | 正誤チェック。判定が出たら `speaking`（最後の問題が `correct` なら `ended`）。`stuck` で受けたら作りかけの自動ヒントは捨てる（ADR 0037） |
 | `checking` | 判定が出た | `speaking` | `speaking_until = now + est`。`correct` なら問題を `done` にし `current_problem_no += 1` |
-| `watching` `still` `cooldown` `speaking` | `POST /advance` | `watching` | 前の問題を `skipped`（`done` なら変えない）。最後なら `ended`。`created` `stuck` `checking` `ended` では 409 |
+| `watching` `still` `cooldown` `speaking` `stuck` | `POST /advance` | `watching` | 前の問題を `skipped`（`done` なら変えない）。最後なら `ended`。`stuck` で受けたら作りかけの自動ヒントは捨てる。`created` `checking` `ended` では 409 |
 | `ended` 以外 | `POST /end` | `ended` | フレームを捨てる |
 | `watching` `still` `stuck` | `signals` が 5 秒来ない | `watching` | `still_seconds = 0`。`created`・`speaking`・`checking`・`cooldown` には適用しない |
 | `ended` | 何が来ても | `ended` | `signals` には `{"state": "ended"}` を返す |

@@ -14,7 +14,8 @@ NEXT_ACTION = "send_frame_and_request_hint"
 SEND_FRAME_ACTION = "send_frame"
 HINTABLE_STATES: tuple[State, ...] = ("watching", "still", "cooldown")
 SETTINGS_EDITABLE_STATES: tuple[State, ...] = ("created", "watching", "still", "cooldown")
-ADVANCEABLE_STATES: tuple[State, ...] = ("watching", "still", "cooldown", "speaking")
+CHECKABLE_STATES: tuple[State, ...] = ("watching", "still", "cooldown", "stuck")
+ADVANCEABLE_STATES: tuple[State, ...] = ("watching", "still", "cooldown", "speaking", "stuck")
 TIMEOUT_STATES: tuple[State, ...] = ("watching", "still", "stuck")
 PENDING_SECONDS = 12
 
@@ -136,6 +137,11 @@ class HintIssued:
 
 
 @dataclass(frozen=True)
+class HintAbandoned:
+    pass
+
+
+@dataclass(frozen=True)
 class CheckRequested:
     pass
 
@@ -161,7 +167,7 @@ class Tick:
     pass
 
 
-Event = Signal | ChangeSettings | HintRequested | HintIssued | CheckRequested | CheckDone | Advance | End | Tick
+Event = Signal | ChangeSettings | HintRequested | HintIssued | HintAbandoned | CheckRequested | CheckDone | Advance | End | Tick
 
 
 @dataclass(frozen=True)
@@ -341,6 +347,7 @@ def _on_check_done(session: Session, done: CheckDone, now: datetime, thresholds:
 def _on_advance(session: Session, now: datetime) -> Result:
     if session.state not in ADVANCEABLE_STATES:
         return Rejected()
+    session.pending_until = None
     if session.speaking_after_correct:
         _return_to_watching(session)
         return Accepted()
@@ -378,11 +385,16 @@ def step(session: Session, event: Event, now: datetime, thresholds: Thresholds) 
         case HintRequested():
             return next_session, _on_hint_requested(next_session, event, now)
         case HintIssued(speech_chars=chars):
+            if next_session.pending_until is None or next_session.state == "checking":
+                return next_session, Rejected()
             next_session.pending_until = None
             _enter_speaking(next_session, now, chars, thresholds)
             return next_session, Accepted()
+        case HintAbandoned():
+            next_session.pending_until = None
+            return next_session, Accepted()
         case CheckRequested():
-            if next_session.state not in HINTABLE_STATES or next_session.pending_until is not None:
+            if next_session.state not in CHECKABLE_STATES:
                 return next_session, Rejected()
             next_session.state = "checking"
             next_session.pending_until = now + timedelta(seconds=PENDING_SECONDS)

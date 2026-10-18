@@ -11,6 +11,7 @@ from app.state import (
     CheckRequested,
     End,
     Hint,
+    HintAbandoned,
     HintIssued,
     HintRequested,
     LeakCheck,
@@ -214,9 +215,26 @@ def test_second_request_while_the_ai_is_answering_is_rejected() -> None:
     session, accepted = step(new_session(), HintRequested("manual"), START, THRESHOLDS)
     assert isinstance(accepted, Accepted)
     assert isinstance(step(session, HintRequested("voice"), at(1), THRESHOLDS)[1], Rejected)
-    assert isinstance(step(session, CheckRequested(), at(1), THRESHOLDS)[1], Rejected)
     session, _ = step(session, HintIssued(len(H1_TEXT)), at(2), THRESHOLDS)
     assert session.pending_until is None
+
+
+def test_check_and_advance_are_accepted_while_stuck_and_drop_the_hint_in_progress() -> None:
+    session, _ = step(new_session(), Signal(motion=None, camera_ok=False, force_stuck=True), START, THRESHOLDS)
+    session, accepted = step(session, HintRequested("auto"), at(1), THRESHOLDS)
+    assert isinstance(accepted, Accepted)
+    checked, result = step(session, CheckRequested(), at(2), THRESHOLDS)
+    assert (result, checked.state) == (Accepted(), "checking")
+    assert isinstance(step(checked, HintIssued(len(H1_TEXT)), at(3), THRESHOLDS)[1], Rejected)
+    advanced, result = step(session, Advance(), at(2), THRESHOLDS)
+    assert (result, advanced.state, advanced.pending_until, advanced.current_problem_no) == (Accepted(), "watching", None, 2)
+
+
+def test_abandoning_a_hint_frees_the_next_request() -> None:
+    session, _ = step(new_session(), HintRequested("manual"), START, THRESHOLDS)
+    assert isinstance(step(session, HintRequested("manual"), at(1), THRESHOLDS)[1], Rejected)
+    session, _ = step(session, HintAbandoned(), at(1), THRESHOLDS)
+    assert isinstance(step(session, HintRequested("manual"), at(2), THRESHOLDS)[1], Accepted)
 
 
 def test_check_that_never_finishes_returns_to_watching_after_the_pending_window() -> None:

@@ -29,6 +29,7 @@ export type SessionHandlers = {
   onConnection: (connected: boolean) => void;
   onHeard: (text: string) => void;
   onProblem: (text: string | null) => void;
+  onFinishing: () => void;
 };
 
 type Session = {
@@ -47,6 +48,7 @@ type Session = {
   greeted: boolean;
   requestInFlight: boolean;
   checking: boolean;
+  checkDoneAt: number;
   voiceInFlight: boolean;
   pendingUtterance: string | null;
   autoHintDone: boolean;
@@ -112,6 +114,7 @@ function finish(session: Session, problemNo: number, lastWords: string | null = 
     announce();
     return;
   }
+  session.handlers.onFinishing();
   speak(lastWords)
     .catch((error) => console.warn("[loop] 最後の読み上げに失敗", error))
     .finally(announce);
@@ -217,14 +220,13 @@ async function answerHeard(session: Session, text: string): Promise<void> {
   if (next) await answerHeard(session, next);
 }
 
-function handleSignal(session: Session, signal: SignalResponse): void {
-  if (signal.state !== "ended" && (session.checking || signal.state === "checking")) return;
-  session.handlers.onState(signal);
+function handleSignal(session: Session, signal: SignalResponse, sentAt: number): void {
   if (signal.state === "ended") {
-    session.stop();
-    stopCamera();
+    finish(session, signal.current_problem_no);
     return;
   }
+  if (session.checking || sentAt < session.checkDoneAt) return;
+  session.handlers.onState(signal);
   if (signal.state === "watching" && !session.greeted) {
     session.greeted = true;
     session.problemNo = signal.current_problem_no;
@@ -258,13 +260,14 @@ async function sendSignal(session: Session): Promise<void> {
     session.latestScore === null
       ? { camera_ok: session.cameraOk }
       : { motion: session.latestScore, camera_ok: session.cameraOk };
+  const sentAt = Date.now();
   try {
     const debugNote = new URLSearchParams(window.location.search).get("debug") === "1" ? voiceStatus() : undefined;
     const signal = await postSignal(session.id, { token: session.token }, body, debugNote);
     if (!session.running) return;
     session.failedSignals = 0;
     setConnection(session, true);
-    handleSignal(session, signal);
+    handleSignal(session, signal, sentAt);
   } catch (error) {
     if (!session.running) return;
     session.failedSignals += 1;
@@ -300,6 +303,7 @@ export function startSession(
     greeted: false,
     requestInFlight: false,
     checking: false,
+    checkDoneAt: 0,
     voiceInFlight: false,
     pendingUtterance: null,
     autoHintDone: false,
@@ -356,11 +360,11 @@ export async function requestCheck(): Promise<CheckResponse> {
   try {
     const frameId = await sendFrame(session);
     const check = await postCheck(session.id, session.token, { frame_id: frameId });
-    session.checking = false;
     applyResponse(session, check.speech, check.state, check.next_problem_no ?? check.problem_no);
     return check;
   } finally {
     session.checking = false;
+    session.checkDoneAt = Date.now();
     session.requestInFlight = false;
   }
 }

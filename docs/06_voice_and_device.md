@@ -140,7 +140,7 @@ PC（横持ち）では映像を左、字幕とボタンを右に置く。部品
 | `stopCamera()` | なし | `void` | カメラを止める |
 | `captureFrame()` | なし | `Promise<Blob>` | 最新フレームの JPEG。B は呼ばない（`loop.ts` が呼ぶ） |
 | `startMotionLoop(video, onScore)` | `(score: number \| null, brightness: number, cameraOk: boolean) => void`（`null` はウォームアップ中） | `() => void`（止める関数） | 1 秒ごとの動きスコア。B は呼ばない（`loop.ts` が呼ぶ） |
-| `startSession(video, sessionId, token, handlers)` | `handlers = {onState, onHint, onBrightness, onConnection, onHeard}` | `() => void`（止める関数） | 下の「ループ」 |
+| `startSession(video, sessionId, token, handlers)` | `handlers = {onState, onHint, onBrightness, onConnection, onHeard, onProblem, onFinishing}` | `() => void`（止める関数） | 下の「ループ」 |
 | `requestManualHint()` | なし | `Promise<HintResponse>` | 「ヒント」ボタン。フレームを送ってから `hints` を `manual` で呼び、`speech` を読み上げる |
 | `requestCheck()` | なし | `Promise<CheckResponse>` | 「できた」ボタン。フレームを送ってから `check` を呼び、`speech` を読み上げる |
 | `advance()` | なし | `Promise<AdvanceResponse>` | 「次へ」ボタン。`POST /advance`。`ended` ならループを止める |
@@ -207,10 +207,11 @@ PC（横持ち）では映像を左、字幕とボタンを右に置く。部品
 
 - セッションを自動で作っている間は「準備しているよ…」。回数の上限（429）で作れなければ「少し待ってから、もう一度開いてね」を出し、20 秒後に自分でもう一度作る
 - ヒント・できた・次へが失敗したら字幕に「うまくいかなかったよ。もう一度押してみてね」、回数の上限（429）なら「少し待ってから、もう一度押してね」。状態の食い違い（409）は次の signals で画面がそろうので何も出さない
-- 「できた」の判定を待つ間は、`ended` 以外の signals を見ない。判定の後に遅れて届いた `checking` の signals も無視する（判定の字幕を「見てるよ…」に戻さない）
+- 「できた」の判定を待つ間に送った signals と、判定の前に送って後から届いた signals は、`ended` 以外は無視する（判定の字幕を「見てるよ…」に戻さない）
 - 「できた」が失敗したときは前の状態に戻し、字幕に失敗を出す。待つ間に自動ヒントが届いていたら、字幕はヒントを残す
-- 最後の問題で正解したら、`loop.ts` が判定の文を読み終えてから `ended` を知らせ、画面が終わりの言葉を読む。字幕は判定の文と終わりの言葉を並べる
+- 応答（できた・ヒント・声の答え）でセッションが終わるときは、`loop.ts` が `onFinishing` を知らせてからその文を読み、読み終えてから `ended` を知らせる。その間ボタンは止める。最後の問題の正解なら、字幕は判定の文と終わりの言葉を並べる
+- 読み込み（`getSession`）が 404 以外で失敗したら「つながらなかったよ。ページを開き直してね」
 - 「はじめる」の前に選んだ秒数を保存できなかったら「秒数を変えられなかったよ。前の秒数のまま見守るね」
 - 「おわる」をサーバに伝えられなかったら、端末は止めたうえで「つながりにくくて、終わったことを伝えられなかったよ」
-- タップで始め直してもマイクを許可されなかったら、そのページではもう聞かない（タップのたびに許可を求めない）
-- 途中の聞き取りの文が 2 秒変わらず確定が来ないとき、または確定が来ないまま聞き取りが終わったときは、途中の文を確定として送る（iOS で確定が来ない対策。Issue #40）
+- タップ（`click`。タッチの `pointerdown` は操作の直後と数えられない）で始め直してもマイクを許可されなかったら、そのページではもう聞かない（タップのたびに許可を求めない）
+- 途中の聞き取りの文が 2 秒変わらず確定が来ないとき（同じ文が届き続けても数え直さない）、または確定が来ないまま聞き取りが終わったときは、途中の文を確定として送る（iOS で確定が来ない対策。Issue #40）

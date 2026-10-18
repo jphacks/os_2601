@@ -65,7 +65,6 @@ function createRecognizer(): Recognizer | null {
   created.onresult = (event) => {
     if (!wanted || settled) return;
     heardSinceStart = true;
-    clearTimeout(settleTimer);
     const pending: string[] = [];
     let finished = false;
     for (let i = event.resultIndex; i < event.results.length; i += 1) {
@@ -79,11 +78,17 @@ function createRecognizer(): Recognizer | null {
       note(`聞こえた ${text.length} 字`);
       onHeard(text);
     }
-    interim = !finished && pending.length > 0 ? pending.join("") : null;
-    if (interim) {
-      note(`途中 ${interim.length} 字`);
-      settleTimer = setTimeout(settle, INTERIM_SETTLE_MS);
+    if (finished) {
+      clearTimeout(settleTimer);
+      interim = null;
+      return;
     }
+    const latest = pending.join("");
+    if (!latest || latest === interim) return;
+    interim = latest;
+    note(`途中 ${interim.length} 字`);
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(settle, INTERIM_SETTLE_MS);
   };
   created.onerror = (event) => {
     note(`error:${event.error}`);
@@ -117,7 +122,7 @@ function createRecognizer(): Recognizer | null {
     if (wanted && !waitingForTap) scheduleBegin(delayMs);
     nextBeginDelayMs = RESTART_DELAY_MS;
   };
-  window.addEventListener("pointerdown", () => {
+  window.addEventListener("click", () => {
     if (!waitingForTap) return;
     waitingForTap = false;
     note("タップ");

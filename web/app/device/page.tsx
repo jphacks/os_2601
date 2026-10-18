@@ -33,6 +33,7 @@ const FAILED_CAPTION = "うまくいかなかったよ。もう一度押して�
 const RATE_LIMITED_CAPTION = "少し待ってから、もう一度押してね";
 const SETTINGS_FAILED_CAPTION = "秒数を変えられなかったよ。前の秒数のまま見守るね";
 const END_FAILED_CAPTION = "つながりにくくて、終わったことを伝えられなかったよ";
+const LOAD_FAILED_CAPTION = "つながらなかったよ。ページを開き直してね";
 const OPEN_RETRY_MS = 20000;
 const END_CONFIRM = "おわる？";
 // 平均輝度がこれ未満なら「明るさが足りません」を重ねる（docs/tasks/b.md の B1-4）
@@ -162,8 +163,12 @@ function Device() {
       .catch((error) => {
         console.warn("[device] getSession に失敗", error);
         if (cancelled) return;
-        if (error instanceof ApiError && error.status === 404) router.replace(pageWithoutSession());
-        else setConnected(false);
+        if (error instanceof ApiError && error.status === 404) {
+          router.replace(pageWithoutSession());
+          return;
+        }
+        setConnected(false);
+        setCaption(LOAD_FAILED_CAPTION);
       });
     return () => {
       cancelled = true;
@@ -329,6 +334,11 @@ function Device() {
       },
       onBrightness: setBrightness,
       onConnection: setConnected,
+      onFinishing: () => {
+        if (version !== requestVersion.current) return;
+        finishingRef.current = true;
+        setFinishing(true);
+      },
       onHeard: (text) => setHeard({ text }),
       onProblem: (text) => {
         if (version === requestVersion.current && stateRef.current !== "ended") setProblemText(text);
@@ -336,6 +346,11 @@ function Device() {
     }, sessionRef.current.settings.persona);
     setBusy(false);
     startingRef.current = false;
+  }
+
+  function showFailure(version: number, error: unknown) {
+    const message = failureCaption(error);
+    if (version === requestVersion.current && message && stateRef.current !== "ended" && !finishingRef.current) setCaption(message);
   }
 
   async function handleHint() {
@@ -352,8 +367,7 @@ function Device() {
       if (hint.state !== "ended") applyState(hint.state, hint.problem_no);
     } catch (error) {
       console.warn("[device] ヒントに失敗", error);
-      const message = failureCaption(error);
-      if (version === requestVersion.current && message && stateRef.current !== "ended") setCaption(message);
+      showFailure(version, error);
     } finally {
       if (version === requestVersion.current) setBusy(false);
     }
@@ -371,8 +385,6 @@ function Device() {
       if (version !== requestVersion.current || checkedProblemNo !== problemNoRef.current || stateRef.current === "ended") return;
       if (check.state === "ended") {
         lastCheckRef.current = check.display;
-        finishingRef.current = true;
-        setFinishing(true);
         setCaption(check.display);
         return;
       }
@@ -401,8 +413,7 @@ function Device() {
       if (response.state !== "ended") setCaption(NEXT_CAPTION);
     } catch (error) {
       console.warn("[device] 次へに失敗", error);
-      const message = failureCaption(error);
-      if (version === requestVersion.current && message && stateRef.current !== "ended") setCaption(message);
+      showFailure(version, error);
     } finally {
       if (version === requestVersion.current) setBusy(false);
     }
@@ -417,7 +428,8 @@ function Device() {
       await end();
     } catch (error) {
       console.warn("[device] 終わりを伝えられなかった", error);
-      if (version === requestVersion.current) setCaption(END_FAILED_CAPTION);
+      const unreachable = error instanceof ApiError || error instanceof TypeError || error instanceof DOMException;
+      if (version === requestVersion.current && unreachable) setCaption(END_FAILED_CAPTION);
     } finally {
       if (version === requestVersion.current) {
         stopRef.current = null;

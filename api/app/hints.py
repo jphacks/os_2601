@@ -268,7 +268,8 @@ async def compose_hint(
         problem_text, leaks = _read_problem(out, known_problem, known_leaks)
         hint = _checked(out, model, problem_text, leaks, (SPEECH_MAX_CHARS, DISPLAY_MAX_CHARS), FALLBACK_HINTS[level])
         readable = out["readable"] is True
-    except (AIUnavailable, KeyError, TypeError, AttributeError):
+    except (AIUnavailable, KeyError, TypeError, AttributeError) as error:
+        logger.warning("hint failed: %r", error)
         return fixed_hint(FALLBACK_HINTS[level], "fallback", LeakCheck(ok=True, fallback=False), known_leaks, persona)
     if not readable and hint.leak_check.ok:
         return _unreadable(out, UNREADABLE_HINT, leaks, persona)
@@ -324,5 +325,6 @@ async def read_problem(ai: Gemini | None, model: str, frame: bytes | None, known
     try:
         out = await ai.generate_json(model, READ_PROMPT, request, frame, READ_SCHEMA)
         return (out["problem_text"].strip() or None) if out["readable"] is True else None
-    except (AIUnavailable, KeyError, TypeError, AttributeError):
+    except (AIUnavailable, KeyError, TypeError, AttributeError) as error:
+        logger.warning("read problem failed: %r", error)
         return None

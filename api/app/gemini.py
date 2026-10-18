@@ -14,7 +14,7 @@ class AIUnavailable(Exception):
 
 class Gemini:
     def __init__(self, api_key: str) -> None:
-        self._client = httpx.AsyncClient(headers={"x-goog-api-key": api_key})
+        self._client = httpx.AsyncClient(headers={"x-goog-api-key": api_key}, timeout=TIMEOUT_SECONDS)
 
     async def generate_json(self, model: str, system: str, text: str, image_jpeg: bytes, schema: dict) -> dict:
         body = {

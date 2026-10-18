@@ -1,7 +1,10 @@
+import logging
 from dataclasses import dataclass
 
 from app.gemini import AIUnavailable, Gemini
 from app.state import Verdict
+
+logger = logging.getLogger(__name__)
 
 CORRECT_TEXT = "正解。その調子"
 INCORRECT_TEXT = "もう一回、途中の式を見てみて"
@@ -42,5 +45,6 @@ async def judge(ai: Gemini | None, model: str, frame: bytes | None, known_proble
         out = await ai.generate_json(model, SYSTEM_PROMPT, request, frame, CHECK_SCHEMA)
         verdict = out["verdict"]
         return Judgement(verdict, SPEECH_BY_VERDICT[verdict])
-    except (AIUnavailable, KeyError, TypeError):
+    except (AIUnavailable, KeyError, TypeError) as error:
+        logger.warning("check failed: %r", error)
         return Judgement("unreadable", FAILED_TEXT)

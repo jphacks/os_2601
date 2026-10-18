@@ -35,6 +35,7 @@ class AppContext:
     voice: Voicevox | None = None
     opened_at: dict[str, list[datetime]] = field(default_factory=dict)
     ai_calls: dict[str, list[datetime]] = field(default_factory=dict)
+    background_calls: dict[str, list[datetime]] = field(default_factory=dict)
     speeches: dict[str, list[datetime]] = field(default_factory=dict)
     busy: set[tuple[str, str]] = field(default_factory=set)
 

@@ -1,5 +1,5 @@
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from app.gemini import AIUnavailable, Gemini
 from app.leak import contains_leak, leak_strings, same_problem, without_written
@@ -80,7 +80,8 @@ LEVEL_INSTRUCTIONS = {
 
 ANSWER_FALLBACK = "一緒に考えよう。今どこまでできたか、声に出してみて"
 CHECK_REPLY = "できたボタンを押してみて"
-CHECK_WORDS = ("合ってる", "あってる", "合ってます", "正解", "正しい", "できてる")
+CHECK_WORDS = ("合ってる", "あってる", "合ってます", "できてる")
+CHECK_WORDS_UNLESS_HELP = ("正解", "正しい")
 HELP_WORDS = (
     "わからない",
     "わかんない",
@@ -230,7 +231,18 @@ def asks_for_help(utterance: str) -> bool:
 
 
 def asks_if_correct(utterance: str) -> bool:
-    return not asks_for_help(utterance) and any(word in utterance for word in CHECK_WORDS)
+    if any(word in utterance for word in CHECK_WORDS):
+        return True
+    return not asks_for_help(utterance) and any(word in utterance for word in CHECK_WORDS_UNLESS_HELP)
+
+
+def _unguarded(out: dict, leaks: list[str]) -> bool:
+    return not leaks and not str(out.get("final_answer", "")).strip()
+
+
+def _unchecked_fallback(problem_text: str | None, leaks: list[str], fallback: str, persona: str) -> ComposedHint:
+    logger.warning("ai gave no answer to guard against; falling back")
+    return replace(fixed_hint(fallback, "fallback", LeakCheck(ok=True, fallback=False), leaks, persona), problem_text=problem_text)
 
 
 def check_reply(known_leaks: list[str], persona: str = "teacher") -> ComposedHint:
@@ -259,8 +271,8 @@ async def compose_hint(
         out = await ai.generate_json(model, _persona_prompt(SYSTEM_PROMPT, persona), request, frame, HINT_SCHEMA)
         problem_text, leaks = _read_problem(out, known_problem, known_leaks)
         readable = out["readable"] is True
-        if readable and problem_text and not leaks:
-            return fixed_hint(FALLBACK_HINTS[level], "fallback", LeakCheck(ok=True, fallback=False), leaks, persona)
+        if readable and _unguarded(out, leaks):
+            return _unchecked_fallback(problem_text, leaks, FALLBACK_HINTS[level], persona)
         hint = _checked(out, model, problem_text, leaks, (SPEECH_MAX_CHARS, DISPLAY_MAX_CHARS), FALLBACK_HINTS[level], persona)
     except (AIUnavailable, KeyError, TypeError, AttributeError) as error:
         logger.warning("hint failed: %r", error)
@@ -290,8 +302,8 @@ async def compose_answer(
         if out["readable"] is not True:
             return _unreadable(out, UNREADABLE_ANSWER, known_leaks, persona)
         problem_text, leaks = _read_problem(out, known_problem, known_leaks)
-        if problem_text and not leaks:
-            return answer_fallback(leaks, persona)
+        if problem_text and _unguarded(out, leaks):
+            return _unchecked_fallback(problem_text, leaks, ANSWER_FALLBACK, persona)
         return _checked(
             out, model, problem_text, leaks, (ANSWER_SPEECH_MAX_CHARS, ANSWER_DISPLAY_MAX_CHARS), ANSWER_FALLBACK, persona
         )

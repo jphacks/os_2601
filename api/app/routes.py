@@ -23,7 +23,17 @@ from app.hints import (
     read_problem,
 )
 from app.leak import same_problem
-from app.limits import AI_CALLS_PER_MINUTE, MAX_FRAME_BYTES, SPEECHES_PER_MINUTE, allow_open, client_ip, count_call, one_at_a_time
+from app.limits import (
+    AI_CALLS_PER_MINUTE,
+    BACKGROUND_CALLS_PER_MINUTE,
+    MAX_FRAME_BYTES,
+    SPEECHES_PER_MINUTE,
+    allow_open,
+    client_ip,
+    count_call,
+    one_at_a_time,
+    try_count_call,
+)
 from app.personas import persona_options
 from app.prefetch import discard_prefetch, settle_prefetch, start_prefetch, take_prefetch
 from app.schemas import CheckRequest, HintRequest, ProblemRequest, SessionCreateRequest, SettingsPatch, SignalRequest, SpeechRequest
@@ -113,7 +123,7 @@ def _forget_old_open_sessions(context: AppContext, now: datetime) -> None:
             context.frames.pop(session.session_id, None)
             discard_prefetch(context, session.session_id)
     alive = {session.session_id for session in context.store.all()}
-    for calls in (context.frames, context.ai_calls, context.speeches):
+    for calls in (context.frames, context.ai_calls, context.background_calls, context.speeches):
         for session_id in [session_id for session_id in calls if session_id not in alive]:
             del calls[session_id]
 
@@ -430,7 +440,15 @@ async def request_hint(
             frame = _latest_frame(context, session_id)
             if body.trigger != "auto":
                 _count_ai_call(context, session_id, frame, now)
-            composed = await compose(context, problem, accepted.level, frame, session.settings.persona)
+            if body.trigger == "auto" and not try_count_call(
+                context.background_calls, session_id, BACKGROUND_CALLS_PER_MINUTE, now
+            ):
+                composed = fixed_hint(
+                    FALLBACK_HINTS[accepted.level], "fallback", LeakCheck(ok=True, fallback=False), problem.leak_strings,
+                    session.settings.persona,
+                )
+            else:
+                composed = await compose(context, problem, accepted.level, frame, session.settings.persona)
     except Exception:
         _abandon_hint(context, session_id, accepted.ticket)
         raise
@@ -459,13 +477,16 @@ async def post_check(
     session = _find_session(context, session_id)
     require_device(request, context, session)
     now = _now()
+    frame = _latest_frame(context, session_id)
+    if session.mode != "scripted":
+        _count_ai_call(context, session_id, frame, now)
     session, _ = _apply(context, session, CheckRequested(), now)
     checked_no = session.current_problem_no
     problem = session.current_problem
     if session.mode == "scripted":
         judgement = Judgement("correct", CORRECT_TEXT)
     else:
-        judgement = await judge(context.ai, context.check_model, _latest_frame(context, session_id), problem.problem_text)
+        judgement = await judge(context.ai, context.check_model, frame, problem.problem_text)
     session, _ = _apply(
         context, _find_session(context, session_id), CheckDone(judgement.verdict, len(judgement.speech)), _now()
     )

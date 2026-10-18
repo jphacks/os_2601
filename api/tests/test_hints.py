@@ -316,3 +316,17 @@ def test_asking_for_help_is_not_taken_as_asking_if_the_answer_is_right(utterance
 
 def test_asking_if_the_answer_is_right_is_still_recognized() -> None:
     assert asks_if_correct("これで合ってる？")
+
+
+def test_a_hint_without_any_problem_text_or_answer_still_falls_back() -> None:
+    reply = {**ai_hint("エックスは2だよ"), "problem_text": "", "final_answer": "", "key_values": []}
+    assert asyncio.run(compose_hint(FakeAI(reply), MODEL, FRAME, 1, [], None, [], "teacher")).source == "fallback"
+
+
+def test_a_hint_is_kept_when_the_learner_already_wrote_every_value() -> None:
+    reply = {**ai_hint("最後の行を見直してみて"), "written_lines": ["2x - 7 = 4x + 3", "-2x = 10", "x = -5"]}
+    assert compose(FakeAI(reply)).source == "ai"
+
+
+def test_asking_if_unsure_whether_it_is_right_is_still_a_check_question() -> None:
+    assert asks_if_correct("これ合ってるかわからない")

@@ -179,3 +179,20 @@ def test_an_unexpected_error_comes_back_in_the_error_shape(device: Device, monke
     response = client.post(f"/sessions/{device.session_id}/signals", json={"motion": 0.05, "camera_ok": True}, headers=headers)
     assert (response.status_code, response.json()["error"]["code"]) == (500, "INTERNAL")
     assert response.headers.get("access-control-allow-origin") == "https://tonari-nine.vercel.app"
+
+
+def test_an_auto_hint_over_the_background_budget_uses_the_fixed_question(device: Device, ai: SlowAI) -> None:
+    context = device.client.app.state.context
+    context.background_calls[device.session_id] = [device.now] * limits.BACKGROUND_CALLS_PER_MINUTE
+    device.signal(0, 0.05)
+    frame_id = device.frame()
+    device.force_stuck(1)
+    hint = device.hint(frame_id)
+    assert (hint["source"], ai.calls) == ("fallback", 0)
+
+
+def test_check_counts_toward_the_ai_budget(device: Device) -> None:
+    device.signal(0, 0.05)
+    frame_id = device.frame()
+    device.client.post(f"/sessions/{device.session_id}/check", json={"frame_id": frame_id}, headers=device.headers)
+    assert len(device.client.app.state.context.ai_calls[device.session_id]) == 1

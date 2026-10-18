@@ -230,7 +230,7 @@ def asks_for_help(utterance: str) -> bool:
 
 
 def asks_if_correct(utterance: str) -> bool:
-    return any(word in utterance for word in CHECK_WORDS)
+    return not asks_for_help(utterance) and any(word in utterance for word in CHECK_WORDS)
 
 
 def check_reply(known_leaks: list[str], persona: str = "teacher") -> ComposedHint:
@@ -258,8 +258,10 @@ async def compose_hint(
         request = "\n".join([LEVEL_INSTRUCTIONS[level], *_context_lines(previous, known_problem)])
         out = await ai.generate_json(model, _persona_prompt(SYSTEM_PROMPT, persona), request, frame, HINT_SCHEMA)
         problem_text, leaks = _read_problem(out, known_problem, known_leaks)
-        hint = _checked(out, model, problem_text, leaks, (SPEECH_MAX_CHARS, DISPLAY_MAX_CHARS), FALLBACK_HINTS[level], persona)
         readable = out["readable"] is True
+        if readable and problem_text and not leaks:
+            return fixed_hint(FALLBACK_HINTS[level], "fallback", LeakCheck(ok=True, fallback=False), leaks, persona)
+        hint = _checked(out, model, problem_text, leaks, (SPEECH_MAX_CHARS, DISPLAY_MAX_CHARS), FALLBACK_HINTS[level], persona)
     except (AIUnavailable, KeyError, TypeError, AttributeError) as error:
         logger.warning("hint failed: %r", error)
         return fixed_hint(FALLBACK_HINTS[level], "fallback", LeakCheck(ok=True, fallback=False), known_leaks, persona)

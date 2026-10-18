@@ -14,6 +14,7 @@ from app.hints import (
     SPEECH_MAX_CHARS,
     UNREADABLE_ANSWER,
     UNREADABLE_HINT,
+    asks_if_correct,
     compose_answer,
     compose_hint,
 )
@@ -300,3 +301,18 @@ def test_voice_answer_uses_the_same_style_and_preserves_gemini_display(persona: 
 def test_unknown_persona_is_rejected_before_a_missing_frame_fallback() -> None:
     with pytest.raises(ValueError):
         compose(None, persona="friend")
+
+
+def test_a_hint_without_the_ai_s_own_answer_falls_back_because_it_cannot_be_checked() -> None:
+    reply = {**ai_hint("エックスは2だよ"), "final_answer": "", "key_values": []}
+    hint = compose(FakeAI(reply))
+    assert (hint.speech, hint.source) == (FALLBACK_HINTS[1], "fallback")
+
+
+@pytest.mark.parametrize("utterance", ["正解がわからない、教えて", "正しいやり方がわからない"])
+def test_asking_for_help_is_not_taken_as_asking_if_the_answer_is_right(utterance: str) -> None:
+    assert not asks_if_correct(utterance)
+
+
+def test_asking_if_the_answer_is_right_is_still_recognized() -> None:
+    assert asks_if_correct("これで合ってる？")

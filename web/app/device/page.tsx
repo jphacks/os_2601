@@ -200,18 +200,7 @@ function Device() {
         {/* 上：ヘッダとバッジを真ん中、映像は右上に小さく（映像は常に表示する。docs/06） */}
         <div className="flex items-start gap-3">
           <div className="flex min-w-0 flex-1 flex-col items-center gap-2">
-            <Header
-              info={
-                session && {
-                  worksheetId: session.worksheet_id,
-                  worksheetTitle: session.worksheet_title,
-                  problemNo,
-                  problemCount: session.problem_count,
-                  mode: session.mode,
-                }
-              }
-              connected={connected}
-            />
+            <Header mode={session?.mode ?? null} connected={connected} />
             <StateBadge state={state} />
           </div>
           <VideoFrame

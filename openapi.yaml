@@ -442,7 +442,8 @@ paths:
       summary: 読み上げの文を VOICEVOX の声にする
       description: |
         デバイスが読み上げるたびに呼ぶ（ADR 0035）。api が VOICEVOX のエンジン（環境変数 `VOICEVOX_URL`）で、`/device` で選んだキャラの声（handsome は青山龍星のしっとり、teacher は冥鳴ひまり）の wav を作って返す。
-        エンジンが無い・失敗したときは 503 で、デバイスはブラウザの音声合成で読む。状態は変えない。
+        エンジンが無い・失敗したときは 503（コードは HINT_UNAVAILABLE を使う）で、デバイスはブラウザの音声合成で読む。状態は変えない。
+        終わったセッションは、最後の読み上げ（終わった直後の「正解」など）のため 60 秒だけ受け付け、その後は 409。
       security:
         - device: []
       requestBody:
@@ -456,7 +457,7 @@ paths:
                 text:
                   type: string
                   minLength: 1
-                  maxLength: 120
+                  maxLength: 200
                 character:
                   type: string
                   enum: [handsome, teacher]
@@ -474,6 +475,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/StateConflict"
         "422":
           $ref: "#/components/responses/ValidationError"
         "503":

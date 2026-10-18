@@ -29,7 +29,7 @@ Hack Day 版はヒント 2 段階（H1 固定文・H2 GPT）、SSE なし（記�
 | POST | `/sessions/{id}/hints` | device | ヒント要求（`auto` はサーバの指示で、`manual` はボタンで） |
 | POST | `/sessions/{id}/check` | device | 「できた」。正誤チェック |
 | POST | `/sessions/{id}/problem` | device | 最新のフレームから問題文だけを読み取る（10/18、ADR 0034） |
-| POST | `/sessions/{id}/tts` | device | 読み上げの文（1〜120 文字）を VOICEVOX の wav にする。作れなければ 503（10/18、ADR 0035） |
+| POST | `/sessions/{id}/tts` | device | 読み上げの文（1〜200 文字）を、選んだキャラ（`character`）の VOICEVOX の wav にする。作れなければ 503（コードは HINT_UNAVAILABLE）。終わって 60 秒たったセッションは 409（10/18、ADR 0035） |
 | POST | `/sessions/{id}/advance` | device | 次の問題へ（スキップ） |
 | POST | `/sessions/{id}/end` | device・operator | 終了 |
 | GET | `/worksheets` | 公開 | ワークシート一覧（正答なし） |
@@ -273,7 +273,7 @@ Hack Day 版はヒント 2 段階（H1 固定文・H2 GPT）、SSE なし（記�
 | `requestHint(id, token, body)` | `POST /sessions/{id}/hints` | device |
 | `postCheck(id, token, body)` | `POST /sessions/{id}/check` | device |
 | `readProblem(id, token, {frame_id})` | `POST /sessions/{id}/problem` | device |
-| `synthesizeSpeech(id, token, text)` | `POST /sessions/{id}/tts` | device |
+| `synthesizeSpeech(id, token, text, character)` | `POST /sessions/{id}/tts` | device |
 | `postAdvance(id, token)` | `POST /sessions/{id}/advance` | device |
 | `postEnd(id, token)` | `POST /sessions/{id}/end` | device |
 | `getWorksheets()` / `getWorksheet(id)` | `GET /worksheets*` | なし |

@@ -200,7 +200,7 @@ const USE_MOCK = process.env.NEXT_PUBLIC_MOCK === "1";
 
 const SIGNAL_TIMEOUT_MS = 3000;
 const FRAME_TIMEOUT_MS = 5000;
-const SPEECH_TIMEOUT_MS = 6000;
+const SPEECH_TIMEOUT_MS = 9000;
 const SIGNALS_PER_STATE = 5;
 const SIGNAL_CYCLE = [
   signalsWatchingMock,

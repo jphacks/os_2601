@@ -10,6 +10,8 @@ let speaker: { id: string; token: string } | null = null;
 let character: VoiceCharacter = "handsome";
 let player: HTMLAudioElement | null = null;
 let speechTurn = 0;
+let abandonSynthesis: (() => void) | null = null;
+const PLAYBACK_LIMIT_MS = 30000;
 
 function isSupported(): boolean {
   return typeof window !== "undefined" && "speechSynthesis" in window;
@@ -53,6 +55,8 @@ export function unlockSpeech(): void {
 
 export function stopSpeaking(): void {
   speechTurn += 1;
+  abandonSynthesis?.();
+  abandonSynthesis = null;
   player?.pause();
   if (isSupported()) speechSynthesis.cancel();
 }
@@ -60,11 +64,20 @@ export function stopSpeaking(): void {
 function playAudio(audioPlayer: HTMLAudioElement, audio: Blob): Promise<void> {
   const url = URL.createObjectURL(audio);
   audioPlayer.src = url;
+  let limit: ReturnType<typeof setTimeout> | undefined;
   return new Promise<void>((resolve, reject) => {
     audioPlayer.onpause = () => resolve();
+    audioPlayer.onended = () => resolve();
     audioPlayer.onerror = () => reject(new Error("音声を再生できなかった"));
+    limit = setTimeout(() => {
+      audioPlayer.pause();
+      resolve();
+    }, PLAYBACK_LIMIT_MS);
     audioPlayer.play().catch(reject);
-  }).finally(() => URL.revokeObjectURL(url));
+  }).finally(() => {
+    clearTimeout(limit);
+    URL.revokeObjectURL(url);
+  });
 }
 
 export async function speak(text: string): Promise<void> {
@@ -72,8 +85,13 @@ export async function speak(text: string): Promise<void> {
   const turn = speechTurn;
   if (speaker && player) {
     try {
-      const audio = await synthesizeSpeech(speaker.id, speaker.token, text, character);
-      if (turn !== speechTurn) return;
+      const audio = await Promise.race([
+        synthesizeSpeech(speaker.id, speaker.token, text, character),
+        new Promise<null>((resolve) => {
+          abandonSynthesis = () => resolve(null);
+        }),
+      ]);
+      if (turn !== speechTurn || !audio) return;
       await playAudio(player, audio);
       return;
     } catch (error) {

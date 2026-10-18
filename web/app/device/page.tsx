@@ -114,7 +114,6 @@ function Device() {
       stuckSeconds !== null && stuckSeconds !== session?.settings.stuck_seconds
         ? patchSettings(sessionId, token, { stuck_seconds: stuckSeconds }).catch(ignoreError)
         : null;
-    setSpeechCharacter(characterId);
     unlockSpeech();
     primeListening();
     try {
@@ -258,7 +257,13 @@ function Device() {
         </div>
         {/* 下：入力欄の位置にボタン */}
         <div className="relative flex flex-col gap-3 rounded-[2rem] bg-white/70 p-3 shadow-lg backdrop-blur">
-          {state === "created" && <CharacterPicker value={characterId} onChange={setCharacterId} />}
+          {state === "created" && <CharacterPicker
+              value={characterId}
+              onChange={(id) => {
+                setCharacterId(id);
+                setSpeechCharacter(id);
+              }}
+            />}
           {state === "created" && selectedSeconds !== null && (
             <SecondsPicker value={selectedSeconds} onChange={setStuckSeconds} />
           )}

@@ -3,7 +3,7 @@ import logging
 import secrets
 import time
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal, NoReturn
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
@@ -56,6 +56,8 @@ logger = logging.getLogger(__name__)
 
 MAX_FRAME_BYTES = 600 * 1024
 MAX_UTTERANCE_CHARS = 200
+SPEECH_REQUEST_MAX_CHARS = 200
+SPEECH_AFTER_END_SECONDS = 60
 MODE_DEFAULT = "live"
 
 
@@ -141,7 +143,7 @@ class ProblemRequest(BaseModel):
 
 
 class SpeechRequest(BaseModel):
-    text: Annotated[str, Field(min_length=1, max_length=120)]
+    text: Annotated[str, Field(min_length=1, max_length=SPEECH_REQUEST_MAX_CHARS)]
     character: Literal["handsome", "teacher"] = "handsome"
 
 
@@ -673,6 +675,8 @@ async def post_problem(
 async def post_tts(session_id: str, body: SpeechRequest, request: Request, context: AppContext = Depends(get_context)) -> Response:
     session = _find_session(context, session_id)
     _require_device(request, context, session)
+    if session.ended_at is not None and _now() - session.ended_at > timedelta(seconds=SPEECH_AFTER_END_SECONDS):
+        raise HTTPException(status_code=409, detail="終わったセッションの読み上げは受け付けない")
     if context.voice is None:
         raise HTTPException(status_code=503, detail="読み上げの声が用意されていない")
     started = time.monotonic()

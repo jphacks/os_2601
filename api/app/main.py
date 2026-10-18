@@ -10,7 +10,8 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
 from app.gemini import Gemini
-from app.routes import AppContext, router
+from app.hints import FALLBACK_HINTS
+from app.routes import MAX_FRAME_BYTES, AppContext, router
 from app.state import SessionSettings, Thresholds
 from app.store import SessionStore
 from app.voicevox import Voicevox
@@ -19,6 +20,7 @@ from app.worksheets import FREE_WORKSHEET
 SETTINGS_PATH = Path(__file__).resolve().parents[1] / "settings.yaml"
 DEFAULT_DATA_PATH = "./data/tonari.json"
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
+MULTIPART_OVERHEAD_BYTES = 16 * 1024
 DEFAULT_CORS_ORIGIN_REGEX = r"https://.*\.vercel\.app|https://.*\.trycloudflare\.com"
 ERROR_CODES = {
     400: "BAD_REQUEST",
@@ -40,6 +42,8 @@ def _error(status: int, message: str) -> JSONResponse:
 
 def _build_context() -> AppContext:
     settings = yaml.safe_load(SETTINGS_PATH.read_text(encoding="utf-8"))
+    if settings["max_level"] not in FALLBACK_HINTS:
+        raise ValueError(f"max_level は {sorted(FALLBACK_HINTS)} のどれか")
     context = AppContext(
         thresholds=Thresholds(
             motion_threshold=settings["motion_threshold"],
@@ -70,6 +74,7 @@ def _build_context() -> AppContext:
 
 def create_app() -> FastAPI:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     app = FastAPI(title="となり API")
     app.state.context = _build_context()
     app.add_middleware(
@@ -80,6 +85,14 @@ def create_app() -> FastAPI:
         allow_headers=["Authorization", "X-Operator-Key", "Content-Type"],
     )
     app.include_router(router)
+
+    @app.middleware("http")
+    async def refuse_large_frames(request: Request, call_next):
+        if request.method == "POST" and request.url.path.endswith("/frames"):
+            length = request.headers.get("content-length")
+            if length is None or not length.isdigit() or int(length) > MAX_FRAME_BYTES + MULTIPART_OVERHEAD_BYTES:
+                return _error(413, f"フレームは {MAX_FRAME_BYTES // 1024} KB まで")
+        return await call_next(request)
 
     @app.exception_handler(HTTPException)
     async def http_error(_: Request, error: HTTPException) -> JSONResponse:

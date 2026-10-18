@@ -281,3 +281,10 @@ Hack Day 版はヒント 2 段階（H1 固定文・H2 GPT）、SSE なし（記�
 | `demoReset(operatorKey)` | `POST /demo/reset` | operator |
 
 エラー応答は `ApiError`（`status` と `code` を持つ）を投げる。B・C は `try/catch` で受けて、文言は 06 の表か「つながりにくいみたい」だけを出す。`web/lib/loop.ts` は `hints`・`check`・`advance` の応答の `state` が `ended` でもループを止める。
+
+## 回数の上限（ADR 0039）
+
+- AI を呼ぶ口（`hints`・`check`・`problem`）はセッションごとに 1 分 12 回、`tts` は 1 分 40 回。超えたら 429 `RATE_LIMITED`
+- `problem` と声の質問（`hints` の `voice` で `utterance` あり）は、同じセッションで同時に 1 本。2 本目は 429
+- `frames` は `Content-Length` が上限を超えるか無いとき、本文を読まずに 413
+- 自動で作ったセッションは 30 分で終わり、終わって 2 時間で記録から消える

@@ -48,6 +48,17 @@ def count_call(calls: dict[str, list[datetime]], session_id: str, limit: int, no
         fail(429, "少し待ってから、もう一度")
 
 
+def count_ai_call(context: AppContext, session_id: str, frame: bytes | None, now: datetime) -> None:
+    if context.ai is not None and frame is not None:
+        count_call(context.ai_calls, session_id, AI_CALLS_PER_MINUTE, now)
+
+
+def allow_background_call(context: AppContext, session_id: str, frame: bytes | None, now: datetime) -> bool:
+    if context.ai is None or frame is None:
+        return False
+    return try_count_call(context.background_calls, session_id, BACKGROUND_CALLS_PER_MINUTE, now)
+
+
 @contextmanager
 def one_at_a_time(context: AppContext, session_id: str, kind: str) -> Iterator[None]:
     key = (session_id, kind)

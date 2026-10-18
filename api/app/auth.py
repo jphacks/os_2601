@@ -33,6 +33,14 @@ def require_device(request: Request, context: AppContext, session: Session) -> N
     fail(401, "セッションのトークンが無いか一致しない")
 
 
+def require_operator_only(request: Request, context: AppContext, session: Session) -> None:
+    if _operator_ok(request, context):
+        return
+    if _device_ok(request, session):
+        fail(403, "この操作は運営の鍵でだけできる")
+    fail(401, "X-Operator-Key が無いか一致しない")
+
+
 def require_device_or_operator(request: Request, context: AppContext, session: Session) -> None:
     if not (_device_ok(request, session) or _operator_ok(request, context)):
         fail(401, "セッションのトークンかオペレータの鍵が要る")

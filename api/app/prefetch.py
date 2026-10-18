@@ -6,7 +6,7 @@ from datetime import datetime
 from app.composer import compose
 from app.context import AppContext, Prefetch
 from app.hints import ComposedHint
-from app.limits import BACKGROUND_CALLS_PER_MINUTE, try_count_call
+from app.limits import allow_background_call
 from app.state import Problem, Session, auto_hint_level
 
 logger = logging.getLogger(__name__)
@@ -38,9 +38,9 @@ def _matches(prefetch: Prefetch, session: Session, stuck_count: int) -> bool:
 
 
 def start_prefetch(context: AppContext, session: Session, frame: bytes, now: datetime) -> None:
-    if not _wanted(session) or session.session_id in context.prefetches or context.ai is None:
+    if not _wanted(session) or session.session_id in context.prefetches:
         return
-    if not try_count_call(context.background_calls, session.session_id, BACKGROUND_CALLS_PER_MINUTE, now):
+    if not allow_background_call(context, session.session_id, frame, now):
         return
     problem = session.current_problem
     stuck_count = problem.stuck_count + 1

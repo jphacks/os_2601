@@ -87,7 +87,7 @@ paths:
       summary: 誰でもセッションを作って始める（ADR 0036）
       description: |
         `/device` を `s=`・`t=` 無しで開いたときにデバイスが呼ぶ。FREE・live・既定の設定で作り、`POST /sessions` と同じ応答を返す。`learner_label` は「自分で始めた」。
-        IP ごとに 1 分あたり 3 件、全体で 1 分 30 件まで（超えたら 429）。IP は `X-Forwarded-For` の最後の値（Railway の edge が付ける）。作ったセッションは 30 分で自動的に終わり、終わって 2 時間たったら消える。環境変数 `OPEN_SESSIONS=0` なら 404。
+        IP ごとに 1 分あたり 10 件、全体で 1 分 30 件まで（超えたら 429）。IP は `X-Forwarded-For` の最後の値（Railway の edge が付ける）。作ったセッションは 30 分で自動的に終わり、終わって 2 時間たったら消える。環境変数 `OPEN_SESSIONS=0` なら 404。
       security: []
       responses:
         "201":
@@ -206,7 +206,7 @@ paths:
         - `stuck`・`speaking`・`checking` の間は `motion` を無視する。
         - **`next_action` は `stuck` の間の応答すべてで `send_frame_and_request_hint`。** デバイスはフレームを送ってから `hints` を `trigger: auto` で呼ぶ。一度成功したら、`state` が `stuck` 以外になるまで再要求しない。
         - **`next_action` は、静止がひと続きの間に 1 回だけ、`still_seconds` が `stuck_seconds − prefetch_lead_seconds`（3 秒。`api/settings.yaml`）に達した応答で `send_frame`（`live` のセッションだけ）。** デバイスはフレームを送り、その `frame_id` を覚えておく。stuck になったら撮り直さず、その `frame_id` で `hints` を `trigger: auto` で呼ぶ（ADR 0028）。
-        - `force_stuck: true` は `motion` を無視して `stuck` に入る（/ops の強制 stuck）。受理は `watching`・`still`・`cooldown`。`stuck` なら何もせず 200。`created`・`speaking`・`checking`・`ended` では 409。**このときは `X-Operator-Key` だけで認可し、セッションのトークンでは 401（10/19、ADR 0039 の追記）。** `force_stuck` の無い要求にオペレータの鍵で来たら 403。
+        - `force_stuck: true` は `motion` を無視して `stuck` に入る（/ops の強制 stuck）。受理は `watching`・`still`・`cooldown`。`stuck` なら何もせず 200。`created`・`speaking`・`checking`・`ended` では 409。**このときは `X-Operator-Key` だけで認可し、セッションのトークンでは 403（10/19、ADR 0039 の追記）。** `force_stuck` の無い要求にオペレータの鍵で来たら 403。
         - `ended` の後の通常の signals は 200 で `state: ended` を返す。デバイスはループを止める。
         - `watching`・`still`・`stuck` で 5 秒以上 signals が来なければ、サーバは `watching` に戻す。
       security:

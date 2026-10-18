@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
 
-from app.auth import require_device, require_device_or_operator, require_operator
+from app.auth import require_device, require_device_or_operator, require_operator, require_operator_only
 from app.check import CORRECT_TEXT, Judgement, judge
 from app.composer import answer, compose
 from app.context import AppContext, get_context
@@ -24,15 +24,14 @@ from app.hints import (
 )
 from app.leak import same_problem
 from app.limits import (
-    AI_CALLS_PER_MINUTE,
-    BACKGROUND_CALLS_PER_MINUTE,
     MAX_FRAME_BYTES,
     SPEECHES_PER_MINUTE,
+    allow_background_call,
     allow_open,
     client_ip,
+    count_ai_call,
     count_call,
     one_at_a_time,
-    try_count_call,
 )
 from app.personas import persona_options
 from app.prefetch import discard_prefetch, settle_prefetch, start_prefetch, take_prefetch
@@ -105,11 +104,6 @@ def _find_session(context: AppContext, session_id: str) -> Session:
     if session is None:
         fail(404, f"セッション {session_id} が無い")
     return session
-
-
-def _count_ai_call(context: AppContext, session_id: str, frame: bytes | None, now: datetime) -> None:
-    if context.ai is not None and frame is not None:
-        count_call(context.ai_calls, session_id, AI_CALLS_PER_MINUTE, now)
 
 
 def _forget_old_open_sessions(context: AppContext, now: datetime) -> None:
@@ -260,7 +254,7 @@ async def post_signal(
 ) -> dict:
     session = _find_session(context, session_id)
     if body.force_stuck:
-        require_operator(request, context)
+        require_operator_only(request, context, session)
     else:
         require_device(request, context, session)
     now = _now()
@@ -389,7 +383,7 @@ async def _answer_utterance(context: AppContext, session: Session, utterance: st
             prefetched=False,
         )
     frame = _latest_frame(context, session.session_id)
-    _count_ai_call(context, session.session_id, frame, now)
+    count_ai_call(context, session.session_id, frame, now)
     try:
         composed = await answer(context, problem, frame, utterance, session.settings.persona)
     except AIUnavailable:
@@ -439,10 +433,8 @@ async def request_hint(
         else:
             frame = _latest_frame(context, session_id)
             if body.trigger != "auto":
-                _count_ai_call(context, session_id, frame, now)
-            elif context.ai is not None and frame is not None and not try_count_call(
-                context.background_calls, session_id, BACKGROUND_CALLS_PER_MINUTE, now
-            ):
+                count_ai_call(context, session_id, frame, now)
+            elif not allow_background_call(context, session_id, frame, now):
                 frame = None
             composed = await compose(context, problem, accepted.level, frame, session.settings.persona)
     except Exception:
@@ -474,10 +466,10 @@ async def post_check(
     require_device(request, context, session)
     now = _now()
     if isinstance(step(session, CheckRequested(), now, context.thresholds)[1], Rejected):
-        fail(409, f"今の状態（{session.state}）では受理できない")
+        _apply(context, session, CheckRequested(), now)
     frame = _latest_frame(context, session_id)
     if session.mode != "scripted":
-        _count_ai_call(context, session_id, frame, now)
+        count_ai_call(context, session_id, frame, now)
     session, _ = _apply(context, session, CheckRequested(), now)
     checked_no = session.current_problem_no
     problem = session.current_problem
@@ -523,7 +515,7 @@ async def post_problem(
     started = time.monotonic()
     with one_at_a_time(context, session_id, f"problem-{problem_no}"):
         frame = _latest_frame(context, session_id)
-        _count_ai_call(context, session_id, frame, now)
+        count_ai_call(context, session_id, frame, now)
         problem_text = await read_problem(context.ai, context.hint_model, frame, session.current_problem.problem_text)
     session = _find_session(context, session_id)
     problem = session.problems[problem_no - 1]

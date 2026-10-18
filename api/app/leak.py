@@ -50,6 +50,7 @@ def normalize(text: str) -> str:
     text = unicodedata.normalize("NFKC", text).replace("⁄", "/")
     text = re.sub(r"\s+", "", text)
     text = _fraction_words(text)
+    text = re.sub(r"[〇一二三四五六七八九十]+", lambda match: kanji_number(match.group(0)), text)
     for spoken, symbol in SPOKEN_SYMBOLS.items():
         text = text.replace(spoken, symbol)
     text = re.sub(r"の(\d)乗", r"^\1", text)

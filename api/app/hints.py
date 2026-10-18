@@ -1,6 +1,6 @@
 import logging
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from app.gemini import AIUnavailable, Gemini
 from app.leak import contains_leak, leak_strings, same_problem, states_an_answer, without_written
@@ -81,8 +81,9 @@ LEVEL_INSTRUCTIONS = {
 
 ANSWER_FALLBACK = "一緒に考えよう。今どこまでできたか、声に出してみて"
 CHECK_REPLY = "できたボタンを押してみて"
-CHECK_WORDS = ("合ってる", "あってる", "合ってます", "できてる")
-CHECK_QUESTION = re.compile(r"(正解|正しい)(か|\?|？|$)")
+CHECK_WORDS = ("合ってる", "あってる", "合ってます", "あってます", "合ってい", "あってい", "できてる")
+CHECK_QUESTION = re.compile(r"(正解|正しい)(ですか|でしょう|だよね|かな|か?[？?]|か?$|か(どうか)?(わからない|わかんない|分からない))")
+ASKS_WHAT = re.compile(r"何|なに|どこ|どう")
 HELP_WORDS = (
     "わからない",
     "わかんない",
@@ -203,8 +204,9 @@ def _read_problem(out: dict, known_problem: str | None, known_leaks: list[str]) 
     inherited = known_leaks if same_problem(problem_text, known_problem) or not problem_text else []
     from_answer = leak_strings(out["final_answer"], [])
     written = out.get("written_lines") or []
-    guarded = set(inherited) | set(from_answer) | set(leak_strings(out["final_answer"], out["key_values"]))
-    return problem_text, without_written(sorted(guarded), written), bool(inherited or from_answer)
+    guarded = set(inherited) | set(leak_strings(out["final_answer"], out["key_values"]))
+    answer_guarded = bool(from_answer) or (bool(inherited) and same_problem(problem_text, known_problem))
+    return problem_text, without_written(sorted(guarded), written), answer_guarded
 
 
 def _unreadable(out: dict, fallback: str, leaks: list[str], persona: str = "teacher") -> ComposedHint:
@@ -233,12 +235,14 @@ def asks_for_help(utterance: str) -> bool:
 
 
 def asks_if_correct(utterance: str) -> bool:
-    return any(word in utterance for word in CHECK_WORDS) or CHECK_QUESTION.search(utterance.strip()) is not None
+    if any(word in utterance for word in CHECK_WORDS):
+        return True
+    return CHECK_QUESTION.search(utterance.strip()) is not None and ASKS_WHAT.search(utterance) is None
 
 
-def _unchecked_fallback(problem_text: str | None, leaks: list[str], fallback: str, persona: str) -> ComposedHint:
+def _unchecked_fallback(known_leaks: list[str], fallback: str, persona: str) -> ComposedHint:
     logger.warning("ai gave no answer to guard against; falling back")
-    return replace(fixed_hint(fallback, "fallback", LeakCheck(ok=True, fallback=False), leaks, persona), problem_text=problem_text)
+    return fixed_hint(fallback, "fallback", LeakCheck(ok=True, fallback=False), known_leaks, persona)
 
 
 def check_reply(known_leaks: list[str], persona: str = "teacher") -> ComposedHint:
@@ -268,7 +272,7 @@ async def compose_hint(
         problem_text, leaks, answer_guarded = _read_problem(out, known_problem, known_leaks)
         readable = out["readable"] is True
         if readable and not answer_guarded:
-            return _unchecked_fallback(problem_text, leaks, FALLBACK_HINTS[level], persona)
+            return _unchecked_fallback(known_leaks, FALLBACK_HINTS[level], persona)
         hint = _checked(out, model, problem_text, leaks, (SPEECH_MAX_CHARS, DISPLAY_MAX_CHARS), FALLBACK_HINTS[level], persona)
     except (AIUnavailable, KeyError, TypeError, AttributeError) as error:
         logger.warning("hint failed: %r", error)
@@ -299,7 +303,7 @@ async def compose_answer(
             return _unreadable(out, UNREADABLE_ANSWER, known_leaks, persona)
         problem_text, leaks, answer_guarded = _read_problem(out, known_problem, known_leaks)
         if not answer_guarded and (problem_text or states_an_answer(f"{out['speech']} {out['display']}")):
-            return _unchecked_fallback(problem_text, leaks, ANSWER_FALLBACK, persona)
+            return _unchecked_fallback(known_leaks, ANSWER_FALLBACK, persona)
         return _checked(
             out, model, problem_text, leaks, (ANSWER_SPEECH_MAX_CHARS, ANSWER_DISPLAY_MAX_CHARS), ANSWER_FALLBACK, persona
         )

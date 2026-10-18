@@ -150,7 +150,7 @@ def test_the_large_frame_refusal_carries_cors_headers(device: Device) -> None:
 def test_the_learner_token_cannot_force_stuck(device: Device) -> None:
     body = {"force_stuck": True}
     response = device.client.post(f"/sessions/{device.session_id}/signals", json=body, headers=device.headers)
-    assert response.status_code == 401
+    assert response.status_code == 403
 
 
 def test_reading_without_a_frame_does_not_use_the_ai_budget(device: Device) -> None:
@@ -208,3 +208,13 @@ def test_an_auto_hint_without_a_frame_does_not_use_the_background_budget(device:
     device.force_stuck(1)
     device.client.post(f"/sessions/{device.session_id}/hints", json={"trigger": "auto", "frame_id": "frm_x"}, headers=device.headers)
     assert device.client.app.state.context.background_calls.get(device.session_id, []) == []
+
+
+def test_a_check_after_the_open_session_expired_ends_it_and_drops_the_frame(device: Device) -> None:
+    session_id, headers = opened(device)
+    files = {"frame": ("frame.jpg", b"\xff\xd8jpeg", "image/jpeg")}
+    device.client.post(f"/sessions/{session_id}/frames", files=files, headers=headers)
+    device.now += timedelta(minutes=31)
+    response = device.client.post(f"/sessions/{session_id}/check", json={"frame_id": "frm_x"}, headers=headers)
+    context = device.client.app.state.context
+    assert (response.status_code, context.store.get(session_id).state, session_id in context.frames) == (409, "ended", False)

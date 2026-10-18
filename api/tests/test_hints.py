@@ -351,3 +351,25 @@ def test_an_unguarded_voice_answer_that_states_a_value_falls_back() -> None:
 @pytest.mark.parametrize("utterance", ["これ正しいかわからない", "これ正解？", "合ってるかな"])
 def test_check_questions_in_other_words(utterance: str) -> None:
     assert asks_if_correct(utterance)
+
+
+@pytest.mark.parametrize("utterance", ["これで正しいですか", "正解ですか？", "これ正解だよね？", "あってますか", "合っていますか"])
+def test_polite_check_questions_are_recognized(utterance: str) -> None:
+    assert asks_if_correct(utterance)
+
+
+@pytest.mark.parametrize("utterance", ["何が正解かわからない", "どうすれば正解か教えて", "正しいか教えて"])
+def test_help_that_mentions_the_right_answer_is_not_a_check_question(utterance: str) -> None:
+    assert not asks_if_correct(utterance)
+
+
+def test_an_unguarded_fallback_keeps_the_earlier_problem_and_guard() -> None:
+    reply = {**ai_hint("見てみて"), "problem_text": "2x-7=4x+5", "final_answer": "", "key_values": []}
+    hint = asyncio.run(compose_hint(FakeAI(reply), MODEL, FRAME, 1, [], "2x - 7 = 4x + 3", ["x=-5"], "teacher"))
+    assert (hint.source, hint.problem_text, hint.leak_strings) == ("fallback", None, ["x=-5"])
+
+
+def test_an_empty_problem_text_does_not_count_as_the_same_problem() -> None:
+    reply = {**ai_hint("エックスは3だよ"), "problem_text": "", "final_answer": "", "key_values": []}
+    hint = asyncio.run(compose_hint(FakeAI(reply), MODEL, FRAME, 1, [], "2x - 7 = 4x + 3", ["x=-5"], "teacher"))
+    assert hint.source == "fallback"

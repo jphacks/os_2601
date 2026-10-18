@@ -108,3 +108,8 @@ def test_fractions_are_spelled_the_same_way() -> None:
 
 def test_squares_are_read_aloud() -> None:
     assert to_reading("x² = 4") == "エックスの2乗 イコール 4"
+
+
+def test_an_answer_said_in_kanji_is_still_caught() -> None:
+    assert contains_leak("答えは十二だよ", leak_strings("x = 12", []))
+    assert contains_leak("x は五だよ", leak_strings("x = 5", []))

@@ -7,7 +7,7 @@ from conftest import Device
 
 MOVING = 0.05
 STILL = 0.01
-HINT_SPEECH = "右辺に移したときの符号を見てみて"
+HINT_SPEECH = "右辺に移したときの符号を見直してみましょう。"
 
 
 class SlowAI:
@@ -29,6 +29,9 @@ class SlowAI:
             "final_answer": "x = -5",
             "key_values": ["-2x = 10"],
             "stuck_point": "移項の符号",
+            "focus": "右辺に移したときの符号",
+            "action": "review",
+            "variant": "plain",
             "speech": HINT_SPEECH,
             "display": HINT_SPEECH,
         }
@@ -71,6 +74,25 @@ def test_hint_being_prepared_is_dropped_when_the_hand_moves_again(device: Device
     wait_until(lambda: ai.started == 1)
     assert device.signal(9, MOVING)["state"] == "watching"
     wait_until(lambda: ai.cancelled == 1)
+
+
+def test_switching_persona_discards_prepared_hint(device: Device, ai: SlowAI) -> None:
+    ai.delay = 30
+    stay_still_until_frame_is_requested(device)
+    frame_id = device.frame()
+    wait_until(lambda: ai.started == 1)
+    response = device.client.patch(
+        f"/sessions/{device.session_id}/settings", json={"persona": "ikemen"}, headers=device.headers
+    )
+    assert response.status_code == 200
+    wait_until(lambda: ai.cancelled == 1)
+    ai.delay = 0
+    for second in range(9, 12):
+        device.signal(second, STILL)
+    hint = device.hint(frame_id)
+    assert hint["speech"] == "右辺に移したときの符号を見直してみよう。"
+    assert hint["speech"] == hint["display"]
+    assert ai.started == 2
 
 
 def test_hint_prepared_before_a_signal_gap_is_dropped_when_the_next_stillness_starts(device: Device, ai: SlowAI) -> None:

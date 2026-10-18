@@ -4,8 +4,9 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ApiError, getSession, patchSettings, type SessionDetail, type State } from "@/lib/api";
 import { startCamera, stopCamera } from "@/lib/camera";
-import { advance, end, requestCheck, requestManualHint, startSession } from "@/lib/loop";
-import { unlockSpeech } from "@/lib/speech";
+import { advance, end, requestCheck, requestManualHint, startSession, updateSessionPersona } from "@/lib/loop";
+import { endMessage, normalizePersona, personaOptions } from "@/lib/personas";
+import { speak, stopSpeaking, unlockSpeech } from "@/lib/speech";
 import { primeListening, stopListening, voiceStatus } from "@/lib/voice";
 import { Buttons } from "./_components/Buttons";
 import { Caption, HeardBubble } from "./_components/Caption";
@@ -19,7 +20,6 @@ import { VideoFrame } from "./_components/VideoFrame";
 const FIXED_CAPTIONS: Partial<Record<State, string>> = {
   created: "スマホを立てて、手元が映るようにしてね",
   checking: "見てるよ…",
-  ended: "今日はここまで。記録を見てみよう",
 };
 const CAMERA_DENIED_CAPTION = "設定からカメラを許可してね。LINE などの中のブラウザなら Safari か Chrome で開いてね";
 const END_CONFIRM = "おわる？";
@@ -42,6 +42,12 @@ function Device() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const stopRef = useRef<(() => void) | null>(null);
   const startingRef = useRef(false);
+  const sessionRef = useRef<SessionDetail | null>(null);
+  const requestVersion = useRef(0);
+  const stateRef = useRef<State>("created");
+  const problemNoRef = useRef(1);
+  const endSpokenRef = useRef(false);
+  const personaUpdatingRef = useRef(false);
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [state, setState] = useState<State>("created");
   const [problemNo, setProblemNo] = useState(1);
@@ -49,6 +55,8 @@ function Device() {
   const [caption, setCaption] = useState(FIXED_CAPTIONS.created ?? "");
   const [stuckSeconds, setStuckSeconds] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [personaUpdating, setPersonaUpdating] = useState(false);
+  const [personaError, setPersonaError] = useState("");
   const [brightness, setBrightness] = useState<number | null>(null);
   const [stillSeconds, setStillSeconds] = useState(0);
   const [connected, setConnected] = useState(true);
@@ -58,16 +66,34 @@ function Device() {
   useEffect(() => {
     if (!sessionId || !token) return;
     let cancelled = false;
+    const version = ++requestVersion.current;
     getSession(sessionId, { token })
       .then((detail) => {
-        if (cancelled) return;
+        if (cancelled || version !== requestVersion.current) return;
+        sessionRef.current = detail;
+        stateRef.current = "created";
+        problemNoRef.current = detail.current_problem_no;
+        endSpokenRef.current = false;
+        personaUpdatingRef.current = false;
+        startingRef.current = false;
         setSession(detail);
+        setState("created");
+        setCaption(FIXED_CAPTIONS.created ?? "");
+        setBusy(false);
+        setPersonaUpdating(false);
+        setPersonaError("");
         setProblemNo(detail.current_problem_no);
         setProblemText(detail.problems[detail.current_problem_no - 1]?.problem_text ?? null);
       })
       .catch((error) => console.warn("[device] getSession に失敗", error));
     return () => {
       cancelled = true;
+      requestVersion.current += 1;
+      sessionRef.current = null;
+      stopRef.current?.();
+      stopRef.current = null;
+      stopCamera();
+      stopSpeaking();
     };
   }, [sessionId, token]);
 
@@ -75,6 +101,7 @@ function Device() {
     () => () => {
       stopRef.current?.();
       stopCamera();
+      stopSpeaking();
     },
     [],
   );
@@ -86,20 +113,78 @@ function Device() {
   }, [heard]);
 
   function applyState(next: State, nextProblemNo: number) {
+    // startSessionのコールバックは最初の描画を保持するため、現在の番号はrefで比較する。
+    // 次へ進んだ後に届いた古い応答で、前の問題文を復活させない。
+    // 再開直後のloopはまだ問題番号1を持つ場合がある。終了はセッション全体に適用する。
+    const appliedProblemNo = next === "ended" ? Math.max(problemNoRef.current, nextProblemNo) : nextProblemNo;
+    if (appliedProblemNo < problemNoRef.current || (stateRef.current === "ended" && next !== "ended")) return;
+    if (appliedProblemNo !== problemNoRef.current) setProblemText(null);
+    problemNoRef.current = appliedProblemNo;
+    stateRef.current = next;
     setState(next);
-    setProblemNo(nextProblemNo);
-    if (nextProblemNo !== problemNo) setProblemText(null);
+    setProblemNo(appliedProblemNo);
+    if (next === "ended") {
+      const confirmed = sessionRef.current;
+      const persona = normalizePersona(confirmed?.settings.persona);
+      const message = endMessage(persona, confirmed?.persona_options);
+      setCaption(message);
+      if (!endSpokenRef.current) {
+        endSpokenRef.current = true;
+        stopListening();
+        stopSpeaking();
+        void speak(message, persona);
+      }
+      return;
+    }
     const fixed = FIXED_CAPTIONS[next];
     if (fixed) setCaption(fixed);
   }
 
   const defaultSeconds = session ? nearestChoice(session.settings.stuck_seconds) : null;
   const selectedSeconds = stuckSeconds ?? defaultSeconds;
+  const selectedPersona = normalizePersona(session?.settings.persona);
+  const options = personaOptions(session?.persona_options);
+  const canChangePersona = ["created", "watching", "still", "cooldown"].includes(state);
+
+  async function handlePersonaChange(value: string) {
+    if (
+      (value !== "teacher" && value !== "ikemen") || personaUpdatingRef.current || startingRef.current || busy ||
+      !["created", "watching", "still", "cooldown"].includes(stateRef.current)
+    ) return;
+    const confirmed = sessionRef.current;
+    if (!confirmed || normalizePersona(confirmed.settings.persona) === value) return;
+    const version = requestVersion.current;
+    personaUpdatingRef.current = true;
+    setPersonaUpdating(true);
+    setPersonaError("");
+    try {
+      const response = await patchSettings(sessionId, token, { persona: value });
+      if (version !== requestVersion.current || stateRef.current === "ended" || !sessionRef.current) return;
+      const next = { ...sessionRef.current, settings: response.settings };
+      sessionRef.current = next;
+      setSession(next);
+      updateSessionPersona(sessionId, response.settings.persona);
+    } catch (error) {
+      if (version === requestVersion.current && stateRef.current !== "ended") {
+        setPersonaError("切り替えられませんでした。もう一度試してね。");
+        ignoreError(error);
+      }
+    } finally {
+      if (version === requestVersion.current) {
+        personaUpdatingRef.current = false;
+        setPersonaUpdating(false);
+      }
+    }
+  }
 
   async function handleStart() {
     const video = videoRef.current;
     // 連打で startCamera と startSession が 2 回走らないようにする（state の busy は再描画まで効かない）
-    if (!video || stopRef.current || startingRef.current) return;
+    if (
+      !video || !sessionRef.current || stopRef.current || startingRef.current || personaUpdatingRef.current ||
+      stateRef.current !== "created"
+    ) return;
+    const version = requestVersion.current;
     startingRef.current = true;
     setBusy(true);
     // patchSettings は先に送り出すが、await は unlockSpeech の後にする（クリック直後でないと iOS で音が出ない）
@@ -113,6 +198,7 @@ function Device() {
     try {
       await startCamera(video);
     } catch (error) {
+      if (version !== requestVersion.current) return;
       console.warn("[device] startCamera に失敗", error);
       stopListening();
       setCaption(CAMERA_DENIED_CAPTION);
@@ -120,77 +206,111 @@ function Device() {
       startingRef.current = false;
       return;
     }
-    await patching;
+    const updated = await patching;
+    if (version !== requestVersion.current || !sessionRef.current) {
+      stopCamera();
+      return;
+    }
+    if (updated) {
+      sessionRef.current = { ...sessionRef.current, settings: updated.settings };
+      setSession(sessionRef.current);
+    }
+    endSpokenRef.current = false;
     stopRef.current = startSession(video, sessionId, token, {
       onState: (signal) => {
+        if (
+          version !== requestVersion.current ||
+          (signal.state !== "ended" && signal.current_problem_no < problemNoRef.current)
+        ) return;
         applyState(signal.state, signal.current_problem_no);
         setStillSeconds(signal.still_seconds);
       },
       onHint: (hint) => {
+        if (
+          version !== requestVersion.current || stateRef.current === "ended" ||
+          hint.problem_no !== problemNoRef.current
+        ) return;
         if (hint.speech !== null) setCaption(hint.display);
         setProblemText(hint.problem_text);
       },
       onBrightness: setBrightness,
       onConnection: setConnected,
       onHeard: (text) => setHeard({ text }),
-    });
+    }, normalizePersona(sessionRef.current.settings.persona));
     setBusy(false);
     startingRef.current = false;
   }
 
   async function handleHint() {
+    const version = requestVersion.current;
     setBusy(true);
     try {
       const hint = await requestManualHint();
+      if (
+        version !== requestVersion.current || stateRef.current === "ended" ||
+        hint.problem_no !== problemNoRef.current
+      ) return;
       if (hint.speech !== null) setCaption(hint.display);
       setProblemText(hint.problem_text);
       applyState(hint.state, hint.problem_no);
     } catch (error) {
-      ignoreError(error);
+      if (version === requestVersion.current) ignoreError(error);
     } finally {
-      setBusy(false);
+      if (version === requestVersion.current) setBusy(false);
     }
   }
 
   async function handleCheck() {
+    const version = requestVersion.current;
+    const checkedProblemNo = problemNoRef.current;
     const before = { state, problemNo, caption };
     setBusy(true);
     applyState("checking", problemNo);
     try {
       const check = await requestCheck();
+      if (version !== requestVersion.current || checkedProblemNo !== problemNoRef.current || stateRef.current === "ended") return;
       applyState(check.state, check.next_problem_no ?? check.problem_no);
-      if (!FIXED_CAPTIONS[check.state]) setCaption(check.display);
+      if (check.state !== "ended" && !FIXED_CAPTIONS[check.state]) setCaption(check.display);
     } catch (error) {
-      ignoreError(error);
-      setState(before.state);
-      setCaption(before.caption);
+      if (version === requestVersion.current && checkedProblemNo === problemNoRef.current && stateRef.current !== "ended") {
+        ignoreError(error);
+        stateRef.current = before.state;
+        setState(before.state);
+        setCaption(before.caption);
+      }
     } finally {
-      setBusy(false);
+      if (version === requestVersion.current) setBusy(false);
     }
   }
 
   async function handleNext() {
+    const version = requestVersion.current;
     setBusy(true);
     try {
       const response = await advance();
+      if (version !== requestVersion.current || response.current_problem_no < problemNoRef.current) return;
       applyState(response.state, response.current_problem_no);
     } catch (error) {
-      ignoreError(error);
+      if (version === requestVersion.current) ignoreError(error);
     } finally {
-      setBusy(false);
+      if (version === requestVersion.current) setBusy(false);
     }
   }
 
   async function handleEnd() {
+    if (personaUpdatingRef.current || startingRef.current || stateRef.current === "ended") return;
     if (!window.confirm(END_CONFIRM)) return;
+    const version = requestVersion.current;
     setBusy(true);
     try {
       await end();
     } catch (error) {
-      ignoreError(error);
+      if (version === requestVersion.current) ignoreError(error);
     } finally {
-      stopRef.current = null;
-      setBusy(false);
+      if (version === requestVersion.current) {
+        stopRef.current = null;
+        setBusy(false);
+      }
     }
   }
 
@@ -224,12 +344,25 @@ function Device() {
         </div>
         {/* 下：入力欄の位置にボタン */}
         <div className="relative flex flex-col gap-3 rounded-[2rem] bg-white/70 p-3 shadow-lg backdrop-blur">
+          <label className="flex items-center justify-between gap-3 px-2 font-bold">
+            話し方
+            <select
+              value={selectedPersona}
+              onChange={(event) => void handlePersonaChange(event.target.value)}
+              disabled={!session || busy || personaUpdating || !canChangePersona}
+              className="min-h-11 rounded-full border border-sky-200 bg-white px-4 text-base disabled:opacity-50"
+              aria-label="話し方"
+            >
+              {options.map((option) => <option key={option.id} value={option.id}>{option.display_name}</option>)}
+            </select>
+          </label>
+          {personaError && <p role="status" className="px-2 text-sm text-red-700">{personaError}</p>}
           {state === "created" && selectedSeconds !== null && (
             <SecondsPicker value={selectedSeconds} onChange={setStuckSeconds} />
           )}
           <Buttons
             state={state}
-            busy={busy}
+            busy={busy || personaUpdating || !session}
             onStart={handleStart}
             onHint={handleHint}
             onCheck={handleCheck}

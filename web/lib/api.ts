@@ -18,6 +18,9 @@ import signalsStuckMock from "@/mocks/signals_stuck.json";
 import signalsWatchingMock from "@/mocks/signals_watching.json";
 import worksheetWs01Mock from "@/mocks/worksheet_ws01.json";
 import worksheetsMock from "@/mocks/worksheets.json";
+import { normalizePersona, personaOptions, type Persona, type PersonaOption } from "./personas";
+
+export type { Persona, PersonaOption } from "./personas";
 
 export type State = "created" | "watching" | "still" | "stuck" | "speaking" | "cooldown" | "checking" | "ended";
 export type Mode = "live" | "scripted";
@@ -29,7 +32,7 @@ export type ProblemStatus = "pending" | "working" | "done" | "skipped";
 
 export type LeakCheck = { ok: boolean; fallback: boolean };
 
-export type Settings = { stuck_seconds: number; cooldown_seconds: number; max_level: number };
+export type Settings = { stuck_seconds: number; cooldown_seconds: number; max_level: number; persona: Persona };
 
 export type SessionCreateRequest = {
   worksheet_id: string;
@@ -74,6 +77,7 @@ export type SessionDetail = {
   current_problem_no: number;
   still_seconds: number;
   settings: Settings;
+  persona_options: PersonaOption[];
   problems: {
     problem_no: number;
     problem_text: string | null;
@@ -100,7 +104,7 @@ export type SessionDetail = {
   ended_at: string | null;
 };
 
-export type SettingsPatch = Partial<Pick<Settings, "stuck_seconds" | "cooldown_seconds">>;
+export type SettingsPatch = Partial<Pick<Settings, "stuck_seconds" | "cooldown_seconds" | "persona">>;
 
 export type SignalRequest =
   | { ts: string; motion?: number; camera_ok: boolean; force_stuck?: false }
@@ -210,12 +214,18 @@ let mockSignalCount = 0;
 let mockHintCount = 0;
 let mockAdvanceCount = 0;
 let mockEnded = false;
+let mockSettings: Settings | null = null;
+
+function normalizedSettings(settings: Settings): Settings {
+  return { ...settings, persona: normalizePersona(settings.persona) };
+}
 
 function resetMockState(): void {
   mockSignalCount = 0;
   mockHintCount = 0;
   mockAdvanceCount = 0;
   mockEnded = false;
+  mockSettings = null;
 }
 
 function sessionPath(id: string, action = ""): string {
@@ -251,7 +261,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 export async function createSession(body: SessionCreateRequest, operatorKey: string): Promise<SessionCreated> {
   if (USE_MOCK) {
     resetMockState();
-    return sessionCreatedMock as SessionCreated;
+    mockSettings = normalizedSettings({ ...sessionCreatedMock.settings, ...body.settings } as Settings);
+    return { ...sessionCreatedMock, settings: mockSettings } as SessionCreated;
   }
   return request("/sessions", jsonInit("POST", { operatorKey }, body));
 }
@@ -262,8 +273,14 @@ export async function listSessions(operatorKey: string): Promise<SessionList> {
 }
 
 export async function getSession(id: string, auth: Auth): Promise<SessionDetail> {
-  if (USE_MOCK) return (id === "ses_mock_ended" ? sessionEndedMock : sessionActiveMock) as SessionDetail;
-  return request(sessionPath(id), { headers: authHeaders(auth) });
+  const detail = USE_MOCK
+    ? ((id === "ses_mock_ended" ? sessionEndedMock : sessionActiveMock) as SessionDetail)
+    : await request<SessionDetail>(sessionPath(id), { headers: authHeaders(auth) });
+  return {
+    ...detail,
+    settings: normalizedSettings(USE_MOCK && mockSettings ? mockSettings : detail.settings),
+    persona_options: personaOptions(detail.persona_options),
+  };
 }
 
 export async function patchSettings(
@@ -271,8 +288,15 @@ export async function patchSettings(
   token: string,
   body: SettingsPatch,
 ): Promise<{ settings: Settings; state: State }> {
-  if (USE_MOCK) return { settings: { ...(sessionCreatedMock as SessionCreated).settings, ...body }, state: "created" };
-  return request(sessionPath(id, "/settings"), jsonInit("PATCH", { token }, body));
+  if (USE_MOCK) {
+    mockSettings = normalizedSettings({ ...(mockSettings ?? sessionCreatedMock.settings), ...body } as Settings);
+    return { settings: mockSettings, state: "created" };
+  }
+  const response = await request<{ settings: Settings; state: State }>(
+    sessionPath(id, "/settings"),
+    jsonInit("PATCH", { token }, body),
+  );
+  return { ...response, settings: normalizedSettings(response.settings) };
 }
 
 export async function postSignal(id: string, auth: Auth, body: SignalRequest, debugNote?: string): Promise<SignalResponse> {

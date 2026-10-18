@@ -1,55 +1,119 @@
-const LANG = "ja-JP";
+import { normalizePersona, type Persona } from "./personas";
+import { selectJapaneseVoice, SPEECH_PROFILES } from "./speech-profile";
+
 const VOICES_WAIT_MS = 1000;
-const CANCELLED_ERRORS = new Set(["interrupted", "canceled"]);
+const SPEECH_TIMEOUT_MS = 15000;
+let speechVersion = 0;
+let finishCurrent: (() => void) | null = null;
 
-let japaneseVoiceLookup: Promise<SpeechSynthesisVoice | undefined> | null = null;
-
-function isSupported(): boolean {
-  return typeof window !== "undefined" && "speechSynthesis" in window;
+function synthesis(): SpeechSynthesis | null {
+  try {
+    return typeof window !== "undefined" && typeof SpeechSynthesisUtterance === "function"
+      ? window.speechSynthesis ?? null
+      : null;
+  } catch {
+    return null;
+  }
 }
 
-function waitForVoices(): Promise<void> {
-  if (speechSynthesis.getVoices().length > 0) return Promise.resolve();
+function waitForVoices(engine: SpeechSynthesis): Promise<void> {
+  try {
+    if (engine.getVoices().length > 0) return Promise.resolve();
+  } catch {
+    return Promise.resolve();
+  }
   return new Promise((resolve) => {
     const done = () => {
       clearTimeout(timer);
-      speechSynthesis.removeEventListener("voiceschanged", done);
+      try {
+        engine.removeEventListener?.("voiceschanged", done);
+      } catch {
+        // イベント解除に非対応でも待機は終了する。
+      }
       resolve();
     };
     const timer = setTimeout(done, VOICES_WAIT_MS);
-    speechSynthesis.addEventListener("voiceschanged", done);
+    try {
+      engine.addEventListener?.("voiceschanged", done);
+    } catch {
+      done();
+    }
   });
-}
-
-function loadJapaneseVoice(): Promise<SpeechSynthesisVoice | undefined> {
-  japaneseVoiceLookup ??= waitForVoices().then(() =>
-    speechSynthesis.getVoices().find((voice) => voice.lang.replace("_", "-") === LANG),
-  );
-  return japaneseVoiceLookup;
 }
 
 export function unlockSpeech(): void {
-  if (!isSupported()) return;
-  speechSynthesis.speak(new SpeechSynthesisUtterance(""));
+  try {
+    synthesis()?.speak(new SpeechSynthesisUtterance(""));
+  } catch {
+    // 音声が使えない場合も、カメラ開始や字幕表示は続ける。
+  }
 }
 
 export function stopSpeaking(): void {
-  if (isSupported()) speechSynthesis.cancel();
+  speechVersion += 1;
+  finishCurrent?.();
+  finishCurrent = null;
+  try {
+    synthesis()?.cancel();
+  } catch {
+    // 一部のブラウザの実装エラーで終了処理を止めない。
+  }
 }
 
-export async function speak(text: string): Promise<void> {
-  if (!isSupported()) throw new Error("このブラウザは読み上げに対応していない");
-  const voice = await loadJapaneseVoice();
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = LANG;
-  utterance.rate = 1;
-  utterance.pitch = 1;
-  if (voice) utterance.voice = voice;
-  stopSpeaking();
-  await new Promise<void>((resolve, reject) => {
-    utterance.onend = () => resolve();
-    utterance.onerror = (event) =>
-      CANCELLED_ERRORS.has(event.error) ? resolve() : reject(new Error(`読み上げに失敗した: ${event.error}`));
-    speechSynthesis.speak(utterance);
-  });
+export async function speak(text: string, persona: Persona = "teacher"): Promise<void> {
+  const version = ++speechVersion;
+  finishCurrent?.();
+  finishCurrent = null;
+  const engine = synthesis();
+  if (!engine || !text) return;
+  await waitForVoices(engine);
+  if (version !== speechVersion) return;
+  try {
+    const profile = SPEECH_PROFILES[normalizePersona(persona)];
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = profile.language;
+    let voice: SpeechSynthesisVoice | undefined;
+    try {
+      voice = selectJapaneseVoice(engine.getVoices(), profile);
+      if (voice) utterance.voice = voice;
+    } catch {
+      voice = undefined;
+      // 音声選択に対応していなければ、ブラウザ標準の日本語読み上げを使う。
+    }
+    try {
+      // 日本語の候補がない環境では、既存の標準値を使う。
+      utterance.rate = voice ? profile.rate : 1;
+      utterance.pitch = voice ? profile.pitch : 1;
+    } catch {
+      try {
+        utterance.rate = 1;
+        utterance.pitch = 1;
+      } catch {
+        // rate/pitch自体が非対応なら既定値のまま読む。
+      }
+    }
+    try {
+      engine.cancel();
+    } catch {
+      // cancel非対応でも新しい字幕・発話は処理する。
+    }
+    await new Promise<void>((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        if (finishCurrent === done) finishCurrent = null;
+        resolve();
+      };
+      const timer = setTimeout(done, SPEECH_TIMEOUT_MS);
+      finishCurrent = done;
+      utterance.onend = done;
+      utterance.onerror = done;
+      try {
+        engine.speak(utterance);
+      } catch {
+        done();
+      }
+    });
+  } catch {
+    // 字幕が主情報。音声APIやコンストラクターの失敗はアプリを落とさない。
+  }
 }

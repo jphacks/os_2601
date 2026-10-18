@@ -1,4 +1,5 @@
 import json
+import logging
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +18,8 @@ RUNTIME_FIELDS = (
 )
 RENAMED_SOURCES = {"gpt": "ai"}
 
+logger = logging.getLogger(__name__)
+
 
 def _encode(value: Any) -> Any:
     if isinstance(value, datetime):
@@ -26,6 +29,13 @@ def _encode(value: Any) -> Any:
     if isinstance(value, list):
         return [_encode(item) for item in value]
     return value
+
+
+def _encode_session(session: Session) -> dict:
+    body = asdict(session)
+    for name in RUNTIME_FIELDS:
+        body.pop(name)
+    return _encode(body)
 
 
 def _parse_time(value: str | None) -> datetime | None:
@@ -80,38 +90,54 @@ class SessionStore:
     def __init__(self, path: Path) -> None:
         self._path = path
         self._sessions: dict[str, Session] = {}
+        self._encoded: dict[str, dict] = {}
+        self._changed: set[str] = set()
 
     def load(self) -> None:
         if not self._path.exists():
             return
-        raw = json.loads(self._path.read_text(encoding="utf-8"))
-        self._sessions = {session_id: _decode_session(body) for session_id, body in raw["sessions"].items()}
+        try:
+            raw = json.loads(self._path.read_text(encoding="utf-8"))
+            sessions = {session_id: _decode_session(body) for session_id, body in raw["sessions"].items()}
+        except (ValueError, KeyError, TypeError) as error:
+            broken = self._path.with_suffix(".broken")
+            self._path.replace(broken)
+            logger.warning("保存ファイルを読めないので %s に退けて空で始める: %r", broken.name, error)
+            return
+        self._sessions = sessions
+        self._encoded = {}
+        self._changed = set(sessions)
 
     def save(self) -> None:
+        for session_id in self._changed:
+            if session_id in self._sessions:
+                self._encoded[session_id] = _encode_session(self._sessions[session_id])
+        self._changed.clear()
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        sessions = {}
-        for session_id, session in self._sessions.items():
-            body = asdict(session)
-            for name in RUNTIME_FIELDS:
-                body.pop(name)
-            sessions[session_id] = _encode(body)
         temporary = self._path.with_suffix(".tmp")
-        temporary.write_text(json.dumps({"sessions": sessions}, ensure_ascii=False), encoding="utf-8")
+        temporary.write_text(json.dumps({"sessions": self._encoded}, ensure_ascii=False), encoding="utf-8")
         temporary.replace(self._path)
 
     def get(self, session_id: str) -> Session | None:
-        return self._sessions.get(session_id)
+        session = self._sessions.get(session_id)
+        if session is not None:
+            self._changed.add(session_id)
+        return session
 
     def put(self, session: Session) -> None:
         self._sessions[session.session_id] = session
+        self._changed.add(session.session_id)
 
     def all(self) -> list[Session]:
         return list(self._sessions.values())
 
     def remove(self, session_id: str) -> None:
         self._sessions.pop(session_id, None)
+        self._encoded.pop(session_id, None)
 
     def clear(self) -> int:
         removed = len(self._sessions)
         self._sessions = {}
+        self._encoded = {}
+        self._changed.clear()
         return removed

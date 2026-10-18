@@ -25,6 +25,7 @@ from app.hints import (
     fixed_hint,
     read_problem,
 )
+from app.leak import normalize
 from app.personas import persona_options
 from app.state import (
     Accepted,
@@ -219,6 +220,10 @@ def _require_device(request: Request, context: AppContext, session: Session) -> 
 def _require_device_or_operator(request: Request, context: AppContext, session: Session) -> None:
     if not (_device_ok(request, session) or _operator_ok(request, context)):
         _fail(401, "セッションのトークンかオペレータの鍵が要る")
+
+
+def _same_problem(read: str, known: str | None) -> bool:
+    return known is not None and normalize(read) == normalize(known)
 
 
 def _latest_frame(context: AppContext, session_id: str) -> bytes | None:
@@ -447,7 +452,9 @@ async def open_session(request: Request, context: AppContext = Depends(get_conte
 async def list_sessions(request: Request, context: AppContext = Depends(get_context)) -> dict:
     _require_operator(request, context)
     now = _now()
-    sessions = [_apply(context, session, Tick(), now)[0] for session in context.store.all()]
+    sessions = [
+        session if session.state == "ended" else _apply(context, session, Tick(), now)[0] for session in context.store.all()
+    ]
     sessions.sort(key=lambda session: session.created_at, reverse=True)
     return {
         "sessions": [
@@ -781,7 +788,7 @@ async def post_problem(
         )
     session = _find_session(context, session_id)
     problem = session.problems[problem_no - 1]
-    if problem_text and session.current_problem_no == problem_no and problem_text != problem.problem_text:
+    if problem_text and session.current_problem_no == problem_no and not _same_problem(problem_text, problem.problem_text):
         problem.problem_text = problem_text
         problem.leak_strings = []
         context.store.put(session)

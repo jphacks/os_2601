@@ -18,7 +18,6 @@ tags:
   - name: sessions
   - name: signals
   - name: hints
-  - name: worksheets
   - name: ops
 
 paths:
@@ -40,7 +39,7 @@ paths:
             schema:
               $ref: "#/components/schemas/SessionCreateRequest"
             example:
-              {"worksheet_id": "WS-01", "learner_label": "デモ", "mode": "live",
+              {"worksheet_id": "FREE", "learner_label": "デモ", "mode": "live",
                "settings": {"stuck_seconds": 20, "cooldown_seconds": 60, "max_level": 2}}
       responses:
         "201":
@@ -51,7 +50,7 @@ paths:
                 $ref: "#/components/schemas/SessionCreated"
               example:
                 {"session_id": "ses_7f3c…", "session_token": "tok_…", "mode": "live", "state": "created",
-                 "worksheet": {"worksheet_id": "WS-01", "title": "一次方程式", "problem_count": 4},
+                 "worksheet": {"worksheet_id": "FREE", "title": "自由な問題", "problem_count": 20},
                  "settings": {"stuck_seconds": 20, "cooldown_seconds": 60, "max_level": 2},
                  "created_at": "2026-10-17T01:30:00Z"}
         "400":
@@ -76,8 +75,8 @@ paths:
                 $ref: "#/components/schemas/SessionList"
               example:
                 {"sessions": [
-                  {"session_id": "ses_…", "worksheet_id": "WS-01", "learner_label": "デモ", "mode": "live", "state": "watching",
-                   "problem_done": 1, "problem_count": 4, "stuck_total": 2, "created_at": "…", "ended_at": null}]}
+                  {"session_id": "ses_…", "worksheet_id": "FREE", "learner_label": "デモ", "mode": "live", "state": "watching",
+                   "problem_done": 1, "problem_count": 20, "stuck_total": 2, "created_at": "…", "ended_at": null}]}
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -123,7 +122,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/SessionDetail"
               example:
-                {"session_id": "ses_…", "worksheet_id": "WS-01", "worksheet_title": "一次方程式", "problem_count": 4,
+                {"session_id": "ses_…", "worksheet_id": "FREE", "worksheet_title": "自由な問題", "problem_count": 20,
                  "learner_label": "デモ", "mode": "live",
                  "state": "watching", "current_problem_no": 2, "still_seconds": 7,
                  "settings": {"stuck_seconds": 20, "cooldown_seconds": 60, "max_level": 2},
@@ -133,15 +132,14 @@ paths:
                    {"problem_no": 2, "status": "working", "stuck_count": 2, "max_level": 2, "seconds_spent": 140,
                     "hints": [
                       {"hint_id": "hnt_…", "level": 1, "trigger": "auto", "display": "今、何を求めようとしてる？",
-                       "stuck_point": "移項の符号", "source": "fallback",
+                       "stuck_point": "読み取れず", "source": "fallback",
                        "leak_check": {"ok": true, "fallback": false}, "latency_ms": 3, "created_at": "…"},
                       {"hint_id": "hnt_…", "level": 2, "trigger": "auto", "display": "右辺に移したときの符号、もう一回見てみて",
-                       "stuck_point": "移項の符号", "source": "gpt",
+                       "stuck_point": "移項の符号", "source": "ai",
                        "leak_check": {"ok": true, "fallback": false}, "latency_ms": 2300, "created_at": "…"}],
                     "check": null},
-                   {"problem_no": 3, "status": "pending", "stuck_count": 0, "max_level": 0, "seconds_spent": 0, "hints": [], "check": null},
-                   {"problem_no": 4, "status": "pending", "stuck_count": 0, "max_level": 0, "seconds_spent": 0, "hints": [], "check": null}],
-                 "stuck_points": [{"label": "移項の符号", "count": 2}],
+                   {"problem_no": 3, "status": "pending", "stuck_count": 0, "max_level": 0, "seconds_spent": 0, "hints": [], "check": null}],
+                 "stuck_points": [{"label": "移項の符号", "count": 1}],
                  "leak_blocked_count": 0,
                  "created_at": "…", "ended_at": null}
         "401":
@@ -222,9 +220,9 @@ paths:
               $ref: "#/components/schemas/SignalRequest"
             examples:
               signal:
-                value: {"ts": "2026-10-17T01:31:05Z", "motion": 0.012, "camera_ok": true}
+                value: {"motion": 0.012, "camera_ok": true}
               force_stuck:
-                value: {"ts": "2026-10-17T01:31:05Z", "force_stuck": true}
+                value: {"force_stuck": true}
       responses:
         "200":
           description: 今の状態
@@ -313,7 +311,7 @@ paths:
       description: |
         - `trigger` は `auto`（`next_action` に従って）・`manual`（ボタン）・`voice`（学習者の発話を聞き取った）。
         - **`voice` で `utterance`（聞き取った文）があれば、その発話に答える（ADR 0032）。** AI がまず答えるかどうかを決め、独り言・読み上げ・周りの会話なら答えない。答えないときは 204 で、状態は変えず、記録にも残さない。AI を待つ間は状態を変えない（ボタンと「できた」は止めない）ので、答えると決まった時点の状態で受理を判定する（`manual`・`voice` と同じ）。答えるときは言葉の意味ややり方の説明もするが、この問題の答え・途中の値・正誤は言わない（答え漏れの検査は同じ）。AI が使えないときは、「わからない」「教えて」などの助けを求める言葉があるときだけ固定の問い返しで答える。scripted では答えない（204）。`utterance` は保存もログへの出力もしない。
-        - `level` は `auto` なら `min(stuck_count, max_level)`（1 回目 H1、2 回目以降 H2）。`manual` と `voice` は、その問題でボタン・声の AI のヒントが初めてなら 1、2 回目以降は 2（自動ヒントと固定文は数えない。ADR 0033。10/17 までは最後に出した段階のままだった）。
+        - `level` は `auto` なら `min(stuck_count, max_level)`（1 回目は段階 1、2 回目以降は段階 2）。`manual` と `voice` は、その問題でボタン・声の AI のヒントが初めてなら 1、2 回目以降は 2（自動ヒントと固定文は数えない。ADR 0033。10/17 までは最後に出した段階のままだった）。
         - `auto` は `stuck` のときだけ受理し、それ以外は 409（受理の判定はリクエスト到着時）。合成中に「できた」「次へ」を受けて状態が変わっていたら、応答時に 409（デバイスは捨てる。ADR 0037）。`manual` と `voice` は `watching`・`still`・`cooldown` で受理し、`created`・`stuck`・`speaking`・`checking`・`ended` では 409。`cooldown` が止めるのは `auto` だけ。
         - 応答を返した時点で `speaking` にし、読み上げ推定時間（`speech` の文字数 × 0.15 秒 + 1 秒）後に `cooldown`、`cooldown_seconds` 後に `watching` へ戻す。
         - `leak_check` が `{ok: false, fallback: true}` なら、AI の文が答え漏れ検査に一致したので固定の問い返しに差し替えた。AI のタイムアウト（8 秒）・エラー・フレーム無しは固定の問い返しで `source: fallback`、`leak_check.ok: true`（ADR 0026）。
@@ -342,7 +340,7 @@ paths:
                  "display": "右辺に移したときの符号、もう一回見てみて",
                  "stuck_point": "移項の符号",
                  "leak_check": {"ok": true, "fallback": false},
-                 "source": "gpt", "model": "gpt-6.1-sol", "latency_ms": 2300,
+                 "source": "ai", "model": "gemini-3.5-flash-lite", "latency_ms": 2300,
                  "state": "speaking"}
         "400":
           $ref: "#/components/responses/BadRequest"
@@ -356,8 +354,6 @@ paths:
           $ref: "#/components/responses/StateConflict"
         "422":
           $ref: "#/components/responses/ValidationError"
-        "503":
-          $ref: "#/components/responses/HintUnavailable"
         "429":
           $ref: "#/components/responses/RateLimited"
 
@@ -371,9 +367,9 @@ paths:
       description: |
         - 受理した時点で `checking` にし、判定が出たら `speaking` → `cooldown` → `watching`（ヒントと同じ時間規則）。
         - `correct` なら問題を `done` にし `current_problem_no` を進める。最後の問題なら `next_problem_no: null`、`state: ended`。`incorrect` なら問題は `working` のままで、`next_problem_no` は今の番号。
-        - `speech`・`display` は固定文で同じ文（`correct` は fixed_check_correct、`incorrect` は fixed_check_incorrect、無ければ「正解。その調子」「もう一回、途中の式を見てみて」）。
-        - `unreadable` は、GPT が読めないと言ったら「もう少し明るいところで、もう一回見せて」、8 秒で返らない・例外・フレーム無しなら「うまく読めなかった。もう一回、できたを押してみて」。
-        - `scripted` は GPT を呼ばず常に `correct`。正答の値は応答に含めない。
+        - `speech`・`display` は固定文で同じ文（`correct` は「正解。その調子」、`incorrect` は「もう一回、途中の式を見てみて」）。
+        - `unreadable` は、AI が読めないと言ったら「もう少し明るいところで、もう一回見せて」、8 秒で返らない・例外・フレーム無しなら「うまく読めなかった。もう一回、できたを押してみて」。
+        - `scripted` は AI を呼ばず常に `correct`。正答の値は応答に含めない。
         - 受理は `watching`・`still`・`cooldown`・`stuck`（作りかけの自動ヒントは捨てる。ADR 0037）。`created`・`speaking`・`checking`・`ended` では 409。
       security:
         - device: []
@@ -523,17 +519,6 @@ paths:
         受理は `watching`・`still`・`cooldown`・`speaking`・`stuck`（`speaking` なら読み上げを打ち切って `watching`。`stuck` なら作りかけの自動ヒントは捨てる。ADR 0037）。`created`・`checking`・`ended` では 409。
       security:
         - device: []
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                reason:
-                  type: string
-                  enum: [skip]
-            example: {"reason": "skip"}
       responses:
         "200":
           description: 進めた
@@ -542,8 +527,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/AdvanceResponse"
               example: {"current_problem_no": 3, "state": "watching"}
-        "400":
-          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -579,56 +562,12 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
-  /worksheets:
-    get:
-      tags: [worksheets]
-      operationId: getWorksheets
-      summary: ワークシート一覧（正答なし）
-      security: []
-      responses:
-        "200":
-          description: 一覧
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/WorksheetList"
-              example: {"worksheets": [{"worksheet_id": "WS-01", "title": "一次方程式", "problem_count": 4, "grade": "中1"}]}
-
-  /worksheets/{id}:
-    parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          example: WS-01
-    get:
-      tags: [worksheets]
-      operationId: getWorksheet
-      summary: 問題文と印刷用レイアウト情報（正答なし）
-      description: 正答・典型ミス・固定ヒント・`leak_strings` は含めない。`print` はサーバの定数。
-      security: []
-      responses:
-        "200":
-          description: ワークシート
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/WorksheetDetail"
-              example:
-                {"worksheet_id": "WS-01", "title": "一次方程式", "grade": "中1",
-                 "problems": [{"problem_no": 1, "text": "3x + 5 = 20 を解きなさい。"}],
-                 "print": {"paper": "A4", "id_font_px": 48, "gap_mm": 45,
-                           "footer": "となり：手元だけを見ます。顔は映しません。映像は保存しません"}}
-        "404":
-          $ref: "#/components/responses/NotFound"
-
   /demo/reset:
     post:
       tags: [ops]
       operationId: demoReset
       summary: 全セッションを消す（DEMO_MODE=1 のときだけ）
-      description: セッション・問題・ヒント・チェック・メモリのフレームをすべて消す。ワークシート定義は消さない。`DEMO_MODE` が 1 でなければ 404。
+      description: セッション・問題・ヒント・チェック・メモリのフレームをすべて消す。`DEMO_MODE` が 1 でなければ 404。
       security:
         - operator: []
       responses:
@@ -649,7 +588,7 @@ paths:
       tags: [ops]
       operationId: getHealth
       summary: 死活
-      description: "`gpt` は生成 AI の鍵（GEMINI_API_KEY）があれば ok、無ければ missing（疎通確認はしない。ADR 0025）。"
+      description: "`ai` は生成 AI の鍵（GEMINI_API_KEY）があれば ok、無ければ missing（疎通確認はしない。ADR 0025）。"
       security: []
       responses:
         "200":
@@ -658,7 +597,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Health"
-              example: {"ok": true, "gpt": "ok", "worksheets": 3, "mode_default": "live"}
+              example: {"ok": true, "ai": "ok", "mode_default": "live"}
 
 components:
   securitySchemes:
@@ -740,7 +679,7 @@ components:
             $ref: "#/components/schemas/Error"
           example: {"error": {"code": "VALIDATION_ERROR", "message": "..."}}
     HintUnavailable:
-      description: 固定ヒントも読めない
+      description: 読み上げの声を作れない（`/tts` だけ）
       content:
         application/json:
           schema:
@@ -754,14 +693,14 @@ components:
     Mode:
       type: string
       enum: [live, scripted]
-      description: live は GPT を呼ぶ。scripted は GPT を呼ばず固定ヒントで、正誤は常に correct
+      description: live は Gemini を呼ぶ。scripted は AI を呼ばず固定の問い返しで、正誤は常に correct
     Trigger:
       type: string
       enum: [auto, manual, voice]
     HintSource:
       type: string
-      enum: [gpt, fallback, scripted]
-      description: fallback は固定ヒント（H1 は常に fallback）
+      enum: [ai, fallback, scripted]
+      description: ai は Gemini が作った文。fallback は AI が使えないときや答え漏れ検査に落ちたときの固定の問い返し。scripted は scripted のモードで出した固定の問い返し
     HintLevel:
       type: integer
       enum: [1, 2]
@@ -774,7 +713,7 @@ components:
       properties:
         ok:
           type: boolean
-          description: false なら GPT の文が答え漏れ検査に一致した
+          description: false なら AI の文が答え漏れ検査に一致した
         fallback:
           type: boolean
           description: true なら固定の問い返しに差し替えた
@@ -828,6 +767,8 @@ components:
       properties:
         worksheet_id:
           type: string
+          enum: [FREE]
+          description: 学習者の紙の問題を読む 1 種類だけ（ADR 0026）。それ以外は 422
         learner_label:
           type: string
           default: 学習者
@@ -990,7 +931,7 @@ components:
                       maxLength: 120
                     stuck_point:
                       type: string
-                      description: H1 では典型ミスの 1 つ目
+                      description: AI が 12 種の一覧から選ぶ。固定の問い返しでは「読み取れず」、声の「合ってる？」への固定の返事では「答えの確認」
                     source:
                       $ref: "#/components/schemas/HintSource"
                     leak_check:
@@ -1016,7 +957,7 @@ components:
                     format: date-time
         stuck_points:
           type: array
-          description: AI の文のヒント（source が gpt）の stuck_point をラベルごとに数え、多い順に並べる。固定文のラベルは数えない
+          description: AI の文のヒント（source が ai）の stuck_point をラベルごとに数え、多い順に並べる。固定文のラベルは数えない
           items:
             type: object
             required: [label, count]
@@ -1052,10 +993,6 @@ components:
     SignalRequest:
       type: object
       properties:
-        ts:
-          type: string
-          format: date-time
-          description: デバイスの時刻。記録用で、判定はサーバの時計で行う
         motion:
           type: number
           minimum: 0
@@ -1072,10 +1009,8 @@ components:
         properties:
           force_stuck:
             const: true
-      then:
-        required: [ts]
       else:
-        required: [ts, camera_ok]
+        required: [camera_ok]
 
     SignalResponse:
       type: object
@@ -1161,7 +1096,7 @@ components:
           $ref: "#/components/schemas/HintSource"
         model:
           type: string
-          description: source が gpt のときだけ
+          description: source が ai のときだけ
         latency_ms:
           type: integer
           minimum: 0
@@ -1176,6 +1111,7 @@ components:
         frame_id:
           type: string
           pattern: "^frm_"
+          description: 直前に送ったフレーム。サーバは照合せず最新 1 枚を使う
 
     CheckResponse:
       type: object
@@ -1223,59 +1159,6 @@ components:
           type: string
           format: date-time
 
-    WorksheetList:
-      type: object
-      required: [worksheets]
-      properties:
-        worksheets:
-          type: array
-          items:
-            type: object
-            required: [worksheet_id, title, problem_count, grade]
-            properties:
-              worksheet_id:
-                type: string
-              title:
-                type: string
-              problem_count:
-                type: integer
-              grade:
-                type: string
-
-    WorksheetDetail:
-      type: object
-      required: [worksheet_id, title, grade, problems, print]
-      properties:
-        worksheet_id:
-          type: string
-        title:
-          type: string
-        grade:
-          type: string
-        problems:
-          type: array
-          items:
-            type: object
-            required: [problem_no, text]
-            properties:
-              problem_no:
-                type: integer
-                minimum: 1
-              text:
-                type: string
-        print:
-          type: object
-          required: [paper, id_font_px, gap_mm, footer]
-          properties:
-            paper:
-              type: string
-            id_font_px:
-              type: integer
-            gap_mm:
-              type: integer
-            footer:
-              type: string
-
     DemoReset:
       type: object
       required: [ok, removed_sessions]
@@ -1289,16 +1172,13 @@ components:
 
     Health:
       type: object
-      required: [ok, gpt, worksheets, mode_default]
+      required: [ok, ai, mode_default]
       properties:
         ok:
           type: boolean
-        gpt:
+        ai:
           type: string
           enum: [ok, missing]
-        worksheets:
-          type: integer
-          minimum: 0
         mode_default:
           $ref: "#/components/schemas/Mode"
 

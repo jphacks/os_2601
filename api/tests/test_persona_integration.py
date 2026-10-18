@@ -58,7 +58,7 @@ def test_selected_persona_uses_the_camera_and_keeps_answers_private(device: Devi
     display = "右辺に移した項の符号を確認してみましょう。" if persona == "teacher" else "右辺に移した項の符号を確認してみようか。"
     ai.reply = analysis(speech, display)
     result = device.hint(start(device), "manual")
-    assert result["source"] == "gpt"
+    assert result["source"] == "ai"
     assert result["problem_text"] == "2x - 7 = 4x + 3"
     assert (result["speech"], result["display"]) == (speech, display)
     assert len(result["speech"]) <= 60 and len(result["display"]) <= 80
@@ -90,7 +90,7 @@ def test_startup_read_remains_separate_from_the_persona_hint_and_keeps_analysis_
     assert initial["stuck_points"] == []
 
     hint = device.hint(frame_id, "manual")
-    assert hint["source"] == "gpt"
+    assert hint["source"] == "ai"
     assert (hint["speech"], hint["display"]) == (ai.reply["speech"], ai.reply["display"])
     assert len(ai.calls) == 2
     assert "前に読み取った問題文：2x - 7 = 4x + 3" in ai.calls[1][1]
@@ -107,7 +107,7 @@ def test_startup_read_remains_separate_from_the_persona_hint_and_keeps_analysis_
 def test_only_generated_hints_add_labels_when_persona_fallbacks_are_recorded(device: Device, ai, persona):
     assert select(device, persona).status_code == 200
     frame_id = start(device)
-    assert device.hint(frame_id, "manual")["source"] == "gpt"
+    assert device.hint(frame_id, "manual")["source"] == "ai"
     device.signal(20, 0.05)
     ai.reply = {**analysis(), "readable": False, "unreadable_reason": "dark"}
     unreadable = device.hint(frame_id, "manual")
@@ -120,7 +120,7 @@ def test_only_generated_hints_add_labels_when_persona_fallbacks_are_recorded(dev
     for response in (unreadable, check):
         assert response["speech"] == response["display"] and len(response["speech"]) <= 60
     detail = device.client.get(f"/sessions/{device.session_id}", headers=device.headers).json()
-    assert [hint["source"] for hint in detail["problems"][0]["hints"]] == ["gpt", "fallback", "fallback"]
+    assert [hint["source"] for hint in detail["problems"][0]["hints"]] == ["ai", "fallback", "fallback"]
     assert detail["stuck_points"] == [{"label": "移項の符号", "count": 1}]
 
 
@@ -188,7 +188,7 @@ def test_gemini_wire_format_sends_one_jpeg_and_structured_result_reaches_respons
     device.client.app.state.context.ai = gemini
     select(device, "ikemen")
     result = device.hint(start(device), "manual")
-    assert len(sent) == 1 and result["source"] == "gpt"
+    assert len(sent) == 1 and result["source"] == "ai"
     assert result["problem_text"] == "2x - 7 = 4x + 3"
     assert result["speech"] == analysis()["speech"]
     assert result["display"] == analysis()["display"]

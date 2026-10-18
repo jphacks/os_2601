@@ -62,7 +62,7 @@ def compose(ai: FakeAI | None, frame: bytes | None = FRAME, level: int = 1, know
 def test_ai_hint_is_used_from_the_first_stuck_and_answer_is_kept_server_side() -> None:
     ai = FakeAI(ai_hint("右辺に移したときの符号を見てみて"))
     hint = compose(ai)
-    assert (hint.speech, hint.source, hint.model) == ("右辺に移したときの符号を見てみて", "gpt", MODEL)
+    assert (hint.speech, hint.source, hint.model) == ("右辺に移したときの符号を見てみて", "ai", MODEL)
     assert hint.leak_check == LeakCheck(ok=True, fallback=False)
     assert hint.problem_text == "2x - 7 = 4x + 3"
     assert {"x=-5", "-5", "-2x=10"} <= set(hint.leak_strings)
@@ -122,7 +122,7 @@ def test_speech_is_normalized_for_reading_before_the_leak_check() -> None:
 def test_speech_length_is_measured_before_symbols_are_spelled_out() -> None:
     reply = ai_hint("3行目の 2x-7=4x+3 の左辺の -7 を見てみて、そのあと右辺も")
     assert len(reply["speech"]) <= 60
-    assert compose(FakeAI(reply)).source == "gpt"
+    assert compose(FakeAI(reply)).source == "ai"
 
 
 def test_inherited_short_values_stay_guarded() -> None:
@@ -134,7 +134,7 @@ def test_inherited_short_values_stay_guarded() -> None:
 def test_values_already_on_the_paper_may_be_quoted() -> None:
     reply = ai_hint("マイナス2エックス イコール 10 の両辺を見てみて")
     reply["written_lines"] = ["2x - 7 = 4x + 3", "-2x = 10"]
-    assert compose(FakeAI(reply)).source == "gpt"
+    assert compose(FakeAI(reply)).source == "ai"
 
 
 def test_unreadable_reason_picks_the_fixed_text() -> None:
@@ -189,12 +189,12 @@ def test_answer_about_an_unreadable_paper_tells_the_reason_instead_of_guessing()
 def test_question_that_needs_no_paper_is_answered_even_without_anything_to_guard() -> None:
     reply = ai_answer("移項は、項を反対の辺に移すことだよ")
     reply.update(problem_text="", final_answer="", key_values=[])
-    assert answer(FakeAI(reply)).source == "gpt"
+    assert answer(FakeAI(reply)).source == "ai"
 
 
 def test_answer_that_gives_away_the_value_is_replaced_and_an_overlong_one_falls_back() -> None:
     assert answer(FakeAI(ai_answer("答えは x イコール マイナス 5 だよ"))).leak_check == LeakCheck(ok=False, fallback=True)
-    assert answer(FakeAI(ai_answer("見" * ANSWER_SPEECH_MAX_CHARS))).source == "gpt"
+    assert answer(FakeAI(ai_answer("見" * ANSWER_SPEECH_MAX_CHARS))).source == "ai"
     assert answer(FakeAI(ai_answer("見" * (ANSWER_SPEECH_MAX_CHARS + 1)))).source == "fallback"
 
 
@@ -222,7 +222,7 @@ def test_gemini_keeps_the_specific_location_operation_and_separate_display(perso
     reply = {**ai_hint(speech), "display": display}
     ai = FakeAI(reply)
     hint = compose(ai, level=2, persona=persona)
-    assert (hint.speech, hint.display, hint.source) == (speech, display, "gpt")
+    assert (hint.speech, hint.display, hint.source) == (speech, display, "ai")
     assert len(ai.requests) == 1 and ai.frames == [FRAME]
     assert get_persona(persona).style_instruction in ai.systems[0]
     other = "ikemen" if persona == "teacher" else "teacher"
@@ -248,7 +248,7 @@ def test_changing_the_persona_setting_updates_the_next_prompt() -> None:
     custom = replace(PERSONAS["ikemen"], style_instruction="穏やかなタメ口で、一つだけ問いかける。")
     ai = FakeAI(ai_hint("左辺を見てみて"))
     with patch.dict(PERSONAS, {"ikemen": custom}):
-        assert compose(ai, persona="ikemen").source == "gpt"
+        assert compose(ai, persona="ikemen").source == "ai"
     assert custom.style_instruction in ai.systems[0]
 
 
@@ -256,12 +256,12 @@ def test_changing_the_persona_setting_updates_the_next_prompt() -> None:
 def test_both_personas_keep_the_main_hint_and_answer_length_limits(persona: str) -> None:
     reply = {**ai_hint("見" * 60), "display": "見" * 80}
     hint = compose(FakeAI(reply), persona=persona)
-    assert (len(hint.speech), len(hint.display), hint.source) == (60, 80, "gpt")
+    assert (len(hint.speech), len(hint.display), hint.source) == (60, 80, "ai")
     for field, limit in (("speech", 60), ("display", 80)):
         assert compose(FakeAI({**reply, field: "見" * (limit + 1)}), persona=persona).source == "fallback"
     reply = {**ai_answer("見" * 100), "display": "見" * 120}
     hint = asyncio.run(compose_answer(FakeAI(reply), MODEL, FRAME, "移項って何？", [], None, [], persona))
-    assert (len(hint.speech), len(hint.display), hint.source) == (100, 120, "gpt")
+    assert (len(hint.speech), len(hint.display), hint.source) == (100, 120, "ai")
     for field, limit in (("speech", 100), ("display", 120)):
         too_long = {**reply, field: "見" * (limit + 1)}
         assert asyncio.run(compose_answer(FakeAI(too_long), MODEL, FRAME, "移項って何？", [], None, [], persona)).source == "fallback"
@@ -292,7 +292,7 @@ def test_voice_answer_uses_the_same_style_and_preserves_gemini_display(persona: 
     display = "移項は、項を反対の辺へ移し、符号を変えることです。"
     ai = FakeAI({**ai_answer(speech), "display": display})
     hint = asyncio.run(compose_answer(ai, MODEL, FRAME, "移項って何？", [], None, [], persona))
-    assert (hint.speech, hint.display, hint.source) == (speech, display, "gpt")
+    assert (hint.speech, hint.display, hint.source) == (speech, display, "ai")
     assert get_persona(persona).style_instruction in ai.systems[0]
     assert len(ai.requests) == 1 and ai.frames == [FRAME]
 

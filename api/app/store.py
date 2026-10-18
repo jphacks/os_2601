@@ -15,6 +15,7 @@ RUNTIME_FIELDS = (
     "pending_until",
     "prefetch_requested",
 )
+RENAMED_SOURCES = {"gpt": "ai"}
 
 
 def _encode(value: Any) -> Any:
@@ -33,7 +34,12 @@ def _parse_time(value: str | None) -> datetime | None:
 
 def _decode_hint(raw: dict) -> Hint:
     return Hint(
-        **{**raw, "leak_check": LeakCheck(**raw["leak_check"]), "created_at": datetime.fromisoformat(raw["created_at"])}
+        **{
+            **raw,
+            "source": RENAMED_SOURCES.get(raw["source"], raw["source"]),
+            "leak_check": LeakCheck(**raw["leak_check"]),
+            "created_at": datetime.fromisoformat(raw["created_at"]),
+        }
     )
 
 

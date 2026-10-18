@@ -46,7 +46,7 @@ def new_session(state: str = "watching") -> Session:
     return Session(
         session_id="ses_test",
         session_token="tok_test",
-        worksheet_id="WS-01",
+        worksheet_id="FREE",
         learner_label="テスト",
         mode="live",
         settings=SessionSettings(stuck_seconds=20, cooldown_seconds=60, max_level=2),
@@ -75,7 +75,7 @@ def speak_hint(session: Session, second: float) -> tuple[Session, int]:
     assert isinstance(accepted, Accepted)
     session, _ = step(session, HintIssued(len(H1_TEXT), accepted.ticket), at(second), THRESHOLDS)
     session.current_problem.hints.append(
-        Hint("hnt_test", accepted.level, trigger, H1_TEXT, H1_TEXT, "符号", "gpt", LeakCheck(True, False), None, 0, at(second))
+        Hint("hnt_test", accepted.level, trigger, H1_TEXT, H1_TEXT, "符号", "ai", LeakCheck(True, False), None, 0, at(second))
     )
     return session, accepted.level
 

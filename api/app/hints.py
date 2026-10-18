@@ -5,7 +5,7 @@ from app.gemini import AIUnavailable, Gemini
 from app.leak import contains_leak, leak_strings, normalize, without_written
 from app.personas import fallback_message, get_persona
 from app.reading import to_reading
-from app.state import LeakCheck
+from app.state import HintSource, LeakCheck
 
 SPEECH_MAX_CHARS = 60
 DISPLAY_MAX_CHARS = 80
@@ -162,14 +162,14 @@ class ComposedHint:
     speech: str
     display: str
     stuck_point: str
-    source: str
+    source: HintSource
     model: str | None
     leak_check: LeakCheck
     problem_text: str | None
     leak_strings: list[str]
 
 
-def fixed_hint(text: str, source: str, leak_check: LeakCheck, known_leaks: list[str], persona: str = "teacher") -> ComposedHint:
+def fixed_hint(text: str, source: HintSource, leak_check: LeakCheck, known_leaks: list[str], persona: str = "teacher") -> ComposedHint:
     rendered = fallback_message(text, persona)
     if contains_leak(rendered.speech, known_leaks):
         rendered = fallback_message(text, "teacher")
@@ -229,7 +229,7 @@ def _checked(
     speech_limit, display_limit = limits
     if not speech or not display or len(written_speech) > speech_limit or len(display) > display_limit:
         return fixed_hint(fallback, "fallback", LeakCheck(ok=True, fallback=False), leaks)
-    return ComposedHint(speech, display, stuck_point, "gpt", model, LeakCheck(ok=True, fallback=False), problem_text, leaks)
+    return ComposedHint(speech, display, stuck_point, "ai", model, LeakCheck(ok=True, fallback=False), problem_text, leaks)
 
 
 def asks_for_help(utterance: str) -> bool:

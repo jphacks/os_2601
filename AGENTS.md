@@ -41,7 +41,7 @@
 
 - 全ルート `async def`、1 ワーカー、状態はメモリ、JSON ファイルは tmp → rename
 - 正答・固定ヒントの表・`leak_strings` はどの応答にも入れない。`session_token` は作成応答だけ
-- GPT の呼び出しは `hints.py` と `check.py` だけ。タイムアウト 8 秒、リトライなし。正誤の読み上げ文は GPT に作らせない
+- 生成 AI（Gemini）の呼び出しは `hints.py` と `check.py` だけ。タイムアウト 8 秒、リトライなし。正誤の読み上げ文は AI に作らせない
 
 ## 言ってはいけない主張（README・ピッチ・トップページ）
 

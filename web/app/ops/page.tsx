@@ -12,7 +12,6 @@ import {
   type SessionList,
 } from "@/lib/api";
 
-const WORKSHEETS = ["FREE"];
 const MODES: Mode[] = ["live", "scripted"];
 // openapi.yaml の Settings の既定値
 const DEFAULT_STUCK_SECONDS = 20;
@@ -29,7 +28,6 @@ function errorText(error: unknown): string {
 export default function OpsPage() {
   // オペレータキーは React の state にだけ持つ（保存しない。ページを閉じたら消える）
   const [operatorKey, setOperatorKey] = useState("");
-  const [worksheetId, setWorksheetId] = useState(WORKSHEETS[0]);
   const [mode, setMode] = useState<Mode>("live");
   const [stuckSeconds, setStuckSeconds] = useState(DEFAULT_STUCK_SECONDS);
   const [cooldownSeconds, setCooldownSeconds] = useState(DEFAULT_COOLDOWN_SECONDS);
@@ -64,7 +62,7 @@ export default function OpsPage() {
     setMessage("");
     try {
       const session = await createSession(
-        { worksheet_id: worksheetId, mode, settings: { stuck_seconds: stuckSeconds, cooldown_seconds: cooldownSeconds } },
+        { worksheet_id: "FREE", mode, settings: { stuck_seconds: stuckSeconds, cooldown_seconds: cooldownSeconds } },
         operatorKey,
       );
       const query = new URLSearchParams({ s: session.session_id, t: session.session_token });
@@ -90,7 +88,7 @@ export default function OpsPage() {
   async function handleForceStuck() {
     setMessage("");
     try {
-      await postSignal(stuckTarget, { operatorKey }, { ts: new Date().toISOString(), force_stuck: true });
+      await postSignal(stuckTarget, { operatorKey }, { force_stuck: true });
       setMessage(`強制 stuck を送った（${stuckTarget}）`);
     } catch (error) {
       setMessage(`強制 stuck に失敗: ${errorText(error)}`);
@@ -115,14 +113,6 @@ export default function OpsPage() {
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-bold">セッション作成</h2>
         <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-4">
-          <label className="flex flex-col gap-1">
-            worksheet_id
-            <select value={worksheetId} onChange={(event) => setWorksheetId(event.target.value)} className={INPUT}>
-              {WORKSHEETS.map((id) => (
-                <option key={id}>{id}</option>
-              ))}
-            </select>
-          </label>
           <label className="flex flex-col gap-1">
             mode
             <select value={mode} onChange={(event) => setMode(event.target.value as Mode)} className={INPUT}>

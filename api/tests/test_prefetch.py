@@ -64,7 +64,7 @@ def test_auto_hint_at_stuck_is_the_one_prepared_from_the_earlier_frame(device: D
         "send_frame_and_request_hint",
     ]
     hint = device.hint(frame_id)
-    assert (hint["speech"], hint["source"], hint["level"], hint["state"]) == (HINT_SPEECH, "gpt", 1, "speaking")
+    assert (hint["speech"], hint["source"], hint["level"], hint["state"]) == (HINT_SPEECH, "ai", 1, "speaking")
     assert ai.started == 1
 
 
@@ -98,7 +98,7 @@ def test_hint_prepared_for_an_earlier_stuck_is_not_used_for_the_next_one(device:
     assert [device.signal(second, STILL)["state"] for second in range(23, 26)][-1] == "stuck"
     assert device.force_stuck(31)["state"] == "stuck"
     hint = device.hint(frame_id)
-    assert (hint["level"], hint["source"]) == (2, "gpt")
+    assert (hint["level"], hint["source"]) == (2, "ai")
     assert ai.started == 3
 
 
@@ -117,7 +117,7 @@ def test_switching_persona_discards_the_old_prefetch_and_uses_the_new_style(devi
     for second in range(9, 12):
         device.signal(second, STILL)
     hint = device.hint(frame_id)
-    assert (hint["speech"], hint["display"], hint["source"]) == (HINT_SPEECH, HINT_SPEECH, "gpt")
+    assert (hint["speech"], hint["display"], hint["source"]) == (HINT_SPEECH, HINT_SPEECH, "ai")
     assert ai.started == 2
     assert get_persona("ikemen").style_instruction in ai.systems[-1]
     assert get_persona("teacher").style_instruction not in ai.systems[-1]

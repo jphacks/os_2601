@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 const OperatorKeyContext = createContext("");
 
@@ -11,11 +11,13 @@ export function useOperatorKey(): string {
 
 export function OperatorKeyProvider({ children }: { children: ReactNode }) {
   const params = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
   const [operatorKey, setOperatorKey] = useState(() => params.get("k") ?? "");
 
   useEffect(() => {
-    if (params.has("k")) window.history.replaceState(null, "", window.location.pathname);
-  }, [params]);
+    if (params.has("k")) router.replace(pathname, { scroll: false });
+  }, [params, pathname, router]);
 
   return (
     <OperatorKeyContext value={operatorKey}>

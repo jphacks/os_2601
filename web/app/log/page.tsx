@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { listSessions } from "@/lib/api";
-import { clock, sessionStatus } from "./_components/format";
-import { usePolled } from "./_components/usePolled";
+import { useOperatorPolling } from "./_components/useOperatorPolling";
+import { dateTime, sessionStatus } from "./format";
 
 export default function LogListPage() {
-  const { data, error } = usePolled(listSessions);
-  const sessions = [...(data?.sessions ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const { data, error } = useOperatorPolling(listSessions);
+  const sessions = data?.sessions ?? [];
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-6">
@@ -22,8 +22,9 @@ export default function LogListPage() {
               className="flex flex-wrap items-baseline gap-x-4 gap-y-1 rounded-lg border border-gray-200 px-4 py-3 hover:bg-gray-50"
             >
               <span className="font-bold">{session.learner_label}</span>
-              <span className="text-gray-500">{clock(session.created_at)}</span>
+              <span className="text-gray-500">{dateTime(session.created_at)}</span>
               <span className="text-gray-500">{sessionStatus(session.state)}</span>
+              {session.mode === "scripted" && <span className="rounded bg-gray-200 px-2 text-sm">台本</span>}
               <span className="ml-auto">
                 できた {session.problem_done} 問・詰まった {session.stuck_total} 回
               </span>

@@ -3,7 +3,7 @@ from datetime import timedelta
 import pytest
 from conftest import OPERATOR_KEY, Device
 
-from app import routes
+from app import limits
 
 
 @pytest.fixture
@@ -58,9 +58,9 @@ def test_the_rightmost_forwarded_address_is_the_one_counted(device: Device) -> N
 
 
 def test_all_addresses_together_are_capped(device: Device) -> None:
-    statuses = [open_session(device, ip=f"203.0.113.{number}").status_code for number in range(routes.OPEN_SESSIONS_PER_MINUTE_TOTAL + 1)]
+    statuses = [open_session(device, ip=f"203.0.113.{number}").status_code for number in range(limits.OPEN_SESSIONS_PER_MINUTE_TOTAL + 1)]
     assert statuses[-1] == 429
-    assert len(device.client.app.state.context.opened_at) == routes.OPEN_SESSIONS_PER_MINUTE_TOTAL
+    assert len(device.client.app.state.context.opened_at) == limits.OPEN_SESSIONS_PER_MINUTE_TOTAL
 
 
 def test_expired_open_sessions_show_as_ended_in_the_list_and_are_forgotten_after_a_day(device: Device) -> None:

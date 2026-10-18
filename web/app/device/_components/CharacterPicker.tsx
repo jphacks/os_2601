@@ -9,7 +9,7 @@ type Props = {
 export function CharacterPicker({ value, onChange, disabled = false }: Props) {
   return (
     <fieldset disabled={disabled} className="flex flex-col gap-2 disabled:opacity-50">
-      <legend className="mb-2 text-base font-bold text-slate-700">となりに座る人</legend>
+      <legend className="mb-1 text-sm font-bold text-slate-700">となりに座る人</legend>
       <div className="flex flex-wrap gap-2">
         {CHARACTERS.map(({ id, label }) => (
           <button
@@ -18,7 +18,7 @@ export function CharacterPicker({ value, onChange, disabled = false }: Props) {
             disabled={disabled}
             onClick={() => onChange(id)}
             aria-pressed={value === id}
-            className={`min-h-11 rounded-full px-4 text-base font-bold shadow-sm transition active:scale-95 ${
+            className={`min-h-10 rounded-full px-3 text-sm font-bold shadow-sm transition active:scale-95 ${
               value === id ? "bg-sky-500 text-white" : "bg-white text-slate-600"
             }`}
           >

@@ -107,10 +107,15 @@ export async function speak(text: string): Promise<void> {
   utterance.pitch = 1;
   if (voice) utterance.voice = voice;
   if (turn !== speechTurn) return;
+  let limit: ReturnType<typeof setTimeout> | undefined;
   await new Promise<void>((resolve, reject) => {
     utterance.onend = () => resolve();
     utterance.onerror = (event) =>
       CANCELLED_ERRORS.has(event.error) ? resolve() : reject(new Error(`読み上げに失敗した: ${event.error}`));
+    limit = setTimeout(() => {
+      speechSynthesis.cancel();
+      resolve();
+    }, PLAYBACK_LIMIT_MS);
     speechSynthesis.speak(utterance);
-  });
+  }).finally(() => clearTimeout(limit));
 }

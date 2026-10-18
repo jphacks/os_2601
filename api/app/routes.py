@@ -2,6 +2,8 @@ import asyncio
 import logging
 import secrets
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal, NoReturn
@@ -62,7 +64,9 @@ MAX_UTTERANCE_CHARS = 200
 OPEN_SESSIONS_PER_MINUTE = 3
 OPEN_SESSIONS_PER_MINUTE_TOTAL = 30
 OPEN_SESSION_LIFETIME = timedelta(minutes=30)
-OPEN_SESSION_KEPT_FOR = timedelta(days=1)
+OPEN_SESSION_KEPT_FOR = timedelta(hours=2)
+AI_CALLS_PER_MINUTE = 20
+SPEECHES_PER_MINUTE = 40
 OPEN_SESSION_LABEL = "自分で始めた"
 SPEECH_REQUEST_MAX_CHARS = 200
 SPEECH_AFTER_END_SECONDS = 60
@@ -93,6 +97,9 @@ class AppContext:
     prefetches: dict[str, Prefetch] = field(default_factory=dict)
     voice: Voicevox | None = None
     opened_at: dict[str, list[datetime]] = field(default_factory=dict)
+    ai_calls: dict[str, list[datetime]] = field(default_factory=dict)
+    speeches: dict[str, list[datetime]] = field(default_factory=dict)
+    busy: set[tuple[str, str]] = field(default_factory=set)
 
 
 StuckSeconds = Annotated[int, Field(ge=5, le=1200)]
@@ -304,6 +311,31 @@ def _forget_old_open_sessions(context: AppContext, now: datetime) -> None:
     for session in context.store.all():
         if session.auto_end_at is not None and now - session.auto_end_at > OPEN_SESSION_KEPT_FOR:
             context.store.remove(session.session_id)
+            _discard_prefetch(context, session.session_id)
+    alive = {session.session_id for session in context.store.all()}
+    for calls in (context.frames, context.ai_calls, context.speeches):
+        for session_id in [session_id for session_id in calls if session_id not in alive]:
+            del calls[session_id]
+
+
+def _count_call(calls: dict[str, list[datetime]], session_id: str, limit: int) -> None:
+    now = _now()
+    recent = [called for called in calls.get(session_id, []) if now - called < timedelta(minutes=1)]
+    if len(recent) >= limit:
+        _fail(429, "少し待ってから、もう一度")
+    calls[session_id] = [*recent, now]
+
+
+@contextmanager
+def _one_at_a_time(context: AppContext, session_id: str, kind: str) -> Iterator[None]:
+    key = (session_id, kind)
+    if key in context.busy:
+        _fail(429, "前の問い合わせが終わってから、もう一度")
+    context.busy.add(key)
+    try:
+        yield
+    finally:
+        context.busy.discard(key)
 
 
 def _apply(context: AppContext, session: Session, event: Event, now: datetime) -> tuple[Session, Accepted]:
@@ -621,6 +653,7 @@ async def _answer_utterance(context: AppContext, session: Session, utterance: st
             requested_at=now,
             prefetched=False,
         )
+    _count_call(context.ai_calls, session.session_id, AI_CALLS_PER_MINUTE)
     try:
         composed = await compose_answer(
             context.ai,
@@ -661,7 +694,8 @@ async def request_hint(
     session = _find_session(context, session_id)
     _require_device(request, context, session)
     if body.trigger == "voice" and body.utterance:
-        return await _answer_utterance(context, session, body.utterance)
+        with _one_at_a_time(context, session_id, "voice"):
+            return await _answer_utterance(context, session, body.utterance)
     started = time.monotonic()
     now = _now()
     session, accepted = _apply(context, session, HintRequested(body.trigger), now)
@@ -676,6 +710,8 @@ async def request_hint(
         elif composing:
             composed = await composing
         else:
+            if body.trigger != "auto":
+                _count_call(context.ai_calls, session_id, AI_CALLS_PER_MINUTE)
             composed = await _compose(context, problem, accepted.level, _latest_frame(context, session_id), session.settings.persona)
     except Exception:
         _abandon_hint(context, session_id, accepted.ticket)
@@ -742,13 +778,16 @@ async def post_problem(
 ) -> dict:
     session = _find_session(context, session_id)
     _require_device(request, context, session)
+    session, _ = _apply(context, session, Tick(), _now())
     if session.state == "ended":
         _fail(409, "終了したセッションでは読み取れない")
     problem_no = session.current_problem_no
     started = time.monotonic()
-    problem_text = await read_problem(
-        context.ai, context.hint_model, _latest_frame(context, session_id), session.current_problem.problem_text
-    )
+    with _one_at_a_time(context, session_id, f"problem-{problem_no}"):
+        _count_call(context.ai_calls, session_id, AI_CALLS_PER_MINUTE)
+        problem_text = await read_problem(
+            context.ai, context.hint_model, _latest_frame(context, session_id), session.current_problem.problem_text
+        )
     session = _find_session(context, session_id)
     problem = session.problems[problem_no - 1]
     if problem_text and session.current_problem_no == problem_no and problem_text != problem.problem_text:
@@ -766,8 +805,10 @@ async def post_problem(
 async def post_tts(session_id: str, body: SpeechRequest, request: Request, context: AppContext = Depends(get_context)) -> Response:
     session = _find_session(context, session_id)
     _require_device(request, context, session)
+    session, _ = _apply(context, session, Tick(), _now())
     if session.ended_at is not None and _now() - session.ended_at > timedelta(seconds=SPEECH_AFTER_END_SECONDS):
         raise HTTPException(status_code=409, detail="終わったセッションの読み上げは受け付けない")
+    _count_call(context.speeches, session_id, SPEECHES_PER_MINUTE)
     if context.voice is None:
         raise HTTPException(status_code=503, detail="読み上げの声が用意されていない")
     started = time.monotonic()

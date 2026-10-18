@@ -164,6 +164,7 @@ function Device() {
         console.warn("[device] getSession に失敗", error);
         if (cancelled) return;
         if (error instanceof ApiError && error.status === 404) {
+          setCaption(OPENING_CAPTION);
           router.replace(pageWithoutSession());
           return;
         }
@@ -196,6 +197,11 @@ function Device() {
     return () => clearTimeout(timer);
   }, [heard]);
 
+  function closingWords(): string {
+    const confirmed = sessionRef.current;
+    return endMessage(confirmed?.settings.persona ?? "teacher", confirmed?.persona_options);
+  }
+
   function applyState(next: State, nextProblemNo: number) {
     // startSessionのコールバックは最初の描画を保持するため、現在の番号はrefで比較する。
     // 次へ進んだ後に届いた古い応答で、前の問題文を復活させない。
@@ -210,9 +216,7 @@ function Device() {
     if (next === "ended") {
       finishingRef.current = false;
       setFinishing(false);
-      const confirmed = sessionRef.current;
-      const persona = confirmed?.settings.persona ?? "teacher";
-      const message = endMessage(persona, confirmed?.persona_options);
+      const message = closingWords();
       setCaption(lastCheckRef.current ? `${lastCheckRef.current} ${message}` : message);
       if (!endSpokenRef.current) {
         endSpokenRef.current = true;
@@ -235,7 +239,7 @@ function Device() {
 
   async function handlePersonaChange(value: string) {
     if (
-      (value !== "teacher" && value !== "ikemen") || personaUpdatingRef.current || startingRef.current || busy ||
+      (value !== "teacher" && value !== "ikemen") || personaUpdatingRef.current || startingRef.current || finishingRef.current || busy ||
       !["created", "watching", "still", "cooldown"].includes(stateRef.current)
     ) return;
     const confirmed = sessionRef.current;
@@ -382,18 +386,22 @@ function Device() {
     hintWhileCheckingRef.current = false;
     try {
       const check = await requestCheck();
-      if (version !== requestVersion.current || checkedProblemNo !== problemNoRef.current || stateRef.current === "ended") return;
+      if (version !== requestVersion.current || checkedProblemNo !== problemNoRef.current) return;
       if (check.state === "ended") {
         lastCheckRef.current = check.display;
-        setCaption(check.display);
+        setCaption(stateRef.current === "ended" ? `${check.display} ${closingWords()}` : check.display);
         return;
       }
+      if (stateRef.current === "ended") return;
       applyState(check.state, check.next_problem_no ?? check.problem_no);
       if (!FIXED_CAPTIONS[check.state]) setCaption(check.display);
     } catch (error) {
       console.warn("[device] できたに失敗", error);
       const message = failureCaption(error);
-      if (version === requestVersion.current && checkedProblemNo === problemNoRef.current && stateRef.current === "checking") {
+      if (
+        version === requestVersion.current && checkedProblemNo === problemNoRef.current &&
+        stateRef.current === "checking" && !finishingRef.current
+      ) {
         stateRef.current = before.state;
         setState(before.state);
         if (!hintWhileCheckingRef.current) setCaption(message ?? before.caption);
@@ -428,7 +436,7 @@ function Device() {
       await end();
     } catch (error) {
       console.warn("[device] 終わりを伝えられなかった", error);
-      const unreachable = error instanceof ApiError || error instanceof TypeError || error instanceof DOMException;
+      const unreachable = error instanceof TypeError || error instanceof DOMException || (error instanceof ApiError && error.status >= 500);
       if (version === requestVersion.current && unreachable) setCaption(END_FAILED_CAPTION);
     } finally {
       if (version === requestVersion.current) {
@@ -506,7 +514,7 @@ function Device() {
           {state !== "ended" && <CharacterPicker
             value={characterId}
             onChange={(id) => void handlePersonaChange(id === "handsome" ? "ikemen" : "teacher")}
-            disabled={!session || busy || personaUpdating || !canChangePersona}
+            disabled={!session || busy || personaUpdating || finishing || !canChangePersona}
           />}
           {personaError && <p role="status" className="px-2 text-sm text-red-700">{personaError}</p>}
           {state === "created" && selectedSeconds !== null && (

@@ -48,7 +48,8 @@ type Session = {
   greeted: boolean;
   requestInFlight: boolean;
   checking: boolean;
-  checkDoneAt: number;
+  answeredAt: number;
+  finishing: boolean;
   voiceInFlight: boolean;
   pendingUtterance: string | null;
   autoHintDone: boolean;
@@ -100,6 +101,8 @@ function say(session: Session, text: string | null): void {
 }
 
 function finish(session: Session, problemNo: number, lastWords: string | null = null): void {
+  if (session.finishing) return;
+  session.finishing = true;
   session.stop();
   stopCamera();
   const announce = () =>
@@ -122,6 +125,7 @@ function finish(session: Session, problemNo: number, lastWords: string | null = 
 
 function applyResponse(session: Session, speech: string | null, state: State, problemNo: number): void {
   if (!session.running) return;
+  session.answeredAt = performance.now();
   if (state === "ended") {
     finish(session, problemNo, speech);
     return;
@@ -225,7 +229,7 @@ function handleSignal(session: Session, signal: SignalResponse, sentAt: number):
     finish(session, signal.current_problem_no);
     return;
   }
-  if (session.checking || sentAt < session.checkDoneAt) return;
+  if (session.checking || sentAt < session.answeredAt) return;
   session.handlers.onState(signal);
   if (signal.state === "watching" && !session.greeted) {
     session.greeted = true;
@@ -260,7 +264,7 @@ async function sendSignal(session: Session): Promise<void> {
     session.latestScore === null
       ? { camera_ok: session.cameraOk }
       : { motion: session.latestScore, camera_ok: session.cameraOk };
-  const sentAt = Date.now();
+  const sentAt = performance.now();
   try {
     const debugNote = new URLSearchParams(window.location.search).get("debug") === "1" ? voiceStatus() : undefined;
     const signal = await postSignal(session.id, { token: session.token }, body, debugNote);
@@ -303,7 +307,8 @@ export function startSession(
     greeted: false,
     requestInFlight: false,
     checking: false,
-    checkDoneAt: 0,
+    answeredAt: 0,
+    finishing: false,
     voiceInFlight: false,
     pendingUtterance: null,
     autoHintDone: false,
@@ -364,7 +369,7 @@ export async function requestCheck(): Promise<CheckResponse> {
     return check;
   } finally {
     session.checking = false;
-    session.checkDoneAt = Date.now();
+    session.answeredAt = performance.now();
     session.requestInFlight = false;
   }
 }

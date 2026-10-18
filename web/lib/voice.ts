@@ -69,12 +69,12 @@ function createRecognizer(): Recognizer | null {
     let finished = false;
     for (let i = event.resultIndex; i < event.results.length; i += 1) {
       const text = event.results[i][0].transcript.trim();
-      if (!text) continue;
       if (!event.results[i].isFinal) {
-        pending.push(text);
+        if (text) pending.push(text);
         continue;
       }
       finished = true;
+      if (!text) continue;
       note(`聞こえた ${text.length} 字`);
       onHeard(text);
     }
@@ -122,13 +122,16 @@ function createRecognizer(): Recognizer | null {
     if (wanted && !waitingForTap) scheduleBegin(delayMs);
     nextBeginDelayMs = RESTART_DELAY_MS;
   };
-  window.addEventListener("click", () => {
-    if (!waitingForTap) return;
+  const onTap = (event: PointerEvent) => {
+    const activates = event.type === "pointerup" ? event.pointerType !== "mouse" : event.pointerType === "mouse";
+    if (!waitingForTap || !activates) return;
     waitingForTap = false;
     note("タップ");
     startedByTap = true;
     begin();
-  });
+  };
+  window.addEventListener("pointerdown", onTap);
+  window.addEventListener("pointerup", onTap);
   return created;
 }
 

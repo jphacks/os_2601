@@ -65,7 +65,7 @@ OPEN_SESSIONS_PER_MINUTE = 3
 OPEN_SESSIONS_PER_MINUTE_TOTAL = 30
 OPEN_SESSION_LIFETIME = timedelta(minutes=30)
 OPEN_SESSION_KEPT_FOR = timedelta(hours=2)
-AI_CALLS_PER_MINUTE = 12
+AI_CALLS_PER_MINUTE = 20
 SPEECHES_PER_MINUTE = 40
 OPEN_SESSION_LABEL = "自分で始めた"
 SPEECH_REQUEST_MAX_CHARS = 200
@@ -653,6 +653,7 @@ async def _answer_utterance(context: AppContext, session: Session, utterance: st
             requested_at=now,
             prefetched=False,
         )
+    _count_call(context.ai_calls, session.session_id, AI_CALLS_PER_MINUTE)
     try:
         composed = await compose_answer(
             context.ai,
@@ -692,7 +693,6 @@ async def request_hint(
 ) -> dict | Response:
     session = _find_session(context, session_id)
     _require_device(request, context, session)
-    _count_call(context.ai_calls, session_id, AI_CALLS_PER_MINUTE)
     if body.trigger == "voice" and body.utterance:
         with _one_at_a_time(context, session_id, "voice"):
             return await _answer_utterance(context, session, body.utterance)
@@ -710,6 +710,8 @@ async def request_hint(
         elif composing:
             composed = await composing
         else:
+            if body.trigger != "auto":
+                _count_call(context.ai_calls, session_id, AI_CALLS_PER_MINUTE)
             composed = await _compose(context, problem, accepted.level, _latest_frame(context, session_id), session.settings.persona)
     except Exception:
         _abandon_hint(context, session_id, accepted.ticket)
@@ -738,7 +740,6 @@ async def post_check(
 ) -> dict:
     session = _find_session(context, session_id)
     _require_device(request, context, session)
-    _count_call(context.ai_calls, session_id, AI_CALLS_PER_MINUTE)
     now = _now()
     session, _ = _apply(context, session, CheckRequested(), now)
     checked_no = session.current_problem_no
@@ -780,10 +781,10 @@ async def post_problem(
     session, _ = _apply(context, session, Tick(), _now())
     if session.state == "ended":
         _fail(409, "終了したセッションでは読み取れない")
-    _count_call(context.ai_calls, session_id, AI_CALLS_PER_MINUTE)
     problem_no = session.current_problem_no
     started = time.monotonic()
-    with _one_at_a_time(context, session_id, "problem"):
+    with _one_at_a_time(context, session_id, f"problem-{problem_no}"):
+        _count_call(context.ai_calls, session_id, AI_CALLS_PER_MINUTE)
         problem_text = await read_problem(
             context.ai, context.hint_model, _latest_frame(context, session_id), session.current_problem.problem_text
         )

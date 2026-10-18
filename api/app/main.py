@@ -77,6 +77,14 @@ def create_app() -> FastAPI:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     app = FastAPI(title="となり API")
     app.state.context = _build_context()
+    @app.middleware("http")
+    async def refuse_large_frames(request: Request, call_next):
+        if request.method == "POST" and request.url.path.endswith("/frames"):
+            length = request.headers.get("content-length")
+            if length is not None and length.isdigit() and int(length) > MAX_FRAME_BYTES + MULTIPART_OVERHEAD_BYTES:
+                return _error(413, f"フレームは {MAX_FRAME_BYTES // 1024} KB まで")
+        return await call_next(request)
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[origin.strip() for origin in os.environ.get("CORS_ORIGINS", "").split(",") if origin.strip()],
@@ -86,13 +94,6 @@ def create_app() -> FastAPI:
     )
     app.include_router(router)
 
-    @app.middleware("http")
-    async def refuse_large_frames(request: Request, call_next):
-        if request.method == "POST" and request.url.path.endswith("/frames"):
-            length = request.headers.get("content-length")
-            if length is None or not length.isdigit() or int(length) > MAX_FRAME_BYTES + MULTIPART_OVERHEAD_BYTES:
-                return _error(413, f"フレームは {MAX_FRAME_BYTES // 1024} KB まで")
-        return await call_next(request)
 
     @app.exception_handler(HTTPException)
     async def http_error(_: Request, error: HTTPException) -> JSONResponse:

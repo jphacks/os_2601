@@ -261,7 +261,7 @@ paths:
       summary: フレーム 1 枚（JPEG）
       description: |
         送るのは 3 つの瞬間だけ（`next_action` が来たとき、「ヒント」を押したとき、「できた」を押したとき）。定期的には送らない。
-        サーバはセッションごとに最新 1 枚だけメモリに持ち、保存しない。600 KB を超えたら 413。`ended` では 409。
+        サーバはセッションごとに最新 1 枚だけメモリに持ち、保存しない。600 KB を超えたら 413（`Content-Length` が上限を大きく超えるときは、本文を読む前・認可の前に 413。ADR 0039）。`ended` では 409。
         `send_frame` を返した後の `still` の間に届いたフレームでは、次の `auto` の段階（`min(stuck_count + 1, max_level)`）のヒントを裏で作り始める。静止が途切れたら（`still`・`stuck` 以外になったら）取り消す（ADR 0028）。
       security:
         - device: []
@@ -705,7 +705,7 @@ components:
             $ref: "#/components/schemas/Error"
           example: {"error": {"code": "FORBIDDEN", "message": "..."}}
     RateLimited:
-      description: 回数の上限（/sessions/open は IP ごとに 1 分 3 件。AI を呼ぶ口はセッションごとに 1 分 12 回、/tts は 1 分 40 回、問題文の読み取りと声の質問は同時に 1 本。ADR 0039）
+      description: 回数の上限（/sessions/open は IP ごとに 1 分 3 件。ボタンのヒント・声の質問・問題文の読み取りで AI を実際に呼ぶのはセッションごとに 1 分 20 回、/tts は 1 分 40 回。問題文の読み取り（同じ問題で）と声の質問は同時に 1 本。ADR 0039）
       content:
         application/json:
           schema:

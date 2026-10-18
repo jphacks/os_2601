@@ -67,8 +67,8 @@ def test_a_session_can_call_the_ai_only_so_often_a_minute(device: Device, ai: Sl
     device.signal(0, 0.05)
     device.frame()
     path = f"/sessions/{device.session_id}/problem"
-    statuses = [device.client.post(path, json={"frame_id": "frm_x"}, headers=device.headers).status_code for _ in range(13)]
-    assert statuses == [200] * 12 + [429]
+    statuses = [device.client.post(path, json={"frame_id": "frm_x"}, headers=device.headers).status_code for _ in range(routes.AI_CALLS_PER_MINUTE + 1)]
+    assert statuses == [200] * routes.AI_CALLS_PER_MINUTE + [429]
     device.now += timedelta(minutes=1, seconds=1)
     assert device.client.post(path, json={"frame_id": "frm_x"}, headers=device.headers).status_code == 200
 
@@ -102,6 +102,7 @@ def test_strange_answers_do_not_break_the_leak_check() -> None:
     assert "x=" + "9" * 400 + "/3" in leak_strings("x = " + "9" * 400 + "/3", [])
     assert normalize("1二分の3") == "3/12"
     assert normalize("二十分の一") == "1/20"
+    assert normalize("十十分の一") == "1/十十"
 
 
 def test_an_unknown_max_level_stops_the_app_at_startup(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -110,3 +111,36 @@ def test_an_unknown_max_level_stops_the_app_at_startup(monkeypatch: pytest.Monke
     monkeypatch.setattr(main, "SETTINGS_PATH", settings)
     with pytest.raises(ValueError, match="max_level"):
         main.create_app()
+
+
+def test_requests_that_never_reach_the_ai_do_not_use_up_the_budget(device: Device) -> None:
+    device.signal(0, 0.05)
+    frame_id = device.frame()
+    for _ in range(routes.AI_CALLS_PER_MINUTE + 5):
+        body = {"trigger": "voice", "frame_id": frame_id, "utterance": "これで合ってる？"}
+        device.client.post(f"/sessions/{device.session_id}/hints", json=body, headers=device.headers)
+        device.client.post(f"/sessions/{device.session_id}/hints", json={"trigger": "auto", "frame_id": frame_id}, headers=device.headers)
+    assert device.client.app.state.context.ai_calls.get(device.session_id, []) == []
+
+
+def test_a_new_problem_can_be_read_while_the_old_one_is_still_being_read(device: Device) -> None:
+    context = device.client.app.state.context
+    context.busy.add((device.session_id, "problem-1"))
+    device.signal(0, 0.05)
+    device.frame()
+    context.store.get(device.session_id).current_problem_no = 2
+    assert device.client.post(f"/sessions/{device.session_id}/problem", json={"frame_id": "frm_x"}, headers=device.headers).status_code == 200
+
+
+def test_a_frame_without_length_is_left_to_the_route(device: Device) -> None:
+    files = {"frame": ("frame.jpg", b"\xff\xd8jpeg", "image/jpeg")}
+    assert device.client.post(f"/sessions/{device.session_id}/frames", files=files, headers=device.headers).status_code == 200
+
+
+def test_the_large_frame_refusal_carries_cors_headers(device: Device) -> None:
+    response = device.client.post(
+        "/sessions/ses_none/frames",
+        content=b"x",
+        headers={"content-length": str(10 * 1024 * 1024), "content-type": "multipart/form-data; boundary=b", "origin": "https://tonari-nine.vercel.app"},
+    )
+    assert (response.status_code, response.headers.get("access-control-allow-origin")) == (413, "https://tonari-nine.vercel.app")

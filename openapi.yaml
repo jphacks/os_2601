@@ -407,7 +407,6 @@ paths:
               properties:
                 frame_id:
                   type: string
-                  pattern: "^frm_"
             example: {"frame_id": "frm_…"}
       responses:
         "200":

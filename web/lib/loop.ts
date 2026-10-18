@@ -26,7 +26,7 @@ export type SessionHandlers = {
   onBrightness: (brightness: number) => void;
   onConnection: (connected: boolean) => void;
   onHeard: (text: string) => void;
-  onProblem?: (text: string | null) => void;
+  onProblem: (text: string | null) => void;
 };
 
 type Session = {
@@ -48,6 +48,7 @@ type Session = {
   autoHintDone: boolean;
   prefetchedFrame: Promise<string | null> | null;
   problemReadTimer: ReturnType<typeof setTimeout> | undefined;
+  problemReadRetried: boolean;
   speechesInProgress: number;
   stop: () => void;
 };
@@ -57,6 +58,7 @@ const MAX_FAILED_SIGNALS = 3;
 const GREETING = "見守りを始めるよ";
 const FIRST_PROBLEM_READ_MS = 3000;
 const NEXT_PROBLEM_READ_MS = 1000;
+const PROBLEM_READ_RETRY_MS = 3000;
 const MIN_UTTERANCE_CHARS = 3;
 const MAX_UTTERANCE_CHARS = 200;
 const LISTEN_STATES: State[] = ["watching", "still", "cooldown"];
@@ -70,7 +72,7 @@ function requireSession(): Session {
 
 function updateState(session: Session, state: State, problemNo: number): void {
   session.state = state;
-  if (problemNo !== session.problemNo && state !== "ended") scheduleProblemRead(session, NEXT_PROBLEM_READ_MS);
+  if (problemNo !== session.problemNo) scheduleProblemRead(session, NEXT_PROBLEM_READ_MS);
   session.problemNo = problemNo;
   if (!LISTEN_STATES.includes(state)) {
     stopListening();
@@ -112,6 +114,7 @@ function applyResponse(session: Session, speech: string | null, state: State, pr
 
 function scheduleProblemRead(session: Session, delayMs: number): void {
   clearTimeout(session.problemReadTimer);
+  session.problemReadRetried = false;
   session.problemReadTimer = setTimeout(() => void readCurrentProblem(session), delayMs);
 }
 
@@ -119,9 +122,12 @@ async function readCurrentProblem(session: Session): Promise<void> {
   if (!session.running) return;
   try {
     const response = await readProblem(session.id, session.token, { frame_id: await sendFrame(session) });
-    if (session.running && response.problem_no === session.problemNo) session.handlers.onProblem?.(response.problem_text);
+    if (session.running && response.problem_no === session.problemNo) session.handlers.onProblem(response.problem_text);
   } catch (error) {
     console.warn("[loop] 問題文の読み取りに失敗", error);
+    if (session.problemReadRetried) return;
+    session.problemReadRetried = true;
+    session.problemReadTimer = setTimeout(() => void readCurrentProblem(session), PROBLEM_READ_RETRY_MS);
   }
 }
 
@@ -200,6 +206,7 @@ function handleSignal(session: Session, signal: SignalResponse): void {
   }
   if (signal.state === "watching" && !session.greeted) {
     session.greeted = true;
+    session.problemNo = signal.current_problem_no;
     say(session, GREETING);
     scheduleProblemRead(session, FIRST_PROBLEM_READ_MS);
   }
@@ -273,6 +280,7 @@ export function startSession(
     autoHintDone: false,
     prefetchedFrame: null,
     problemReadTimer: undefined,
+    problemReadRetried: false,
     speechesInProgress: 0,
     stop: () => {},
   };

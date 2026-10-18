@@ -329,7 +329,7 @@ export async function postCheck(id: string, token: string, body: CheckRequest): 
 }
 
 export async function readProblem(id: string, token: string, body: { frame_id: string }): Promise<ProblemResponse> {
-  if (USE_MOCK) return { problem_no: 1, problem_text: "2x - 7 = 4x + 3", state: "watching" };
+  if (USE_MOCK) return { problem_no: mockAdvanceCount + 1, problem_text: "2x - 7 = 4x + 3", state: "watching" };
   return request(sessionPath(id, "/problem"), jsonInit("POST", { token }, body));
 }
 

@@ -649,8 +649,10 @@ async def post_problem(
         context.ai, context.hint_model, _latest_frame(context, session_id), session.current_problem.problem_text
     )
     session = _find_session(context, session_id)
-    if problem_text and session.current_problem_no == problem_no:
-        session.problems[problem_no - 1].problem_text = problem_text
+    problem = session.problems[problem_no - 1]
+    if problem_text and session.current_problem_no == problem_no and problem_text != problem.problem_text:
+        problem.problem_text = problem_text
+        problem.leak_strings = []
         context.store.put(session)
         context.store.save()
     logger.info(

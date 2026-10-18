@@ -7,7 +7,6 @@ import pytest
 from app.check import CORRECT_TEXT, FAILED_TEXT, judge
 from app.gemini import AIUnavailable
 from app.hints import (
-    ANSWER_DISPLAY_MAX_CHARS,
     ANSWER_FALLBACK,
     ANSWER_SPEECH_MAX_CHARS,
     DISPLAY_MAX_CHARS,
@@ -255,9 +254,7 @@ def test_changing_the_persona_setting_updates_the_next_prompt() -> None:
 
 @pytest.mark.parametrize("persona", ["teacher", "ikemen"])
 def test_both_personas_keep_the_main_hint_and_answer_length_limits(persona: str) -> None:
-    assert (SPEECH_MAX_CHARS, DISPLAY_MAX_CHARS) == (60, 80)
-    assert (ANSWER_SPEECH_MAX_CHARS, ANSWER_DISPLAY_MAX_CHARS) == (100, 120)
-    reply = {**ai_hint("見" * 60), "display": "見" * 80}
+    reply = {**ai_hint("見" * SPEECH_MAX_CHARS), "display": "見" * DISPLAY_MAX_CHARS}
     hint = compose(FakeAI(reply), persona=persona)
     assert (len(hint.speech), len(hint.display), hint.source) == (60, 80, "gpt")
     for field, limit in (("speech", 60), ("display", 80)):

@@ -82,3 +82,5 @@
 | 0039 | [セッションごとに AI と声の回数を絞り、同じ問い合わせを重ねさせない](0039-per-session-limits.md) | 承認 |
 | 0040 | [契約の名前を今の仕組みにそろえ、使っていない口と入力を消す](0040-contract-names-and-dead-inputs.md) | 承認 |
 | 0041 | [api のルートを、要求の型・認可・上限・先読み・記録の形に分ける](0041-split-api-routes.md) | 承認 |
+| 0042 | [画面の上には、状態やシート名でなく、AI が読み取った問題文を出す](0042-show-problem-instead-of-badges.md) | 承認 |
+| 0043 | [学習者は /device の中で、その日の記録を見る](0043-record-on-device.md) | 承認 |

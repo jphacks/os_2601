@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import pytest
 
 from app.leak import contains_leak, leak_strings, normalize, without_written
@@ -81,3 +84,24 @@ def test_to_reading(raw: str, reading: str) -> None:
 
 def test_reading_folds_back_to_the_symbols_the_leak_check_uses() -> None:
     assert normalize(to_reading("6 ÷ 3 = 2")) == "6÷3=2"
+
+
+LEAK_CASES = json.loads((Path(__file__).parent / "leak_cases.json").read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("case", LEAK_CASES, ids=[f"{case['answer']}/{case['hint']}" for case in LEAK_CASES])
+def test_evaluation_set(case: dict) -> None:
+    strings = leak_strings(case["answer"], case["key_values"])
+    assert contains_leak(to_reading(case["hint"]), strings) == case["leak"]
+
+
+def test_fractions_are_spelled_the_same_way() -> None:
+    assert normalize("二分の一") == "1/2"
+    assert normalize("4分の3 だよ") == "3/4だよ"
+    assert leak_strings("x = 1/2", []) == ["0.5", "1/2", "x=1/2"]
+    assert leak_strings("x = 0.5", []) == ["0.5", "1/2", "x=0.5"]
+    assert leak_strings("x = 1/3", []) == ["1/3", "x=1/3"]
+
+
+def test_squares_are_read_aloud() -> None:
+    assert to_reading("x² = 4") == "エックスの2乗 イコール 4"

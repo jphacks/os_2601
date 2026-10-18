@@ -1,7 +1,7 @@
 {
   "session_id": "ses_mock",
-  "worksheet_id": "WS-01",
-  "worksheet_title": "一次方程式",
+  "worksheet_id": "FREE",
+  "worksheet_title": "自由な問題",
   "problem_count": 4,
   "learner_label": "デモ",
   "mode": "live",

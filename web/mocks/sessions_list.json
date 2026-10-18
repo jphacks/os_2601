@@ -2,7 +2,7 @@
   "sessions": [
     {
       "session_id": "ses_mock",
-      "worksheet_id": "WS-01",
+      "worksheet_id": "FREE",
       "learner_label": "デモ",
       "mode": "live",
       "state": "watching",
@@ -14,7 +14,7 @@
     },
     {
       "session_id": "ses_mock_ended",
-      "worksheet_id": "WS-01",
+      "worksheet_id": "FREE",
       "learner_label": "学習者",
       "mode": "live",
       "state": "ended",

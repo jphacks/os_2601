@@ -46,7 +46,7 @@ async def main() -> None:
             else:
                 print(f"「{utterance}」（{seconds:.1f} 秒、{hint.source}、漏れ検査 {hint.leak_check.ok}、{len(hint.speech)} 字）")
                 print(f"  → {hint.speech}")
-                if hint.source == "gpt":
+                if hint.source == "ai":
                     previous.append(hint.display)
                     problem_text, leaks = hint.problem_text or problem_text, hint.leak_strings
             await asyncio.sleep(PAUSE_SECONDS)

@@ -7,38 +7,34 @@
 ```mermaid
 flowchart LR
   subgraph desk["机の上"]
-    SHEET["紙のワークシート<br/>（WS-01 など）"]
+    SHEET["学習者の紙の問題<br/>（問題集・プリント）"]
     PHONE["iPhone（スタンドで真上から）<br/>ピッチでは Mac の連係カメラ"]
   end
   subgraph front["Vercel：Next.js"]
     DEV["/device<br/>カメラ・動きスコア・字幕・音声・ボタン"]
     OPS["/ops<br/>セッション作成・リセット・強制 stuck"]
     LOG["/log<br/>記録（セッション・問題・詰まりポイント）"]
-    SHT["/sheets<br/>印刷用ワークシート"]
     TOP["/<br/>製品紹介"]
   end
   subgraph api["Railway：FastAPI"]
     SM["状態機械<br/>watching / still / stuck / speaking / cooldown / checking"]
-    HG["ヒント生成<br/>H1 固定文・H2 GPT（画像入力・構造化出力）"]
-    LC["答え漏れ検査<br/>正答文字列との照合 → 固定 H2"]
+    HG["ヒント生成<br/>段階 1・2 とも AI（画像入力・構造化出力）"]
+    LC["答え漏れ検査<br/>AI が解いた答えとの照合 → 固定の問い返し"]
     MEM[("最新フレーム<br/>メモリのみ")]
     JSON[("JSON ファイル 1 つ<br/>セッション・問題・ヒント・チェック")]
-    WS["ワークシート定義<br/>正答・典型ミス・固定ヒント"]
   end
-  GPT["Gemini API（無料枠）"]
+  AI["Gemini API（無料枠）"]
   SHEET --> PHONE --> DEV
   DEV -->|"1 秒ごと motion"| SM
-  DEV -->|"止まって 17 秒・ボタン時に 1 枚"| MEM
+  DEV -->|"はじめ・詰まりの 3 秒前・ボタンと声で 1 枚"| MEM
+  MEM --> HG
   SM -->|"stuck → next_action"| DEV
-  DEV -->|"hints"| HG --> GPT
+  DEV -->|"hints"| HG --> AI
   HG --> LC --> DEV
-  WS --> HG
-  WS --> LC
   SM --> JSON
   HG --> JSON
   JSON -->|"2 秒ごと GET"| LOG
   OPS --> SM
-  WS --> SHT
 ```
 
 ### 信頼する範囲と、外に出るもの
@@ -83,11 +79,11 @@ flowchart LR
 os_2601/
 ├── api/
 │   ├── app/
-│   │   ├── main.py        # FastAPI、CORS、ルート登録、起動時にワークシート読込
+│   │   ├── main.py        # FastAPI、CORS、ルート登録、起動時に設定と保存の読込
 │   │   ├── routes.py      # 全エンドポイント（1 ファイル）
 │   │   ├── state.py       # 状態機械（純粋関数 step()＋表駆動テスト）
 │   │   ├── store.py       # JSON ファイル 1 つに保存・読込
-│   │   ├── worksheets.py  # worksheets/*.json の読込と検索
+│   │   ├── worksheets.py  # 見えないワークシート FREE（問題の枠 20）
 │   │   ├── hints.py       # Gemini の呼び出し、プロンプト、構造化出力、固定の問い返し、scripted
 │   │   ├── leak.py        # 答え漏れ検査（正規化と照合）
 │   │   └── check.py       # 正誤チェック
@@ -180,7 +176,7 @@ erDiagram
   }
 ```
 
-`final_answer_seen` は GPT が読み取った最終答案（デバッグ用）。API では返さない。最新フレーム（長辺 1024 の JPEG）はプロセスのメモリに `session_id → bytes` で 1 枚だけ持つ。
+`final_answer_seen` は AI が読み取った最終答案（デバッグ用）。API では返さない。最新フレーム（長辺 1024 の JPEG）はプロセスのメモリに `session_id → bytes` で 1 枚だけ持つ。
 
 ## 状態遷移
 
@@ -261,7 +257,7 @@ Day 1 の 10:20〜11:00 に、空のアプリを両方デプロイして疎通�
 
 ```mermaid
 flowchart LR
-  L0["L0 Mac＋連係カメラ＋クラウド<br/>live"] -->|"GPT が死んだ"| L2["L2 scripted<br/>固定ヒントを再生"]
+  L0["L0 Mac＋連係カメラ＋クラウド<br/>live"] -->|"AI が使えない"| L2["L2 scripted<br/>固定ヒントを再生"]
   L2 -->|"ネットが死んだ"| L3["L3 全部ローカル<br/>localhost"]
   L3 -->|"それでも駄目"| L4["L4 録画デモ"]
   L0 -->|"連係カメラが死んだ"| L1["L1 Mac 内蔵カメラ＋スタンド"]

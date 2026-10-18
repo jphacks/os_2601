@@ -115,7 +115,7 @@ class SettingsInput(BaseModel):
 
 
 class SessionCreateRequest(BaseModel):
-    worksheet_id: str
+    worksheet_id: Literal["FREE"]
     learner_label: str = "学習者"
     mode: Literal["live", "scripted"]
     settings: SettingsInput = SettingsInput()
@@ -425,8 +425,6 @@ async def create_session(
     body: SessionCreateRequest, request: Request, context: AppContext = Depends(get_context)
 ) -> dict:
     _require_operator(request, context)
-    if body.worksheet_id != FREE_WORKSHEET.worksheet_id:
-        _fail(422, f"ワークシート {body.worksheet_id} が無い")
     settings = SessionSettings(**{**asdict(context.default_settings), **body.settings.model_dump(exclude_none=True)})
     return _new_session(context, body.learner_label, body.mode, settings, None)
 

@@ -530,8 +530,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/AdvanceResponse"
               example: {"current_problem_no": 3, "state": "watching"}
-        "400":
-          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

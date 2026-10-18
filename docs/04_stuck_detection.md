@@ -89,7 +89,7 @@ stateDiagram-v2
 
 ### 時刻
 
-- `still_since` などはサーバの時計で記録する。デバイスの `ts` は記録用に受け取るが、判定には使わない。
+- `still_since` などはサーバの時計で記録する。デバイスは時刻を送らない（ADR 0040）。
 - `signals` は 1 秒ごとだが、遅れて 2 秒分がまとめて来ることがある。判定は `now` との差で行うので、来た数ではなく経過時間で決まる。
 - `speaking_until` と `cooldown_until` の経過もサーバの時計で、次のリクエスト（`signals`・`GET /sessions/{id}`・ボタン系）が来たときに評価する（サーバ側のタイマーは持たない）。評価順は **途絶（5 秒）→ `speaking_until` → `cooldown_until` → 今回の `motion`** の順に 1 回ずつ。
 - `still_since`・`speaking_until`・`cooldown_until`・最後に `signals` を受けた時刻はメモリ。起動時に JSON から読み込んだセッションは `ended` 以外を `watching` に戻す（再起動で `speaking` のまま固まらない）。

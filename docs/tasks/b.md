@@ -1,5 +1,7 @@
 # B のタスク（デバイス画面 `/device` と `/ops`）
 
+> Hack Day（10/17・18）の当日に使ったカード。その後の変更（ワークシートの廃止 ADR 0026、契約の改名 ADR 0040 など）は反映していない。今の契約は `openapi.yaml` と `docs/03`、今の進め方は `AGENTS.md`。
+
 順番どおりにやる。各カードの「Claude Code に渡す文」はそのまま貼ってよい。困ったら即 Slack（第一受付は D、次に高橋）。触ってよいのは `web/app/device/**` と `web/app/ops/**` だけ。`web/lib/**`・`api/**`・`openapi.yaml` は読むだけで変更しない。
 
 ## 共通の約束

@@ -1,5 +1,7 @@
 # 高橋のタスク
 
+> Hack Day（10/17・18）の当日に使ったカード。その後の変更（ワークシートの廃止 ADR 0026、契約の改名 ADR 0040 など）は反映していない。今の契約は `openapi.yaml` と `docs/03`、今の進め方は `AGENTS.md`。
+
 順番どおりにやる。各カードは「完了条件」を満たしたら次へ。カードの「Claude Code に渡す文」はそのまま貼ってよい。時間割の正は `docs/10`。
 
 ## 共通の約束
@@ -50,7 +52,7 @@
   - `speech.ts`：`unlockSpeech(): void`、`speak(text: string): Promise<void>`
   - `voice.ts`：`startListening(onHeard: (text: string) => void): () => void`、`stopListening(): void`（「わからない」の聞き取り。本物は T1-5）
   - `loop.ts`：`startSession(video, sessionId, token, handlers: {onState, onHint, onBrightness, onConnection, onHeard}): () => void`、`requestManualHint(): Promise<HintResponse>`、`requestCheck(): Promise<CheckResponse>`、`advance(): Promise<AdvanceResponse>`、`end(): Promise<void>`
-  - `api.ts`：`createSession(body, operatorKey)`、`listSessions(operatorKey)`、`getSession(id, auth)`、`patchSettings(id, token, body)`、`postSignal(id, auth, body)`、`postFrame(id, token, blob)`、`requestHint(id, token, body)`、`postCheck(id, token, body)`、`postAdvance(id, token)`、`postEnd(id, token)`、`getWorksheets()`、`getWorksheet(id)`、`demoReset(operatorKey)`。`auth` は `{token}` か `{operatorKey}`
+  - `api.ts`：`createSession(body, operatorKey)`、`listSessions(operatorKey)`、`getSession(id, auth)`、`patchSettings(id, token, body)`、`postSignal(id, auth, body)`、`postFrame(id, token, blob)`、`requestHint(id, token, body)`、`postCheck(id, token, body)`、`postAdvance(id, token)`、`postEnd(id, token)`、`demoReset(operatorKey)`。`auth` は `{token}` か `{operatorKey}`
 - 1 回目（openapi.yaml）：
 
 ```

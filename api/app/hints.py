@@ -280,7 +280,7 @@ async def compose_answer(
 
 READ_PROMPT = (
     "画像は、学習者が紙で問題を解こうとしている手元の写真です。学習者がいま解いている（これから解く）問題の文を読み取り、"
-    "problem_text に書いてください。式だけなら式を書く。読み取れなければ readable を false にし、problem_text は空にする。"
+    "problem_text に書いてください。式だけなら式を書く。(1) のような問題番号は付けない。読み取れなければ readable を false にし、problem_text は空にする。"
     "問題を解かない。" + PROBLEM_PICK_RULE
 )
 READ_SCHEMA = {

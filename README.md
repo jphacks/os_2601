@@ -25,12 +25,12 @@ iPhone の画面を録画したもの（1.5 倍速、音なし）。はじめる
 
 紙の問題（学校の宿題や問題集。初めて見る問題でよい）を解いている手元を、スタンドに立てたスマホが見ています。
 
-1. 「はじめる」を押すと、AI が紙の問題文を読み取り、画面の左上に出します。
+1. となりに座る人を選びます（先生かイケメン）。絵、ヒントの口調、声が変わります。「はじめる」を押すと、AI が紙の問題文を読み取り、画面の左上に出します。
 2. 手が止まって、本人が選んだ秒数（10 秒〜20 分、既定 20 秒）がたつと、AI が答案を見て「2行目の右辺の 4 を見てみて」のように、見る場所か次の一歩を 1 つだけ声で教えます。答えは言いません。
 3. 直したら、答えまでの次の一歩を問いかけます。それでも止まっていると、もう少し具体的に（する操作を 1 つ）言います。
 4. 「移項って何？」「この後どうするの」と声で聞けば、言葉の意味ややり方を説明します。独り言や周りの会話には答えません。
 5. 解けたら「できた」を押すと、AI が正誤を見て次の問題へ進みます。
-6. 後から「何問目で・何回・どの段階のヒントを出し・詰まりポイントは何か」を見られます。映像は残しません。
+6. 「おわる」の後に「今日の記録」を開くと、何問目で・何回・どの段階のヒントを出し・どこで詰まったかが見られます。保護者や運営は `/log` で同じ記録を見られます。映像は残しません。
 
 専用機器は要りません。家にあるスマホと 1,000 円のスタンドで始められます。教材も選びません。
 
@@ -56,10 +56,11 @@ AI には同じ呼び出しで問題を解かせておき、ヒント文にそ�
 
 ### 今後の展望
 
-- 写真が暗い・ぼやけているときの読み取り。今は理由ごとに「紙を枠の中に入れてみて」などと言い直す。
-- 答え漏れの検査の評価セットを作り、指示を変えるたびに的中率と誤検知率を測る。
-- 無料枠の 1 分あたりの回数制限（発話ごとに AI を呼ぶ）への対応。
-- 聞き取りの再開の隙間に話した言葉が落ちる（Issue #40）。
+- **難しい問題でも、示す場所を外さない。** 今は中学の一次方程式が中心で、連立方程式や文章題、図形のように解き方が分かれる問題では、AI が最初の誤りや次の一歩を取り違えることがある。問題の種類ごとに評価セットを作り、ヒントの的中率と答え漏れの誤検知率を測りながら指示を育てる（[#64](https://github.com/jphacks/os_2601/issues/64)）。
+- **となりに座る人を増やす。** 今は先生とイケメンの 2 人。人格の中身は口調の言い回しと固定文と声の 1 か所（`api/app/personas.py`）に集めてあるので、絵・口調・声の組を足すだけで増やせる。学習者が「今日はこの人と」と選ぶ楽しさを、続ける理由にする。
+- **コストを切り詰め、採算を確かめる。** 収益性はまだ確かめていない。AI の呼び出しは問題ごとに数回、音声の合成は 1 文ごとなので、1 セッションあたりの原価を測り、先読みの回数や写真の大きさ、音声の作り置きで削る。家庭が払える月額に収まるかを先に見極める。
+- **より人に近い声に。** VOICEVOX は端末の音声合成より自然になったが、抑揚と間はまだ機械的。声の候補を聞き比べ、ヒントの文の長さや句読点を声に合わせて調整する。
+- **声が出るまでの間をなくす。** ヒントは詰まりの 3 秒前に先読みして待ち 0 秒にしたが、音声の合成に 1〜2 秒、声の問いへの答えには AI の応答がそのまま乗る。音声を文の途中から流す、短い相づちを先に返す、答えも先読みする、で「隣にいる人」の間に近づける。
 
 ### 注力したこと（こだわり等）
 
@@ -67,6 +68,8 @@ AI には同じ呼び出しで問題を解かせておき、ヒント文にそ�
 - **先読み**：詰まりの 3 秒前に写真を送って AI のヒントを作っておき、詰まった瞬間に待ち時間 0 で声が出る。
 - **答え漏れの検査**：AI に解かせた答え・途中の値とヒント文を、記号の読み（イコール、マイナス、エックス）も戻してから照合する。学習者が紙にすでに書いた値は守らず、1 桁の答えは「答えは5」のような言い回しで止める。
 - **声の問いへの答え**：聞こえた文はすべて AI に送り、答えるかどうかも AI が決める。AI を待つ間はボタンを止めない。
+- **人格は口調だけ**：ヒントの中身（示す場所と操作）は人格で変えず、AI への指示の言い回しの 1 行だけを差し替える。テンプレートで文を組む案は、本物の AI で比べてヒントがぼやけたので捨てた（ADR 0031）。
+- **設計の記録**：決めたことは ADR（35 本）に、比べた案と受け入れたトレードオフごと残した。直す前に文書を直す。
 
 ## 開発技術
 
@@ -98,7 +101,11 @@ AI には同じ呼び出しで問題を解かせておき、ヒント文にそ�
 - 詰まりの 3 秒前の先読み：[`api/app/routes.py`](api/app/routes.py)、[`web/lib/loop.ts`](web/lib/loop.ts)。[44b8abb](https://github.com/jphacks/os_2601/commit/44b8abb)
 - 答え漏れの検査と読み上げの正規化：[`api/app/leak.py`](api/app/leak.py)、[`api/app/reading.py`](api/app/reading.py)、[`api/app/hints.py`](api/app/hints.py)。[f4ad5d3](https://github.com/jphacks/os_2601/commit/f4ad5d3)（初見の問題に 1 回目から AI のヒント）、[26d1eae](https://github.com/jphacks/os_2601/commit/26d1eae)（最初の誤りか次の一歩を示す）、[d0a5333](https://github.com/jphacks/os_2601/commit/d0a5333)（精度の穴 6 つ）
 - 声の問いへの答え：[`api/app/hints.py`](api/app/hints.py) の `compose_answer`、[`web/lib/voice.ts`](web/lib/voice.ts)。[acc5d6b](https://github.com/jphacks/os_2601/commit/acc5d6b)
-- 設計の記録：[`docs/adr/`](docs/adr/README.md)
+- 問題文の読み取り（はじめた 3 秒後）：[41c9436](https://github.com/jphacks/os_2601/commit/41c9436)
+- 記録画面と「今日の記録」：[`web/app/_components/record/`](web/app/_components/record/)。[9d1133b](https://github.com/jphacks/os_2601/commit/9d1133b)、[9cf4048](https://github.com/jphacks/os_2601/commit/9cf4048)
+- 人格（先生・イケメン）：[`api/app/personas.py`](api/app/personas.py)。[776c8d3](https://github.com/jphacks/os_2601/commit/776c8d3)
+- VOICEVOX の声：[`api/app/voicevox.py`](api/app/voicevox.py)、[`web/lib/speech.ts`](web/lib/speech.ts)。[4b9cf30](https://github.com/jphacks/os_2601/commit/4b9cf30)
+- 設計の記録：[`docs/adr/`](docs/adr/README.md)。残っている課題は [Issues](https://github.com/jphacks/os_2601/issues)
 
 ## 何を撮り、何を送り、何を残すか
 
@@ -139,9 +146,10 @@ Photomath や ChatGPT のカメラは「聞かれて答える」。Khanmigo は�
 
 ## 動かし方
 
-- API：`uv run --directory api --env-file .env uvicorn app.main:app --reload --port 8000`（`GEMINI_API_KEY`・`OPERATOR_KEY` が要る）
-- 画面：root で `pnpm dev:mock`（モック）か `pnpm dev`（本物の API）。検査は `pnpm check`、API のテストは `uv run --directory api pytest`
-- セッションの作成：`uv run --directory api --env-file .env tools/create_session.py --worksheet FREE --mode live --stuck 20 --count 1`。出た `/device?s=…&t=…` を手元を撮るスマホで開く
+- API：`uv run --directory api --env-file .env uvicorn app.main:app --reload --port 8000`。`.env` に `GEMINI_API_KEY`・`OPERATOR_KEY`（任意で `VOICEVOX_URL`。無ければブラウザの声）
+- 画面：root で `pnpm dev:mock`（モック。API 不要）か `pnpm dev`（本物の API。`web/.env.local` に `NEXT_PUBLIC_API_BASE`）
+- 検査：`pnpm check`（型・lint・ビルド）、`uvx ruff check api`、`uv run --directory api pytest`（158 件）。CI でも同じものを回す
+- セッションの作成：`uv run --directory api --env-file .env tools/create_session.py --worksheet FREE --mode live --stuck 20 --count 1`（`.env` に `API_BASE`・`WEB_BASE` も要る）。出た `/device?s=…&t=…` を手元を撮るスマホで開く。`/ops` からも作れる
 
 ## 文書
 

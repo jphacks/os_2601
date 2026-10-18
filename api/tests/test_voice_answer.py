@@ -23,6 +23,8 @@ class ListeningAI:
             raise AIUnavailable("timeout")
         return {
             "respond": self.respond,
+            "readable": True,
+            "unreadable_reason": "none",
             "problem_text": "2x - 7 = 4x + 3",
             "final_answer": "x = -5",
             "key_values": ["-2x = 10"],

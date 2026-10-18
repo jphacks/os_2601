@@ -25,6 +25,7 @@ STUCK_POINTS = (
     "その他",
 )
 UNREADABLE_HINT = "途中の式を、1 行ずつ声に出して読んでみて"
+UNREADABLE_ANSWER = "答案がうまく見えない。紙を明るい所で、枠の中に入れてみて"
 UNREADABLE_HINTS = {
     "dark": "もう少し明るいところで見せてみて",
     "blurry": "スマホを少し離して、ピントを合わせてみて",
@@ -36,9 +37,11 @@ FALLBACK_STUCK_POINT = "読み取れず"
 logger = logging.getLogger(__name__)
 
 PROBLEM_PICK_RULE = (
-    "紙に問題が複数あるときは、答案が途中の問題（最後の行が答えに達していない）を選ぶ。"
+    "紙に問題が複数あるときは、次の順で 1 つ選ぶ。"
+    "(a) 答案が書かれていて、最後の行がまだ答え（x = 数 の形）になっていない問題。複数あれば、答案を最後に書いた問題。"
+    "(b) (a) が無ければ、答案の無い問題のうち最初のもの。"
+    "答案が無い問題を、答案が途中の問題より先に選んではいけない。"
     "前に読み取った問題文が渡されていて、その答案がまだ途中なら、それを選ぶ。"
-    "解き終わっていれば、その次の、答案の無い問題を選ぶ。"
 )
 POINTING_RULES = """- 誤りを示すときは、誤っている数字や記号そのものを、行と位置で指す（「3行目の左辺の 7」）。符号・数字・計算のどれが違うかを見分け、違う種類のことは言わない（数字の誤りに「符号を確認して」と言わない）。種類は言わなくてよく、その数字や記号を指す。正しい値は言わない。
 - 学習者が正しく書いた式や値は、読み上げずに行と位置で指す（「最後の行の左辺」）。"""
@@ -98,15 +101,16 @@ ANSWER_PROMPT = """あなたは中学生の隣に座っている家庭教師で�
 最初に、その発話が、あなた（家庭教師）への問いか、勉強で助けを求める発話かを決めて respond に書いてください。独り言、問題文や式の読み上げ、周りの人との会話、勉強と関係ない話なら false にし、ほかの項目はすべて空にしてください。
 
 respond が true なら：
-1. 写真から、学習者がいま解いている問題の文を読み取り、problem_text に書いてください。""" + PROBLEM_PICK_RULE + """
+1. 写真から、学習者がいま解いている問題の文を読み取り、problem_text に書いてください。読み取れなければ空にする。""" + PROBLEM_PICK_RULE + """
 2. その問題を自分で解き、最終の答えを final_answer に、途中の決定的な値や式を key_values に必ず書いてください。これらは学習者には見せません。
-3. 問いに答えてください。
+3. 答案を見ないと答えられない問いなのに、写真が暗い・ぼやけている・紙が枠の外・手で隠れていて答案が読めないときは、readable を false にし、理由を unreadable_reason に書く（dark・blurry・out_of_frame・hidden・other）。推測で答えない。言葉の意味のように答案が要らない問いは、読めなくても readable を true にして答える。
+4. 問いに答えてください。
    - 答案を見て、問いに沿って答える。言葉の意味（「移項って何？」）や、一般的なやり方の説明はしてよい。
    - 説明に例を使うときは、この問題と違う数字を使う。
    - 「答えを教えて」には、答えは言わずにやんわり断り、見る所か次の一歩を 1 つ示す。
-4. 問いの内容を stuck_point に、一覧から 1 つ選んで書いてください。学習者が紙に書いた答案の行を、上から順に written_lines に書いてください。
+5. 問いの内容を stuck_point に、一覧から 1 つ選んで書いてください。学習者が紙に書いた答案の行を、上から順に written_lines に書いてください。
    - 同じ問いが続いたら、前より具体的に答える（する操作を 1 つ言う。結果の値は言わない）。
-5. 答えを speech と display に書いてください。
+6. 答えを speech と display に書いてください。
    - speech は読み上げ用。60 文字以内、1〜2 文。数字は算用数字のまま、記号は言葉にする（= はイコール、- はマイナス、x はエックス）。
    - display は字幕用。80 文字以内。数式は半角。speech と同じ内容。
 
@@ -143,8 +147,12 @@ HINT_SCHEMA = _schema(
     {"readable": {"type": "BOOLEAN"}, "unreadable_reason": {"type": "STRING", "enum": ["none", *UNREADABLE_HINTS, "other"]}},
 )
 ANSWER_SCHEMA = _schema(
-    ["respond", "problem_text", "final_answer", "key_values", "written_lines", "stuck_point", "speech", "display"],
-    {"respond": {"type": "BOOLEAN"}},
+    ["respond", "problem_text", "final_answer", "key_values", "written_lines", "readable", "unreadable_reason", "stuck_point", "speech", "display"],
+    {
+        "respond": {"type": "BOOLEAN"},
+        "readable": {"type": "BOOLEAN"},
+        "unreadable_reason": {"type": "STRING", "enum": ["none", *UNREADABLE_HINTS, "other"]},
+    },
 )
 
 
@@ -181,6 +189,12 @@ def _read_problem(out: dict, known_problem: str | None, known_leaks: list[str]) 
     written = out.get("written_lines") or []
     guarded = set(inherited) | set(leak_strings(out["final_answer"], out["key_values"]))
     return problem_text, without_written(sorted(guarded), written)
+
+
+def _unreadable(out: dict, fallback: str, leaks: list[str]) -> ComposedHint:
+    reason = str(out.get("unreadable_reason", "other"))
+    logger.info("unreadable reason=%s", reason)
+    return fixed_hint(UNREADABLE_HINTS.get(reason, fallback), "fallback", LeakCheck(ok=True, fallback=False), leaks)
 
 
 def _checked(
@@ -231,12 +245,10 @@ async def compose_hint(
         problem_text, leaks = _read_problem(out, known_problem, known_leaks)
         hint = _checked(out, model, problem_text, leaks, (SPEECH_MAX_CHARS, DISPLAY_MAX_CHARS), FALLBACK_HINTS[level])
         readable = out["readable"] is True
-        reason = str(out.get("unreadable_reason", "other"))
     except (AIUnavailable, KeyError, TypeError, AttributeError):
         return fixed_hint(FALLBACK_HINTS[level], "fallback", LeakCheck(ok=True, fallback=False), known_leaks)
     if not readable and hint.leak_check.ok:
-        logger.info("hint unreadable reason=%s", reason)
-        return fixed_hint(UNREADABLE_HINTS.get(reason, UNREADABLE_HINT), "fallback", LeakCheck(ok=True, fallback=False), leaks)
+        return _unreadable(out, UNREADABLE_HINT, leaks)
     return hint
 
 
@@ -256,8 +268,10 @@ async def compose_answer(
     try:
         if out["respond"] is not True:
             return None
+        if out["readable"] is not True:
+            return _unreadable(out, UNREADABLE_ANSWER, known_leaks)
         problem_text, leaks = _read_problem(out, known_problem, known_leaks)
-        if not leaks:
+        if problem_text and not leaks:
             return answer_fallback(leaks)
         return _checked(out, model, problem_text, leaks, (ANSWER_SPEECH_MAX_CHARS, ANSWER_DISPLAY_MAX_CHARS), ANSWER_FALLBACK)
     except (KeyError, TypeError, AttributeError) as error:

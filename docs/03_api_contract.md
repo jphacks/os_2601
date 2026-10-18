@@ -149,7 +149,7 @@ Hack Day 版はヒント 2 段階（H1 固定文・H2 GPT）、SSE なし（記�
 {"trigger": "auto", "frame_id": "frm_…"}
 ```
 
-`trigger` は `auto`（`next_action` に従って）| `manual`（ボタン）| `voice`（学習者の発話を聞き取った。ブラウザの音声認識で聞き取り、`web/lib/loop.ts` が `utterance` に文を入れて送る）。**`utterance` があれば、AI がその発話に答えるかを決め、答えるときは説明もする（答えと途中の値は言わない）。答えないときは 204 で、状態は変えず記録にも残さない。AI を待つ間は状態を変えないので、ボタンと「できた」は止まらない。`utterance` は保存しない（10/17、ADR 0032）。**`frame_id` は直前に送ったフレーム（サーバは照合せず最新 1 枚を使う。`auto` で先に作り始めたヒントが同じ問題の同じ詰まり（`stuck_count`）のものなら、それを返す。ADR 0028）。
+`trigger` は `auto`（`next_action` に従って）| `manual`（ボタン）| `voice`（学習者の発話を聞き取った。ブラウザの音声認識で聞き取り、`web/lib/loop.ts` が `utterance` に文を入れて送る）。**`utterance` があれば、AI がその発話に答えるかを決め、答えるときは説明もする（答えと途中の値は言わない）。答えないときは 204 で、状態は変えず記録にも残さない。答案を見ないと答えられない問いで答案が読めないときは、推測せず、理由ごとの固定文（「もう少し明るいところで見せてみて」など）を返す（10/18）。AI を待つ間は状態を変えないので、ボタンと「できた」は止まらない。`utterance` は保存しない（10/17、ADR 0032）。**`frame_id` は直前に送ったフレーム（サーバは照合せず最新 1 枚を使う。`auto` で先に作り始めたヒントが同じ問題の同じ詰まり（`stuck_count`）のものなら、それを返す。ADR 0028）。
 
 ```json
 {"hint_id": "hnt_…", "problem_no": 2, "level": 2, "trigger": "auto",
@@ -162,7 +162,7 @@ Hack Day 版はヒント 2 段階（H1 固定文・H2 GPT）、SSE なし（記�
 ```
 
 - `source` は `gpt` | `fallback`（固定ヒント。H1 は常に `fallback`）| `scripted`（モードが scripted）。`model` は `gpt` のときだけ。
-- `level` は、`auto` ならその問題の `stuck_count` と `max_level` の小さい方（1 回目 H1、2 回目以降 H2）。`manual` と `voice` なら、その問題でボタン・声のヒントが初めてなら 1、2 回目以降は 2（自動ヒントは数えない。ADR 0033）。
+- `level` は、`auto` ならその問題の `stuck_count` と `max_level` の小さい方（1 回目 H1、2 回目以降 H2）。`manual` と `voice` なら、その問題でボタン・声の AI のヒントが初めてなら 1、2 回目以降は 2（自動ヒントと固定文は数えない。ADR 0033）。
 - `cooldown`（一度声をかけた後の沈黙）が止めるのは `auto` だけ。`manual` と `voice` は本人が頼んだので `cooldown` 中でも通る（`speaking`・`checking`・`stuck` 中は 409）。
 - `leak_check.ok: false` かつ `fallback: true` は、GPT の文が答え漏れ検査に一致したので固定 H2 に差し替えたことを示す。`leak_blocked_count` が 1 増える。
 - GPT がタイムアウト（8 秒）・エラーのときは固定 H2 で返し `source: "fallback"`、`leak_check.ok: true`。固定ヒントも読めないほど壊れていれば 503。

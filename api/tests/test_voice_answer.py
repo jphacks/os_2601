@@ -53,6 +53,8 @@ def ask(device: Device, frame_id: str, utterance: str):
 def test_question_is_answered_with_an_explanation_and_recorded_as_voice(device: Device, ai: ListeningAI) -> None:
     response = ask(device, start_watching(device), "移項って何？")
     assert (response.json()["speech"], response.json()["source"], response.json()["state"]) == (ANSWER, "gpt", "speaking")
+    assert response.json()["problem_text"] == "2x - 7 = 4x + 3"
+    assert device.client.get(f"/sessions/{device.session_id}", headers=device.headers).json()["problems"][0]["problem_text"] == "2x - 7 = 4x + 3"
     assert "移項って何？" in ai.requests[0]
     assert [(recorded["trigger"], recorded["display"]) for recorded in device.recorded_hints()] == [("voice", ANSWER)]
 

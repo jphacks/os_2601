@@ -786,8 +786,11 @@ components:
           type: array
           items:
             type: object
-            required: [problem_no, status, stuck_count, max_level, seconds_spent, hints, check]
+            required: [problem_no, problem_text, status, stuck_count, max_level, seconds_spent, hints, check]
             properties:
+              problem_text:
+                type: [string, "null"]
+                description: AI が写真から読み取った問題文。まだ読み取れていなければ null（10/18）
               problem_no:
                 type: integer
                 minimum: 1
@@ -962,8 +965,11 @@ components:
 
     HintResponse:
       type: object
-      required: [hint_id, problem_no, level, trigger, speech, display, stuck_point, leak_check, source, latency_ms, state]
+      required: [hint_id, problem_no, problem_text, level, trigger, speech, display, stuck_point, leak_check, source, latency_ms, state]
       properties:
+        problem_text:
+          type: [string, "null"]
+          description: AI が写真から読み取った問題文。まだ読み取れていなければ null。/device の左上に出す（10/18）
         hint_id:
           type: string
           pattern: "^hnt_"

@@ -142,6 +142,7 @@ class ProblemRequest(BaseModel):
 
 class SpeechRequest(BaseModel):
     text: Annotated[str, Field(min_length=1, max_length=120)]
+    character: Literal["handsome", "teacher"] = "handsome"
 
 
 class AdvanceRequest(BaseModel):
@@ -676,11 +677,17 @@ async def post_tts(session_id: str, body: SpeechRequest, request: Request, conte
         raise HTTPException(status_code=503, detail="読み上げの声が用意されていない")
     started = time.monotonic()
     try:
-        audio = await context.voice.synthesize(body.text)
+        audio = await context.voice.synthesize(body.text, body.character)
     except VoiceUnavailable as error:
         logger.warning("tts session=%s failed=%s", session.session_id, error)
         raise HTTPException(status_code=503, detail="読み上げの声を作れなかった") from error
-    logger.info("tts session=%s chars=%s latency_ms=%s", session.session_id, len(body.text), int((time.monotonic() - started) * 1000))
+    logger.info(
+        "tts session=%s character=%s chars=%s latency_ms=%s",
+        session.session_id,
+        body.character,
+        len(body.text),
+        int((time.monotonic() - started) * 1000),
+    )
     return Response(content=audio, media_type="audio/wav")
 
 

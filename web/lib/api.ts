@@ -29,6 +29,8 @@ export type ProblemStatus = "pending" | "working" | "done" | "skipped";
 
 export type LeakCheck = { ok: boolean; fallback: boolean };
 
+export type VoiceCharacter = "handsome" | "teacher";
+
 export type Settings = { stuck_seconds: number; cooldown_seconds: number; max_level: number };
 
 export type SessionCreateRequest = {
@@ -334,11 +336,11 @@ export async function readProblem(id: string, token: string, body: { frame_id: s
   return request(sessionPath(id, "/problem"), jsonInit("POST", { token }, body));
 }
 
-export async function synthesizeSpeech(id: string, token: string, text: string): Promise<Blob> {
+export async function synthesizeSpeech(id: string, token: string, text: string, character: VoiceCharacter): Promise<Blob> {
   if (USE_MOCK) throw new ApiError(503, "HINT_UNAVAILABLE", "モックでは VOICEVOX を使わない");
   const timeout = new AbortController();
   setTimeout(() => timeout.abort(), SPEECH_TIMEOUT_MS);
-  const response = await send(sessionPath(id, "/tts"), { ...jsonInit("POST", { token }, { text }), signal: timeout.signal });
+  const response = await send(sessionPath(id, "/tts"), { ...jsonInit("POST", { token }, { text, character }), signal: timeout.signal });
   return response.blob();
 }
 

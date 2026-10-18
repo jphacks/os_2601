@@ -1,8 +1,9 @@
 import type { StaticImageData } from "next/image";
+import type { VoiceCharacter } from "@/lib/api";
 import handsome from "./character.png";
 import teacher from "./teacher.png";
 
-export type CharacterId = "handsome" | "teacher";
+export type CharacterId = VoiceCharacter;
 
 type CharacterInfo = { id: CharacterId; label: string; image: StaticImageData };
 

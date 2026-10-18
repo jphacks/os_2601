@@ -1,4 +1,4 @@
-import { synthesizeSpeech } from "./api";
+import { synthesizeSpeech, type VoiceCharacter } from "./api";
 
 const LANG = "ja-JP";
 const VOICES_WAIT_MS = 1000;
@@ -7,6 +7,7 @@ const SILENT_WAV = "data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAE
 
 let japaneseVoiceLookup: Promise<SpeechSynthesisVoice | undefined> | null = null;
 let speaker: { id: string; token: string } | null = null;
+let character: VoiceCharacter = "handsome";
 let player: HTMLAudioElement | null = null;
 let speechTurn = 0;
 
@@ -38,6 +39,10 @@ export function setSpeechSession(id: string, token: string): void {
   speaker = { id, token };
 }
 
+export function setSpeechCharacter(next: VoiceCharacter): void {
+  character = next;
+}
+
 export function unlockSpeech(): void {
   if (typeof window === "undefined") return;
   player ??= new Audio();
@@ -67,7 +72,7 @@ export async function speak(text: string): Promise<void> {
   const turn = speechTurn;
   if (speaker && player) {
     try {
-      const audio = await synthesizeSpeech(speaker.id, speaker.token, text);
+      const audio = await synthesizeSpeech(speaker.id, speaker.token, text, character);
       if (turn !== speechTurn) return;
       await playAudio(player, audio);
       return;

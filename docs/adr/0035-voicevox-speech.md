@@ -18,10 +18,12 @@
 選択肢 1（高橋が選んだ）。
 
 - `POST /sessions/{id}/tts`（device のトークン）に `{text}`（1〜120 文字）を送ると、`audio/wav` を返す。エンジンが無い・失敗したときは 503
-- api は環境変数 `VOICEVOX_URL` のエンジンに `audio_query` → `synthesis` を呼ぶ。話者は `VOICEVOX_SPEAKER`。タイムアウト 8 秒、リトライなし
+- api は環境変数 `VOICEVOX_URL` のエンジンに `audio_query` → `synthesis` を呼ぶ。タイムアウト 8 秒、リトライなし
+- 声は `/device` で選んだキャラ（#59）で変える。イケメン（handsome）は青山龍星（13）、先生（teacher）は冥鳴ひまり（14）（高橋が選んだ）。`tts` に `character` を送り、サーバが声の番号を選ぶ（どの番号でも読ませられる口にしない）
+- エンジンは CPU のスレッドを 4 にする（環境変数 `VV_CPU_NUM_THREADS=4`）。1 では 1 文 5 秒以上、4 で 1.1〜1.6 秒だった
 - `web/lib/speech.ts` の `speak` は、セッションが分かっていれば `tts` の音声を鳴らし、失敗したら今の `speechSynthesis` で読む。`unlockSpeech` は、iOS で以後の再生を許すため、「はじめる」の中で無音の音声も 1 回鳴らす
 - `speak`・`unlockSpeech`・`stopSpeaking` の名前と引数は変えない。`loop.ts` は開始のときに、どのセッションの声か（id とトークン）を `speech.ts` に渡す
-- README と動画に「VOICEVOX:キャラ名」のクレジットを出す
+- README と動画に「VOICEVOX:青山龍星」「VOICEVOX:冥鳴ひまり」のクレジットを出す
 
 ## 理由
 

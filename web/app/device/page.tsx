@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { ApiError, getSession, patchSettings, type SessionDetail, type State } from "@/lib/api";
 import { startCamera, stopCamera } from "@/lib/camera";
 import { advance, end, requestCheck, requestManualHint, startSession } from "@/lib/loop";
-import { unlockSpeech } from "@/lib/speech";
+import { setSpeechCharacter, unlockSpeech } from "@/lib/speech";
 import { primeListening, stopListening, voiceStatus } from "@/lib/voice";
 import { Buttons } from "./_components/Buttons";
 import { Caption, HeardBubble } from "./_components/Caption";
@@ -114,6 +114,7 @@ function Device() {
       stuckSeconds !== null && stuckSeconds !== session?.settings.stuck_seconds
         ? patchSettings(sessionId, token, { stuck_seconds: stuckSeconds }).catch(ignoreError)
         : null;
+    setSpeechCharacter(characterId);
     unlockSpeech();
     primeListening();
     try {

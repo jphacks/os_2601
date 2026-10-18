@@ -88,7 +88,7 @@ paths:
       summary: 誰でもセッションを作って始める（ADR 0036）
       description: |
         `/device` を `s=`・`t=` 無しで開いたときにデバイスが呼ぶ。FREE・live・既定の設定で作り、`POST /sessions` と同じ応答を返す。`learner_label` は「自分で始めた」。
-        IP ごとに 1 分あたり 3 件、全体で 1 分 30 件まで（超えたら 429）。IP は `X-Forwarded-For` の最後の値（Railway の edge が付ける）。作ったセッションは 30 分で自動的に終わり、終わって 1 日たったら消える。環境変数 `OPEN_SESSIONS=0` なら 404。
+        IP ごとに 1 分あたり 3 件、全体で 1 分 30 件まで（超えたら 429）。IP は `X-Forwarded-For` の最後の値（Railway の edge が付ける）。作ったセッションは 30 分で自動的に終わり、終わって 2 時間たったら消える。環境変数 `OPEN_SESSIONS=0` なら 404。
       security: []
       responses:
         "201":
@@ -261,7 +261,7 @@ paths:
       summary: フレーム 1 枚（JPEG）
       description: |
         送るのは 3 つの瞬間だけ（`next_action` が来たとき、「ヒント」を押したとき、「できた」を押したとき）。定期的には送らない。
-        サーバはセッションごとに最新 1 枚だけメモリに持ち、保存しない。600 KB を超えたら 413。`ended` では 409。
+        サーバはセッションごとに最新 1 枚だけメモリに持ち、保存しない。600 KB を超えたら 413（`Content-Length` が上限を大きく超えるときは、本文を読む前・認可の前に 413。ADR 0039）。`ended` では 409。
         `send_frame` を返した後の `still` の間に届いたフレームでは、次の `auto` の段階（`min(stuck_count + 1, max_level)`）のヒントを裏で作り始める。静止が途切れたら（`still`・`stuck` 以外になったら）取り消す（ADR 0028）。
       security:
         - device: []
@@ -358,6 +358,8 @@ paths:
           $ref: "#/components/responses/ValidationError"
         "503":
           $ref: "#/components/responses/HintUnavailable"
+        "429":
+          $ref: "#/components/responses/RateLimited"
 
   /sessions/{id}/check:
     parameters:
@@ -405,6 +407,8 @@ paths:
           $ref: "#/components/responses/StateConflict"
         "422":
           $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
 
   /sessions/{id}/problem:
     parameters:
@@ -453,6 +457,8 @@ paths:
           $ref: "#/components/responses/StateConflict"
         "422":
           $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
 
   /sessions/{id}/tts:
     parameters:
@@ -502,6 +508,8 @@ paths:
           $ref: "#/components/responses/ValidationError"
         "503":
           $ref: "#/components/responses/HintUnavailable"
+        "429":
+          $ref: "#/components/responses/RateLimited"
 
   /sessions/{id}/advance:
     parameters:
@@ -697,7 +705,7 @@ components:
             $ref: "#/components/schemas/Error"
           example: {"error": {"code": "FORBIDDEN", "message": "..."}}
     RateLimited:
-      description: 回数の上限（/sessions/open は IP ごとに 1 分 3 件）
+      description: 回数の上限（/sessions/open は IP ごとに 1 分 3 件。ボタンのヒント・声の質問・問題文の読み取りで AI を実際に呼ぶのはセッションごとに 1 分 20 回、/tts は 1 分 40 回。問題文の読み取り（同じ問題で）と声の質問は同時に 1 本。ADR 0039）
       content:
         application/json:
           schema:

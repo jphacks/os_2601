@@ -78,18 +78,24 @@ os_2601/
 ├── api/
 │   ├── app/
 │   │   ├── main.py        # FastAPI、CORS、ルート登録、起動時に設定と保存の読込
-│   │   ├── routes.py      # 全エンドポイントと、状態機械を当てて保存する処理
-│   │   ├── context.py     # AppContext（設定・保存・写真・先読み・回数をまとめたもの）と fail()
+│   │   ├── routes.py      # 全エンドポイントと、状態機械を当てて保存する処理（分け方は ADR 0041）
+│   │   ├── errors.py      # HTTP のエラーを投げる fail()
+│   │   ├── context.py     # AppContext（設定・保存・写真・先読み・回数をまとめたもの）
 │   │   ├── schemas.py     # 要求の型（pydantic）
 │   │   ├── auth.py        # トークンと運営の鍵の確認
 │   │   ├── limits.py      # 作成の口・AI・声の回数の上限、同時に 1 本（ADR 0036・0039）
+│   │   ├── composer.py    # 問題の記録と最新の写真から AI のヒントを作る入口
 │   │   ├── prefetch.py    # 詰まりの 3 秒前の先読み（ADR 0028）
 │   │   ├── views.py       # 記録の応答の形（問題・ヒント・詰まりの集計）
 │   │   ├── state.py       # 状態機械（純粋関数 step()＋表駆動テスト）
 │   │   ├── store.py       # JSON ファイル 1 つに保存・読込
-│   │   ├── hints.py       # Gemini の呼び出し、プロンプト、構造化出力、固定の問い返し、scripted
+│   │   ├── hints.py       # プロンプト、構造化出力、答え漏れで差し替え、固定の問い返し、scripted
+│   │   ├── check.py       # 正誤チェック
+│   │   ├── gemini.py      # Gemini API の呼び出し（タイムアウト 8 秒、リトライなし）
 │   │   ├── leak.py        # 答え漏れ検査（正規化と照合）
-│   │   └── check.py       # 正誤チェック
+│   │   ├── reading.py     # 読み上げの文の記号を言葉に（= → イコール）
+│   │   ├── personas.py    # 人格（先生・イケメン）の口調と固定文
+│   │   └── voicevox.py    # VOICEVOX の声（ADR 0035）
 │   ├── tools/             # create_session.py、eval_leak.py（答え漏れの評価セット）、check_*.py（本物の AI での確認）
 │   ├── tests/             # pytest
 │   ├── settings.yaml      # しきい値（stuck_seconds など）
@@ -216,7 +222,7 @@ stateDiagram-v2
 - ヒント：駄目なら固定の問い返し（`source: "fallback"`）。正誤：AI は判定だけ、読み上げ文は固定。駄目なら `unreadable`。
 - 画像は長辺 1024 の JPEG を base64 の `inline_data` で渡す。1 回の呼び出しで 1 枚。
 - 遅延の目標は「詰まり判定からヒントの読み上げ開始まで 4 秒以内」。詰まりの 3 秒前に写真を送ってヒントを先に作る（ADR 0028）。
-- 回数の上限はセッションごとに 1 分 12 回（ADR 0039）。
+- 回数の上限はセッションごとに 1 分 20 回（ADR 0039）。
 
 ## 環境変数
 

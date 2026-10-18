@@ -2,7 +2,8 @@ import secrets
 
 from fastapi import Request
 
-from app.context import AppContext, fail
+from app.context import AppContext
+from app.errors import fail
 from app.state import Session
 
 

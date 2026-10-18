@@ -1,9 +1,8 @@
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import NoReturn
 
-from fastapi import HTTPException, Request
+from fastapi import Request
 
 from app.gemini import Gemini
 from app.hints import ComposedHint
@@ -42,7 +41,3 @@ class AppContext:
 
 def get_context(request: Request) -> AppContext:
     return request.app.state.context
-
-
-def fail(status: int, message: str) -> NoReturn:
-    raise HTTPException(status_code=status, detail=message)

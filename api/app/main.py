@@ -9,9 +9,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
+from app.context import AppContext
 from app.gemini import Gemini
 from app.hints import FALLBACK_HINTS
-from app.routes import MAX_FRAME_BYTES, AppContext, router
+from app.routes import MAX_FRAME_BYTES, router
 from app.state import SessionSettings, Thresholds
 from app.store import SessionStore
 from app.voicevox import Voicevox

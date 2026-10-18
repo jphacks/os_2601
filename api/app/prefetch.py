@@ -2,24 +2,15 @@ import asyncio
 import logging
 import time
 
+from app.composer import compose
 from app.context import AppContext, Prefetch
-from app.hints import ComposedHint, compose_hint
+from app.hints import ComposedHint
 from app.state import Problem, Session, auto_hint_level
 
 logger = logging.getLogger(__name__)
 
 
-def ai_hints(problem: Problem) -> list[str]:
-    return [hint.display for hint in problem.hints if hint.source == "ai"]
-
-
-async def compose(context: AppContext, problem: Problem, level: int, frame: bytes | None, persona: str = "teacher") -> ComposedHint:
-    return await compose_hint(
-        context.ai, context.hint_model, frame, level, ai_hints(problem), problem.problem_text, problem.leak_strings, persona
-    )
-
-
-async def compose_ahead(
+async def _compose_ahead(
     context: AppContext, session_id: str, problem: Problem, level: int, frame: bytes, persona: str = "teacher"
 ) -> ComposedHint:
     started = time.monotonic()
@@ -35,12 +26,12 @@ async def compose_ahead(
 
 
 def start_prefetch(context: AppContext, session: Session, frame: bytes) -> None:
-    if session.session_id in context.prefetches:
+    if session.state != "still" or not session.prefetch_requested or session.session_id in context.prefetches:
         return
     problem = session.current_problem
     stuck_count = problem.stuck_count + 1
     level = auto_hint_level(stuck_count, session.settings)
-    composing = asyncio.create_task(compose_ahead(context, session.session_id, problem, level, frame, session.settings.persona))
+    composing = asyncio.create_task(_compose_ahead(context, session.session_id, problem, level, frame, session.settings.persona))
     context.prefetches[session.session_id] = Prefetch(session.current_problem_no, stuck_count, composing, session.settings.persona)
 
 

@@ -4,11 +4,13 @@ import time
 from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
 
 from app.auth import require_device, require_device_or_operator, require_operator
 from app.check import CORRECT_TEXT, Judgement, judge
-from app.context import AppContext, fail, get_context
+from app.composer import ai_hints, compose
+from app.context import AppContext, get_context
+from app.errors import fail
 from app.gemini import AIUnavailable
 from app.hints import (
     FALLBACK_HINTS,
@@ -24,7 +26,7 @@ from app.hints import (
 from app.leak import same_problem
 from app.limits import AI_CALLS_PER_MINUTE, SPEECHES_PER_MINUTE, allow_open, client_ip, count_call, one_at_a_time
 from app.personas import persona_options
-from app.prefetch import ai_hints, compose, discard_prefetch, start_prefetch, take_prefetch
+from app.prefetch import discard_prefetch, start_prefetch, take_prefetch
 from app.schemas import CheckRequest, HintRequest, ProblemRequest, SessionCreateRequest, SettingsPatch, SignalRequest, SpeechRequest
 from app.state import (
     Accepted,
@@ -281,8 +283,7 @@ async def post_frame(
         fail(409, "終了したセッションにはフレームを送れない")
     frame_id = _new_id("frm")
     context.frames[session.session_id] = (frame_id, data)
-    if session.state == "still" and session.prefetch_requested:
-        start_prefetch(context, session, data)
+    start_prefetch(context, session, data)
     return {"frame_id": frame_id, "received_at": iso(_now()), "bytes": len(data)}
 
 
@@ -535,7 +536,7 @@ async def post_tts(session_id: str, body: SpeechRequest, request: Request, conte
         audio = await context.voice.synthesize(body.text, body.character)
     except VoiceUnavailable as error:
         logger.warning("tts session=%s failed=%s", session.session_id, error)
-        fail(503, "読み上げの声を作れなかった")
+        raise HTTPException(status_code=503, detail="読み上げの声を作れなかった") from error
     logger.info(
         "tts session=%s character=%s chars=%s latency_ms=%s",
         session.session_id,

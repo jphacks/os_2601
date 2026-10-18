@@ -4,7 +4,8 @@ from datetime import datetime, timedelta
 
 from fastapi import Request
 
-from app.context import AppContext, fail
+from app.context import AppContext
+from app.errors import fail
 
 OPEN_SESSIONS_PER_MINUTE = 3
 OPEN_SESSIONS_PER_MINUTE_TOTAL = 30

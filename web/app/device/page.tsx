@@ -96,6 +96,14 @@ function Device() {
   const [heard, setHeard] = useState<{ text: string } | null>(null);
   const [openAttempt, setOpenAttempt] = useState(0);
   const [notice, setNotice] = useState("");
+  const announce = useCallback((text: string) => {
+    setNotice("");
+    requestAnimationFrame(() => setNotice(text));
+  }, []);
+  const tell = useCallback((text: string) => {
+    setCaption(text);
+    announce(text);
+  }, [announce]);
   const recordButtonRef = useRef<HTMLButtonElement>(null);
   const closeRecord = useCallback(() => {
     setRecord(null);
@@ -121,22 +129,20 @@ function Device() {
         if (cancelled) return;
         console.warn("[device] openSession に失敗", error);
         if (error instanceof ApiError && error.status === 429) {
-          setCaption(BUSY_CAPTION);
-          setNotice(BUSY_CAPTION);
+          tell(BUSY_CAPTION);
           retry = setTimeout(() => {
             setCaption(OPENING_CAPTION);
             setOpenAttempt((attempt) => attempt + 1);
           }, OPEN_RETRY_MS);
           return;
         }
-        setCaption(NO_SESSION_CAPTION);
-        setNotice(NO_SESSION_CAPTION);
+        tell(NO_SESSION_CAPTION);
       });
     return () => {
       cancelled = true;
       clearTimeout(retry);
     };
-  }, [sessionId, token, router, openAttempt]);
+  }, [sessionId, token, router, openAttempt, tell]);
 
   useEffect(() => {
     if (!sessionId || !token) return;
@@ -158,6 +164,7 @@ function Device() {
         finishingRef.current = false;
         setFinishing(false);
         setSession(detail);
+        setNotice("");
         setRecord(null);
         setRecordStatus("idle");
         setState(initialState);
@@ -179,8 +186,7 @@ function Device() {
           return;
         }
         setConnected(false);
-        setCaption(LOAD_FAILED_CAPTION);
-        setNotice(LOAD_FAILED_CAPTION);
+        tell(LOAD_FAILED_CAPTION);
       });
     return () => {
       cancelled = true;
@@ -191,7 +197,7 @@ function Device() {
       stopCamera();
       stopSpeaking();
     };
-  }, [sessionId, token, router]);
+  }, [sessionId, token, router, tell]);
 
   useEffect(
     () => () => {
@@ -273,7 +279,7 @@ function Device() {
     } catch (error) {
       if (version === requestVersion.current && stateRef.current !== "ended") {
         setPersonaError(PERSONA_FAILED);
-        setNotice(PERSONA_FAILED);
+        announce(PERSONA_FAILED);
         console.warn("[device] 人格を切り替えられなかった", error);
       }
     } finally {
@@ -354,7 +360,8 @@ function Device() {
       onBrightness: setBrightness,
       onConnection: (connected) => {
         setConnected(connected);
-        if (!connected) setNotice(CONNECTION_LOST);
+        if (connected) setNotice("");
+        else announce(CONNECTION_LOST);
       },
       onFinishing: () => {
         if (version !== requestVersion.current) return;
@@ -368,11 +375,6 @@ function Device() {
     }, sessionRef.current.settings.persona);
     setBusy(false);
     startingRef.current = false;
-  }
-
-  function tell(text: string) {
-    setCaption(text);
-    setNotice(text);
   }
 
   function showFailure(version: number, error: unknown) {
@@ -427,8 +429,13 @@ function Device() {
       ) {
         stateRef.current = before.state;
         setState(before.state);
-        if (!hintWhileCheckingRef.current && message) tell(message);
-        else if (!hintWhileCheckingRef.current) setCaption(before.caption);
+        if (hintWhileCheckingRef.current) {
+          if (message) announce(message);
+        } else if (message) {
+          tell(message);
+        } else {
+          setCaption(before.caption);
+        }
       }
     } finally {
       if (version === requestVersion.current) setBusy(false);
@@ -484,7 +491,7 @@ function Device() {
       if (version === requestVersion.current) {
         console.warn("[device] 記録を読めなかった", error);
         setRecordStatus("failed");
-        setNotice(RECORD_FAILED);
+        announce(RECORD_FAILED);
       }
     } finally {
       if (version === requestVersion.current) recordLoadingRef.current = false;

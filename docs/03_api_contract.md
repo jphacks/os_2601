@@ -6,7 +6,7 @@ Hack Day 版はヒント 2 段階（どちらも AI が答案を見て作る。A
 
 ## 共通事項
 
-- **10/17 の変更（ADR 0026）**：ワークシートはやめ、見えないワークシート `FREE`（`title` は「自由な問題」、問題の枠 20）だけを置く。セッション作成は `worksheet_id: "FREE"`。ヒントは 1 回目から AI が作り、`source` は `ai`、AI が失敗したときと答え漏れで差し替えたときは `fallback`。`stuck_point` は AI が付けたラベル。
+- **10/17 の変更（ADR 0026）**：ワークシートはやめ、見えないワークシート `FREE`（`title` は「自由な問題」、問題の枠 20）だけを置く。セッション作成は `worksheet_id: "FREE"`。ヒントは 1 回目から AI が作り、`source` は `gpt`（10/18 に `ai` へ改名）、AI が失敗したときと答え漏れで差し替えたときは `fallback`。`stuck_point` は AI が付けたラベル。
 - **10/18 の変更（ADR 0040）**：`source` と `/healthz` の `gpt` を `ai` に改名。使っていない `GET /worksheets*` と、`signals` の `ts`・`advance` の `reason` を消した。
 - ベース URL：`NEXT_PUBLIC_API_BASE`（例 `https://tonari-api.up.railway.app`）。
 - 認可（02 参照）：デバイス `Authorization: Bearer <session_token>`、オペレータ `X-Operator-Key: <OPERATOR_KEY>`、公開はヘッダなし。
@@ -203,7 +203,7 @@ Hack Day 版はヒント 2 段階（どちらも AI が答案を見て作る。A
 
 ### POST /sessions/{id}/advance（device）
 
-本文なし → `{"current_problem_no": 3, "state": "watching"}`。前の問題は `skipped`（`done` なら変えない）。最後の問題なら `state: "ended"`、`current_problem_no` はそのまま。`watching`・`still`・`cooldown`・`speaking`・`stuck` で受理し（`stuck` なら作りかけの自動ヒントは捨てる。ADR 0037。`speaking` なら読み上げを打ち切って `watching`）、`created`・`stuck`・`checking`・`ended` では 409。
+本文なし → `{"current_problem_no": 3, "state": "watching"}`。前の問題は `skipped`（`done` なら変えない）。最後の問題なら `state: "ended"`、`current_problem_no` はそのまま。`watching`・`still`・`cooldown`・`speaking`・`stuck` で受理し（`stuck` なら作りかけの自動ヒントは捨てる。ADR 0037。`speaking` なら読み上げを打ち切って `watching`）、`created`・`checking`・`ended` では 409。
 
 ### POST /sessions/{id}/end（device・operator）
 
@@ -237,6 +237,7 @@ Hack Day 版はヒント 2 段階（どちらも AI が答案を見て作る。A
 | `postEnd` | `end.json` |
 | `demoReset` | `demo_reset.json` |
 
+- モックは 4 問に縮めてある（本物は `FREE` の 20 問）。4 回「次へ」を押すと終わる。
 - モックでもカメラと音声合成は本物を使う（ブラウザの機能なので）。
 - モックの JSON に `answer`・`leak_strings`・`typical_mistakes`・`fixed_hints` を入れない。
 

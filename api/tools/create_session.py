@@ -21,7 +21,6 @@ def create_session(api_base: str, operator_key: str, body: dict) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="セッションを作り、/device と /log の URL を印字する")
-    parser.add_argument("--worksheet", default="FREE")
     parser.add_argument("--mode", choices=["live", "scripted"], default="live")
     parser.add_argument("--stuck", type=int, help="省略すると api/settings.yaml の既定")
     parser.add_argument("--cooldown", type=int, help="省略すると api/settings.yaml の既定")
@@ -37,7 +36,7 @@ def main() -> int:
 
     settings = {"stuck_seconds": args.stuck, "cooldown_seconds": args.cooldown}
     body = {
-        "worksheet_id": args.worksheet,
+        "worksheet_id": "FREE",
         "mode": args.mode,
         "learner_label": args.label,
         "settings": {name: value for name, value in settings.items() if value is not None},

@@ -7,6 +7,7 @@ from typing import Literal
 State = Literal["created", "watching", "still", "stuck", "speaking", "cooldown", "checking", "ended"]
 Mode = Literal["live", "scripted"]
 Trigger = Literal["auto", "manual", "voice"]
+HintSource = Literal["ai", "fallback", "scripted"]
 Verdict = Literal["correct", "incorrect", "unreadable"]
 ProblemStatus = Literal["pending", "working", "done", "skipped"]
 
@@ -56,7 +57,7 @@ class Hint:
     speech: str
     display: str
     stuck_point: str
-    source: Literal["ai", "fallback", "scripted"]
+    source: HintSource
     leak_check: LeakCheck
     model: str | None
     latency_ms: int

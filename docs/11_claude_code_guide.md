@@ -29,7 +29,7 @@ B・C・D 向け。読めば「バックエンドと `web/lib` を壊さずに�
 
 - 入れるもの：**Git for Windows**（git のフックもこれで動く）、Node（pnpm は `corepack enable`。落ちたら `npm i -g pnpm@<リポジトリの packageManager と同じ版>`）、Python（`uv`）、Claude Code（公式の Windows 版）か Codex CLI（どちらでもよい。両方は要らない）。ターミナルは PowerShell でよい。WSL は要らない。`git config --global core.longpaths true` を 1 回打つ。
 - clone したら最初に **`pnpm install`**。それから `pnpm dev:mock`。
-- **PowerShell 5.1 では `&&` が使えない。** コマンドは 1 行に 1 つ打つ。検査はリポジトリの root で `pnpm check`（typecheck・lint・build を 1 本にしたスクリプト）、ワークシートは `pnpm check:ws`。`cd web` は要らない（root の `package.json` が委譲する）。
+- **PowerShell 5.1 では `&&` が使えない。** コマンドは 1 行に 1 つ打つ。検査はリポジトリの root で `pnpm check`（typecheck・lint・テスト・build を 1 本にしたスクリプト）。`cd web` は要らない（root の `package.json` が委譲する）。
 - **2 回目以降の PR**：マージされたら `git switch main` → `git pull` → `git switch -c b/次の名前`（ブランチ名は B が `b/`、C が `c/`、D が `d/` で始める）。高橋が `main` に何かを入れたと言ったら、1 行ずつ `git switch main` → `git pull` → `git switch b/<自分のブランチ>` → `git merge main`（`main` を更新せずに merge しても何も入らない）。
 - **依存パッケージを足さない。** `pnpm add` が必要だと思ったら Slack で高橋に。`pnpm-lock.yaml` の衝突を防ぐため。
 - import のファイル名は大文字小文字まで一致させる（Windows と Mac では通っても、CI と Vercel の Linux で落ちる）。CI が赤ならその PR は見てもらえない。
@@ -54,7 +54,7 @@ B・C・D 向け。読めば「バックエンドと `web/lib` を壊さずに�
    - 例（D、トップページ）：「`README.md` の先頭と `docs/01_product_spec.md` の『一言で』『解き方』を読んで、`web/app/page.tsx` に製品紹介（一言、仕組み 3 点、`/device` と `/log` へのリンク、README へのリンク）を作って。外部のフォントやスクリプトは読み込まないで」
 2. **小さく作らせる**：1 回の依頼は 1 画面か 1 部品、または 1 ファイルまで。
 3. **ブラウザで確認する**：`pnpm dev:mock` で起動し、モックで見る。カメラと音声は PC の Chrome で `localhost` なら動く。スマホでの確認は Vercel のプレビュー URL で（`http://<PCのIP>:3000` ではカメラが取れない）。
-4. **検査を通す**：root で `pnpm check`（web）、`pnpm check:ws`（worksheets）。赤が出たら Claude Code に貼って直させる。
+4. **検査を通す**：root で `pnpm check`（web）。赤が出たら Claude Code に貼って直させる。
 5. **ブランチにコミットして PR**：
    ```
    git switch -c b/device-badge
@@ -122,7 +122,6 @@ B・C・D 向け。読めば「バックエンドと `web/lib` を壊さずに�
 ## 構成
 - api/        FastAPI（Python 3.12、uv）。起動: uv run --directory api uvicorn app.main:app --reload
 - web/        Next.js（pnpm）。root で pnpm dev:mock（モック）/ pnpm dev（本物の API）。検査: pnpm check
-- worksheets/ ワークシート定義。検証: pnpm check:ws
 - web/lib/loop.ts 1 秒ごとの送信・自動ヒント・声のトリガー。画面はこれを呼ぶだけ
 - openapi.yaml 契約。変更は高橋のみ
 
@@ -136,7 +135,7 @@ B・C・D 向け。読めば「バックエンドと `web/lib` を壊さずに�
 - ブランチで作業し PR を出す。main への直接 push は高橋のみ
 - git push --force 禁止。.env と鍵をコミットしない
 - API の形を変えたいときは CONTRACT_REQUESTS.md に書く
-- PR 前に pnpm check（web）、pnpm check:ws（worksheets）。依存の追加は高橋のみ
+- PR 前に pnpm check（web）。依存の追加は高橋のみ
 
 ## プライバシー規則（web）
 - 映像の取り出しは web/lib/camera.ts だけ。web/app に canvas 処理を書かない

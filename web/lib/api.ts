@@ -35,7 +35,7 @@ export type VoiceCharacter = "handsome" | "teacher";
 export type Settings = { stuck_seconds: number; cooldown_seconds: number; max_level: number; persona: Persona };
 
 export type SessionCreateRequest = {
-  worksheet_id: string;
+  worksheet_id: "FREE";
   learner_label?: string;
   mode: Mode;
   settings?: Partial<Settings>;

@@ -68,10 +68,8 @@ flowchart LR
 | `/device` | Vercel | B | 映像枠、状態バッジ、字幕、ボタン。`web/lib` の関数を呼んで表示するだけ |
 | `/ops` | Vercel | B | セッション作成（`/device` の URL を表示）、リセット、強制 stuck、セッション一覧 |
 | `/log` | Vercel | C | セッション一覧と問題ごとの経過。2 秒ごとに `GET` |
-| `/sheets` | Vercel | C | 印刷レイアウト（A4、会場用 A5）。正答は出さない |
-| `/` | Vercel | D | 製品紹介。モックだけで動く |
-| `api/` | Railway | 高橋 | セッション、状態機械、フレーム保持、ヒント生成、答え漏れ検査、正誤チェック、固定ヒント、JSON 保存 |
-| `worksheets/` | リポジトリ | C（`schema.json` は高橋） | 問題・正答・典型ミス・固定ヒント・`leak_strings`。起動時に読む |
+| `/` | Vercel | D | 製品紹介と 3 画面への入口 |
+| `api/` | Railway | 高橋 | セッション、状態機械、フレーム保持、ヒント生成、答え漏れ検査、正誤チェック、固定の問い返し、JSON 保存 |
 
 ## リポジトリ構成（当日作る）
 
@@ -87,11 +85,8 @@ os_2601/
 │   │   ├── hints.py       # Gemini の呼び出し、プロンプト、構造化出力、固定の問い返し、scripted
 │   │   ├── leak.py        # 答え漏れ検査（正規化と照合）
 │   │   └── check.py       # 正誤チェック
-│   ├── tools/
-│   │   ├── validate_worksheets.py
-│   │   ├── leak_selftest.py
-│   │   └── create_session.py
-│   ├── tests/test_state.py
+│   ├── tools/             # create_session.py、eval_leak.py（答え漏れの評価セット）、check_*.py（本物の AI での確認）
+│   ├── tests/             # pytest
 │   ├── settings.yaml      # しきい値（stuck_seconds など）
 │   ├── Dockerfile
 │   └── pyproject.toml     # uv
@@ -100,12 +95,10 @@ os_2601/
 │   │   ├── page.tsx       # D
 │   │   ├── device/        # B
 │   │   ├── ops/           # B
-│   │   ├── log/           # C
-│   │   └── sheets/        # C
+│   │   └── log/           # C
 │   ├── lib/               # 高橋（camera.ts motion.ts speech.ts voice.ts api.ts loop.ts）
 │   ├── mocks/             # 状態別フィクスチャ（03 の表）
-│   └── package.json       # dev / dev:mock / check
-├── worksheets/            # schema.json（高橋）、ws01〜03.json、README.md（C）
+│   └── package.json       # dev / dev:mock / check / test
 ├── docs/                  # この文書一式 + pitch/ + video/
 ├── .github/               # workflows/check.yml、pull_request_template.md
 ├── .githooks/             # guard.mjs、pre-commit、pre-push（ハーネスと依存のファイル・main への push・force push を止める。ADR 0030）
@@ -114,16 +107,16 @@ os_2601/
 ├── AGENTS.md              # AI が最初に読む決まり（CLAUDE.md と同じ中身）
 ├── team.json              # GitHub ログイン → 役割（CI の担当検査）
 ├── .role.local            # 各自の役割 1 語（git に入れない）
-├── package.json           # ルート。web と api の検査をまとめる（pnpm check、pnpm check:ws）
+├── package.json           # ルート。web と api の検査をまとめる（pnpm check）
 ├── openapi.yaml           # 契約（高橋）
 ├── CLAUDE.md              # AGENTS.md と同じ
 ├── RUNBOOK.md
 └── README.md              # JPHACKS 書式（C）
 ```
 
-- **pnpm ワークスペース**（root に `pnpm-workspace.yaml`、ロックファイルは root の 1 本）。ルートの `package.json` は `web` への委譲だけ（`"dev:mock": "pnpm --filter web dev:mock"`、`"check": "pnpm --filter web check"`、`"check:ws": "uv run --directory api tools/validate_worksheets.py && uv run --directory api tools/leak_selftest.py"`）。B・C・D はリポジトリの root で `pnpm dev:mock` / `pnpm check` / `pnpm check:ws` だけ打つ。PowerShell 5.1 でも `pnpm` のスクリプト内の `&&` は動く（`sh` でなく pnpm が解釈する）。
-- `api/tools/*.py` は `Path(__file__).resolve().parents[2] / "worksheets"` を読む。`uv run --directory api` で動く。
-- Railway のサービスはルートディレクトリを repo の root にし、`RAILWAY_DOCKERFILE_PATH=api/Dockerfile`。Dockerfile は `COPY api/ /app/api/` と `COPY worksheets/ /app/worksheets/` の 2 つを入れる（`worksheets/` が `api/` の外にあるため、ビルド文脈を root にする必要がある）。
+- **pnpm ワークスペース**（root に `pnpm-workspace.yaml`、ロックファイルは root の 1 本）。ルートの `package.json` は `web` への委譲だけ（`"dev:mock": "pnpm --filter web dev:mock"`、`"check": "pnpm --filter web check"`）。B・C・D はリポジトリの root で `pnpm dev:mock` / `pnpm check` だけ打つ。PowerShell 5.1 でも `pnpm` のスクリプト内の `&&` は動く（`sh` でなく pnpm が解釈する）。
+- `api/tools/*.py` は `uv run --directory api` で動く。
+- Railway のサービスはルートディレクトリを repo の root にし、`RAILWAY_DOCKERFILE_PATH=api/Dockerfile`。Dockerfile は `COPY api/ /app/api/` で api だけを入れる。
 
 ## データ
 

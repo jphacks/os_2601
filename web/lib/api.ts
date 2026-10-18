@@ -188,6 +188,7 @@ const USE_MOCK = process.env.NEXT_PUBLIC_MOCK === "1";
 
 const SIGNAL_TIMEOUT_MS = 3000;
 const FRAME_TIMEOUT_MS = 5000;
+const REQUEST_TIMEOUT_MS = 15000;
 const SPEECH_TIMEOUT_MS = 9000;
 const SIGNALS_PER_STATE = 5;
 const SIGNAL_CYCLE = [
@@ -235,7 +236,7 @@ function jsonInit(method: string, auth: Auth, body?: unknown): RequestInit {
 
 async function send(path: string, init: RequestInit): Promise<Response> {
   if (!API_BASE) throw new Error("NEXT_PUBLIC_API_BASE が無い。web/.env.local か Vercel の環境変数に入れる");
-  const response = await fetch(`${API_BASE}${path}`, init);
+  const response = await fetch(`${API_BASE}${path}`, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS), ...init });
   if (!response.ok) {
     const body: ApiErrorBody | null = await response.json().catch(() => null);
     throw new ApiError(response.status, body?.error?.code ?? "UNKNOWN", body?.error?.message);

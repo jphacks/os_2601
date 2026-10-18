@@ -21,6 +21,11 @@ export function OperatorKeyProvider({ children }: { children: ReactNode }) {
 
   return (
     <OperatorKeyContext value={operatorKey}>
+      {!operatorKey && (
+        <p className="px-6 pt-4 text-sm text-gray-700">
+          運営用の画面です。運営の鍵を入れてください。学習者の記録は、/device の「おわる」→「記録を見る」で見られます。
+        </p>
+      )}
       <label className="flex flex-wrap items-center gap-2 px-6 pt-4 text-sm text-gray-500">
         <span>X-Operator-Key</span>
         <input

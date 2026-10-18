@@ -24,6 +24,8 @@ const FIXED_CAPTIONS: Partial<Record<State, string>> = {
   checking: "見てるよ…",
 };
 const CAMERA_DENIED_CAPTION = "設定からカメラを許可してね。LINE などの中のブラウザなら Safari か Chrome で開いてね";
+const CAMERA_FAILED_CAPTION = "カメラを使えなかったよ。ほかのアプリでカメラを使っていたら閉じて、もう一度はじめてね";
+const NEXT_CAPTION = "次の問題も、見てるよ";
 const NO_SESSION_CAPTION = "セッションの URL から開いてね";
 const BUSY_CAPTION = "少し待ってから、もう一度開いてね";
 const END_CONFIRM = "おわる？";
@@ -33,6 +35,13 @@ const DARK_BRIGHTNESS = 60;
 const HEARD_MS = 3000;
 
 // ApiError は画面に何も出さない。それ以外はコンソールにだけ残す
+function pageWithoutSession(): string {
+  const query = new URLSearchParams(window.location.search);
+  query.delete("s");
+  query.delete("t");
+  return query.size > 0 ? `/device?${query}` : "/device";
+}
+
 function ignoreError(error: unknown) {
   if (!(error instanceof ApiError)) console.warn("[device] 操作に失敗", error);
 }
@@ -80,8 +89,9 @@ function Device() {
       .then((created) => {
         if (cancelled) return;
         openingRef.current = null;
-        const query = new URLSearchParams({ s: created.session_id, t: created.session_token });
-        if (debug) query.set("debug", "1");
+        const query = new URLSearchParams(window.location.search);
+        query.set("s", created.session_id);
+        query.set("t", created.session_token);
         router.replace(`/device?${query}`);
       })
       .catch((error) => {
@@ -92,7 +102,7 @@ function Device() {
     return () => {
       cancelled = true;
     };
-  }, [sessionId, token, debug, router]);
+  }, [sessionId, token, router]);
 
   useEffect(() => {
     if (!sessionId || !token) return;
@@ -125,7 +135,9 @@ function Device() {
       })
       .catch((error) => {
         console.warn("[device] getSession に失敗", error);
-        if (!cancelled) setConnected(false);
+        if (cancelled) return;
+        if (error instanceof ApiError && (error.status === 404 || error.status === 401)) router.replace(pageWithoutSession());
+        else setConnected(false);
       });
     return () => {
       cancelled = true;
@@ -136,7 +148,7 @@ function Device() {
       stopCamera();
       stopSpeaking();
     };
-  }, [sessionId, token]);
+  }, [sessionId, token, router]);
 
   useEffect(
     () => () => {
@@ -245,7 +257,7 @@ function Device() {
       if (version !== requestVersion.current) return;
       console.warn("[device] startCamera に失敗", error);
       stopListening();
-      setCaption(CAMERA_DENIED_CAPTION);
+      setCaption(error instanceof Error && error.name === "CameraDenied" ? CAMERA_DENIED_CAPTION : CAMERA_FAILED_CAPTION);
       setBusy(false);
       startingRef.current = false;
       return;
@@ -338,6 +350,7 @@ function Device() {
       const response = await advance();
       if (version !== requestVersion.current || response.current_problem_no < problemNoRef.current) return;
       applyState(response.state, response.current_problem_no);
+      if (response.state !== "ended") setCaption(NEXT_CAPTION);
     } catch (error) {
       if (version === requestVersion.current) ignoreError(error);
     } finally {
@@ -418,8 +431,8 @@ function Device() {
           </div>
         </div>
         {/* 真ん中：キャラクターを左下に大きく、吹き出しを右に重ねる（Tolan の会話画面の並び） */}
-        <div className="relative flex min-h-80 flex-1 items-end">
-          <Character state={state} id={characterId} className="absolute bottom-0 -left-4 h-[95%] max-h-[28rem] w-auto" />
+        <div className="relative flex min-h-48 flex-1 items-end">
+          <Character state={state} id={characterId} className="absolute bottom-0 -left-4 h-full max-h-[28rem] w-auto" />
           <div className="relative ml-[38%] flex w-[62%] flex-col gap-3 self-center">
             {heard && <HeardBubble text={heard.text} />}
             <Caption text={caption} />
@@ -443,6 +456,7 @@ function Device() {
             onHint={handleHint}
             onCheck={handleCheck}
             onNext={handleNext}
+            onRestart={() => window.location.assign(pageWithoutSession())}
             onEnd={handleEnd}
           />
         </div>

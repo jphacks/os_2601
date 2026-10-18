@@ -29,6 +29,7 @@ export type SessionHandlers = {
   onConnection: (connected: boolean) => void;
   onHeard: (text: string) => void;
   onProblem: (text: string | null) => void;
+  onFinishing: () => void;
 };
 
 type Session = {
@@ -46,6 +47,9 @@ type Session = {
   connected: boolean | null;
   greeted: boolean;
   requestInFlight: boolean;
+  checking: boolean;
+  answeredAt: number;
+  finishing: boolean;
   voiceInFlight: boolean;
   pendingUtterance: string | null;
   autoHintDone: boolean;
@@ -65,6 +69,7 @@ const PROBLEM_READ_RETRY_MS = 3000;
 const MIN_UTTERANCE_CHARS = 3;
 const MAX_UTTERANCE_CHARS = 200;
 const LISTEN_STATES: State[] = ["watching", "still", "cooldown"];
+const LAST_WORDS_LIMIT_MS = 12000;
 
 let activeSession: Session | null = null;
 
@@ -96,23 +101,37 @@ function say(session: Session, text: string | null): void {
     });
 }
 
-function finish(session: Session, problemNo: number): void {
+function finish(session: Session, problemNo: number, lastWords: string | null = null): void {
+  if (session.finishing) return;
+  session.finishing = true;
   session.stop();
   stopCamera();
-  session.handlers.onState({
-    state: "ended",
-    still_seconds: 0,
-    current_problem_no: problemNo,
-    next_action: null,
-    cooldown_remaining: 0,
-  });
+  const announce = () =>
+    session.handlers.onState({
+      state: "ended",
+      still_seconds: 0,
+      current_problem_no: problemNo,
+      next_action: null,
+      cooldown_remaining: 0,
+    });
+  if (!lastWords) {
+    announce();
+    return;
+  }
+  session.handlers.onFinishing();
+  const spoken = speak(lastWords).catch((error) => console.warn("[loop] 最後の読み上げに失敗", error));
+  const limit = new Promise<void>((resolve) => setTimeout(resolve, LAST_WORDS_LIMIT_MS));
+  void Promise.race([spoken, limit]).then(announce);
 }
 
 function applyResponse(session: Session, speech: string | null, state: State, problemNo: number): void {
   if (!session.running) return;
+  if (state === "ended") {
+    finish(session, problemNo, speech);
+    return;
+  }
   say(session, speech);
-  if (state === "ended") finish(session, problemNo);
-  else updateState(session, state, problemNo);
+  updateState(session, state, problemNo);
 }
 
 function scheduleProblemRead(session: Session, delayMs: number): void {
@@ -154,6 +173,7 @@ async function fetchHint(
 }
 
 function deliverHint(session: Session, hint: HintResponse): void {
+  session.answeredAt = performance.now();
   if (!session.running || hint.problem_no !== session.problemNo) return;
   session.handlers.onHint(hint);
   applyResponse(session, hint.speech, hint.state, hint.problem_no);
@@ -205,13 +225,14 @@ async function answerHeard(session: Session, text: string): Promise<void> {
   if (next) await answerHeard(session, next);
 }
 
-function handleSignal(session: Session, signal: SignalResponse): void {
-  session.handlers.onState(signal);
+function handleSignal(session: Session, signal: SignalResponse, sentAt: number): void {
+  if (session.checking) return;
   if (signal.state === "ended") {
-    session.stop();
-    stopCamera();
+    finish(session, signal.current_problem_no);
     return;
   }
+  if (sentAt < session.answeredAt) return;
+  session.handlers.onState(signal);
   if (signal.state === "watching" && !session.greeted) {
     session.greeted = true;
     session.problemNo = signal.current_problem_no;
@@ -245,13 +266,14 @@ async function sendSignal(session: Session): Promise<void> {
     session.latestScore === null
       ? { camera_ok: session.cameraOk }
       : { motion: session.latestScore, camera_ok: session.cameraOk };
+  const sentAt = performance.now();
   try {
     const debugNote = new URLSearchParams(window.location.search).get("debug") === "1" ? voiceStatus() : undefined;
     const signal = await postSignal(session.id, { token: session.token }, body, debugNote);
     if (!session.running) return;
     session.failedSignals = 0;
     setConnection(session, true);
-    handleSignal(session, signal);
+    handleSignal(session, signal, sentAt);
   } catch (error) {
     if (!session.running) return;
     session.failedSignals += 1;
@@ -286,6 +308,9 @@ export function startSession(
     connected: null,
     greeted: false,
     requestInFlight: false,
+    checking: false,
+    answeredAt: 0,
+    finishing: false,
     voiceInFlight: false,
     pendingUtterance: null,
     autoHintDone: false,
@@ -327,7 +352,8 @@ export async function requestManualHint(): Promise<HintResponse> {
   session.requestInFlight = true;
   try {
     const hint = await fetchHint(session, "manual");
-    if (hint.problem_no === session.problemNo) applyResponse(session, hint.speech, hint.state, hint.problem_no);
+    session.answeredAt = performance.now();
+    if (hint.state === "ended" || hint.problem_no === session.problemNo) applyResponse(session, hint.speech, hint.state, hint.problem_no);
     return hint;
   } finally {
     session.requestInFlight = false;
@@ -337,6 +363,7 @@ export async function requestManualHint(): Promise<HintResponse> {
 export async function requestCheck(): Promise<CheckResponse> {
   const session = requireSession();
   session.requestInFlight = true;
+  session.checking = true;
   updateState(session, "checking", session.problemNo);
   try {
     const frameId = await sendFrame(session);
@@ -344,6 +371,8 @@ export async function requestCheck(): Promise<CheckResponse> {
     applyResponse(session, check.speech, check.state, check.next_problem_no ?? check.problem_no);
     return check;
   } finally {
+    session.checking = false;
+    session.answeredAt = performance.now();
     session.requestInFlight = false;
   }
 }
@@ -352,6 +381,7 @@ export async function advance(): Promise<AdvanceResponse> {
   const session = requireSession();
   stopSpeaking();
   const response = await postAdvance(session.id, session.token);
+  session.answeredAt = performance.now();
   applyResponse(session, null, response.state, response.current_problem_no);
   return response;
 }

@@ -9,6 +9,8 @@ const MIC_BUSY_ERROR = "audio-capture";
 const FATAL_ERRORS = new Set(["service-not-allowed", "language-not-supported"]);
 const QUIET_ERRORS = new Set(["no-speech", "aborted"]);
 const EVENTS_SHOWN = 4;
+const INTERIM_SETTLE_MS = 2000;
+const MAX_REFUSED_TAPS = 2;
 
 type RecognitionResultEvent = { resultIndex: number; results: SpeechRecognitionResultList };
 
@@ -36,6 +38,11 @@ let heardSinceStart = false;
 let notBefore = 0;
 let nextBeginDelayMs = RESTART_DELAY_MS;
 let restartTimer: ReturnType<typeof setTimeout> | undefined;
+let settleTimer: ReturnType<typeof setTimeout> | undefined;
+let interim: string | null = null;
+let settled = false;
+let startedByTap = false;
+let refusedTaps = 0;
 const events: string[] = ["未開始"];
 
 function note(event: string): void {
@@ -58,22 +65,41 @@ function createRecognizer(): Recognizer | null {
   created.continuous = false;
   created.interimResults = true;
   created.onresult = (event) => {
-    if (!wanted) return;
+    if (!wanted || settled) return;
     heardSinceStart = true;
+    refusedTaps = 0;
+    const pending: string[] = [];
+    let finished = false;
     for (let i = event.resultIndex; i < event.results.length; i += 1) {
       const text = event.results[i][0].transcript.trim();
-      if (!text) continue;
       if (!event.results[i].isFinal) {
-        note(`途中 ${text.length} 字`);
+        if (text) pending.push(text);
         continue;
       }
+      finished = true;
+      if (!text) continue;
       note(`聞こえた ${text.length} 字`);
       onHeard(text);
     }
+    if (finished) {
+      clearTimeout(settleTimer);
+      interim = null;
+      return;
+    }
+    const latest = pending.join("");
+    if (!latest || latest === interim) return;
+    interim = latest;
+    note(`途中 ${interim.length} 字`);
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(settle, INTERIM_SETTLE_MS);
   };
   created.onerror = (event) => {
     note(`error:${event.error}`);
-    if (event.error === NEEDS_GESTURE_ERROR) {
+    if (event.error === NEEDS_GESTURE_ERROR && startedByTap && ++refusedTaps >= MAX_REFUSED_TAPS) {
+      console.warn("[voice] タップの直後でも許可されなかったので、このページではもう聞かない");
+      blocked = true;
+      wanted = false;
+    } else if (event.error === NEEDS_GESTURE_ERROR) {
       console.warn("[voice] 操作の直後でないと始められない。次のタップで始め直す");
       waitingForTap = true;
     } else if (FATAL_ERRORS.has(event.error)) {
@@ -92,25 +118,44 @@ function createRecognizer(): Recognizer | null {
   };
   created.onend = () => {
     running = false;
+    settle();
     note("end");
     const endedQuickly = !heardSinceStart && Date.now() - startedAt < QUICK_END_MS;
     const delayMs = endedQuickly ? Math.max(nextBeginDelayMs, QUICK_END_RETRY_DELAY_MS) : nextBeginDelayMs;
     if (wanted && !waitingForTap) scheduleBegin(delayMs);
     nextBeginDelayMs = RESTART_DELAY_MS;
   };
-  window.addEventListener("pointerdown", () => {
-    if (!waitingForTap) return;
+  const onTap = (event: PointerEvent) => {
+    const activates = event.type === "pointerup" ? event.pointerType !== "mouse" : event.pointerType === "mouse";
+    if (!waitingForTap || !activates) return;
     waitingForTap = false;
     note("タップ");
+    startedByTap = true;
     begin();
-  });
+  };
+  window.addEventListener("pointerdown", onTap);
+  window.addEventListener("pointerup", onTap);
   return created;
+}
+
+function settle(): void {
+  clearTimeout(settleTimer);
+  if (!interim || !wanted || settled) return;
+  const text = interim;
+  interim = null;
+  settled = true;
+  note(`途中で確定 ${text.length} 字`);
+  onHeard(text);
+  if (running) recognizer?.abort();
 }
 
 function scheduleBegin(delayMs: number): void {
   clearTimeout(restartTimer);
   notBefore = Date.now() + delayMs;
-  restartTimer = setTimeout(begin, delayMs);
+  restartTimer = setTimeout(() => {
+    startedByTap = false;
+    begin();
+  }, delayMs);
 }
 
 function begin(): void {
@@ -121,6 +166,8 @@ function begin(): void {
     running = true;
     startedAt = Date.now();
     heardSinceStart = false;
+    settled = false;
+    interim = null;
     note("start");
   } catch (error) {
     console.warn("[voice] 聞き取りを始められない。少し待って再開", error);
@@ -138,6 +185,7 @@ export function startListening(handler: (text: string) => void): () => void {
   }
   recognizer ??= createRecognizer();
   wanted = true;
+  if (!running) startedByTap = false;
   begin();
   return stopListening;
 }
@@ -152,6 +200,8 @@ export function voiceStatus(): string {
 
 export function stopListening(): void {
   wanted = false;
+  interim = null;
   clearTimeout(restartTimer);
+  clearTimeout(settleTimer);
   if (running) recognizer?.abort();
 }

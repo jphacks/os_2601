@@ -27,7 +27,14 @@ const CAMERA_DENIED_CAPTION = "設定からカメラを許可してね。LINE �
 const CAMERA_FAILED_CAPTION = "カメラを使えなかったよ。ほかのアプリでカメラを使っていたら閉じて、もう一度はじめてね";
 const NEXT_CAPTION = "次の問題も、見てるよ";
 const NO_SESSION_CAPTION = "セッションの URL から開いてね";
+const OPENING_CAPTION = "準備しているよ…";
 const BUSY_CAPTION = "少し待ってから、もう一度開いてね";
+const FAILED_CAPTION = "うまくいかなかったよ。もう一度押してみてね";
+const RATE_LIMITED_CAPTION = "少し待ってから、もう一度押してね";
+const SETTINGS_FAILED_CAPTION = "秒数を変えられなかったよ。前の秒数のまま見守るね";
+const END_FAILED_CAPTION = "つながりにくくて、終わったことを伝えられなかったよ";
+const LOAD_FAILED_CAPTION = "つながらなかったよ。ページを開き直してね";
+const OPEN_RETRY_MS = 20000;
 const END_CONFIRM = "おわる？";
 // 平均輝度がこれ未満なら「明るさが足りません」を重ねる（docs/tasks/b.md の B1-4）
 const DARK_BRIGHTNESS = 60;
@@ -42,9 +49,9 @@ function pageWithoutSession(): string {
   return rest ? `/device?${rest}` : "/device";
 }
 
-// ApiError は画面に何も出さない。それ以外はコンソールにだけ残す
-function ignoreError(error: unknown) {
-  if (!(error instanceof ApiError)) console.warn("[device] 操作に失敗", error);
+function failureCaption(error: unknown): string | null {
+  if (error instanceof ApiError && error.status === 409) return null;
+  return error instanceof ApiError && error.status === 429 ? RATE_LIMITED_CAPTION : FAILED_CAPTION;
 }
 
 function Device() {
@@ -65,26 +72,32 @@ function Device() {
   const endSpokenRef = useRef(false);
   const personaUpdatingRef = useRef(false);
   const recordLoadingRef = useRef(false);
+  const hintWhileCheckingRef = useRef(false);
+  const lastCheckRef = useRef<string | null>(null);
+  const finishingRef = useRef(false);
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [record, setRecord] = useState<SessionDetail | null>(null);
   const [recordStatus, setRecordStatus] = useState<"idle" | "loading" | "failed">("idle");
   const [state, setState] = useState<State>("created");
   const [problemNo, setProblemNo] = useState(1);
   const [problemText, setProblemText] = useState<string | null>(null);
-  const [caption, setCaption] = useState(FIXED_CAPTIONS.created ?? "");
+  const [caption, setCaption] = useState(sessionId && token ? FIXED_CAPTIONS.created ?? "" : OPENING_CAPTION);
   const [stuckSeconds, setStuckSeconds] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [personaUpdating, setPersonaUpdating] = useState(false);
+  const [finishing, setFinishing] = useState(false);
   const [personaError, setPersonaError] = useState("");
   const [brightness, setBrightness] = useState<number | null>(null);
   const [stillSeconds, setStillSeconds] = useState(0);
   const [connected, setConnected] = useState(true);
   // 同じ文字が続けて来ても 3 秒を数え直すように、受け取るたびに新しいオブジェクトにする
   const [heard, setHeard] = useState<{ text: string } | null>(null);
+  const [openAttempt, setOpenAttempt] = useState(0);
 
   useEffect(() => {
     if (sessionId && token) return;
     let cancelled = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
     openingRef.current ??= openSession();
     openingRef.current
       .then((created) => {
@@ -96,14 +109,24 @@ function Device() {
         router.replace(`/device?${query}`);
       })
       .catch((error) => {
+        openingRef.current = null;
         if (cancelled) return;
-        ignoreError(error);
-        setCaption(error instanceof ApiError && error.status === 429 ? BUSY_CAPTION : NO_SESSION_CAPTION);
+        console.warn("[device] openSession に失敗", error);
+        if (error instanceof ApiError && error.status === 429) {
+          setCaption(BUSY_CAPTION);
+          retry = setTimeout(() => {
+            setCaption(OPENING_CAPTION);
+            setOpenAttempt((attempt) => attempt + 1);
+          }, OPEN_RETRY_MS);
+          return;
+        }
+        setCaption(NO_SESSION_CAPTION);
       });
     return () => {
       cancelled = true;
+      clearTimeout(retry);
     };
-  }, [sessionId, token, router]);
+  }, [sessionId, token, router, openAttempt]);
 
   useEffect(() => {
     if (!sessionId || !token) return;
@@ -121,6 +144,9 @@ function Device() {
         personaUpdatingRef.current = false;
         startingRef.current = false;
         recordLoadingRef.current = false;
+        lastCheckRef.current = null;
+        finishingRef.current = false;
+        setFinishing(false);
         setSession(detail);
         setRecord(null);
         setRecordStatus("idle");
@@ -137,8 +163,13 @@ function Device() {
       .catch((error) => {
         console.warn("[device] getSession に失敗", error);
         if (cancelled) return;
-        if (error instanceof ApiError && error.status === 404) router.replace(pageWithoutSession());
-        else setConnected(false);
+        if (error instanceof ApiError && error.status === 404) {
+          setCaption(OPENING_CAPTION);
+          router.replace(pageWithoutSession());
+          return;
+        }
+        setConnected(false);
+        setCaption(LOAD_FAILED_CAPTION);
       });
     return () => {
       cancelled = true;
@@ -166,22 +197,30 @@ function Device() {
     return () => clearTimeout(timer);
   }, [heard]);
 
+  function closingWords(): string {
+    const confirmed = sessionRef.current;
+    return endMessage(confirmed?.settings.persona ?? "teacher", confirmed?.persona_options);
+  }
+
   function applyState(next: State, nextProblemNo: number) {
     // startSessionのコールバックは最初の描画を保持するため、現在の番号はrefで比較する。
     // 次へ進んだ後に届いた古い応答で、前の問題文を復活させない。
     // 再開直後のloopはまだ問題番号1を持つ場合がある。終了はセッション全体に適用する。
     const appliedProblemNo = next === "ended" ? Math.max(problemNoRef.current, nextProblemNo) : nextProblemNo;
     if (appliedProblemNo < problemNoRef.current || (stateRef.current === "ended" && next !== "ended")) return;
-    if (appliedProblemNo !== problemNoRef.current) setProblemText(null);
+    if (appliedProblemNo !== problemNoRef.current) {
+      setProblemText(null);
+      if (next !== "ended") setCaption(NEXT_CAPTION);
+    }
     problemNoRef.current = appliedProblemNo;
     stateRef.current = next;
     setState(next);
     setProblemNo(appliedProblemNo);
     if (next === "ended") {
-      const confirmed = sessionRef.current;
-      const persona = confirmed?.settings.persona ?? "teacher";
-      const message = endMessage(persona, confirmed?.persona_options);
-      setCaption(message);
+      finishingRef.current = false;
+      setFinishing(false);
+      const message = closingWords();
+      setCaption(lastCheckRef.current ? `${lastCheckRef.current} ${message}` : message);
       if (!endSpokenRef.current) {
         endSpokenRef.current = true;
         stopListening();
@@ -203,7 +242,7 @@ function Device() {
 
   async function handlePersonaChange(value: string) {
     if (
-      (value !== "teacher" && value !== "ikemen") || personaUpdatingRef.current || startingRef.current || busy ||
+      (value !== "teacher" && value !== "ikemen") || personaUpdatingRef.current || startingRef.current || finishingRef.current || busy ||
       !["created", "watching", "still", "cooldown"].includes(stateRef.current)
     ) return;
     const confirmed = sessionRef.current;
@@ -223,7 +262,7 @@ function Device() {
     } catch (error) {
       if (version === requestVersion.current && stateRef.current !== "ended") {
         setPersonaError("切り替えられませんでした。もう一度試してね。");
-        ignoreError(error);
+        console.warn("[device] 人格を切り替えられなかった", error);
       }
     } finally {
       if (version === requestVersion.current) {
@@ -247,7 +286,10 @@ function Device() {
     // 学習者が選んだときだけ送る。選択肢に無い秒数（/ops で 12 秒など）を一番近い選択肢で上書きしない
     const patching =
       stuckSeconds !== null && stuckSeconds !== session?.settings.stuck_seconds
-        ? patchSettings(sessionId, token, { stuck_seconds: stuckSeconds }).catch(ignoreError)
+        ? patchSettings(sessionId, token, { stuck_seconds: stuckSeconds }).catch((error) => {
+          console.warn("[device] 秒数を変えられなかった", error);
+          return null;
+        })
         : null;
     setSpeechCharacter(characterId);
     unlockSpeech();
@@ -273,6 +315,8 @@ function Device() {
       sessionRef.current = { ...sessionRef.current, settings: updated.settings };
       setSession(sessionRef.current);
       setSpeechCharacter(updated.settings.persona === "ikemen" ? "handsome" : "teacher");
+    } else if (patching) {
+      setCaption(SETTINGS_FAILED_CAPTION);
     }
     endSpokenRef.current = false;
     stopRef.current = startSession(video, sessionId, token, {
@@ -289,11 +333,19 @@ function Device() {
           version !== requestVersion.current || stateRef.current === "ended" ||
           hint.problem_no !== problemNoRef.current
         ) return;
-        if (hint.speech !== null) setCaption(hint.display);
+        if (hint.speech !== null) {
+          if (stateRef.current === "checking") hintWhileCheckingRef.current = true;
+          setCaption(hint.display);
+        }
         setProblemText(hint.problem_text);
       },
       onBrightness: setBrightness,
       onConnection: setConnected,
+      onFinishing: () => {
+        if (version !== requestVersion.current) return;
+        finishingRef.current = true;
+        setFinishing(true);
+      },
       onHeard: (text) => setHeard({ text }),
       onProblem: (text) => {
         if (version === requestVersion.current && stateRef.current !== "ended") setProblemText(text);
@@ -301,6 +353,11 @@ function Device() {
     }, sessionRef.current.settings.persona);
     setBusy(false);
     startingRef.current = false;
+  }
+
+  function showFailure(version: number, error: unknown) {
+    const message = failureCaption(error);
+    if (version === requestVersion.current && message && stateRef.current !== "ended" && !finishingRef.current) setCaption(message);
   }
 
   async function handleHint() {
@@ -314,9 +371,10 @@ function Device() {
       ) return;
       if (hint.speech !== null) setCaption(hint.display);
       setProblemText(hint.problem_text);
-      applyState(hint.state, hint.problem_no);
+      if (hint.state !== "ended") applyState(hint.state, hint.problem_no);
     } catch (error) {
-      if (version === requestVersion.current) ignoreError(error);
+      console.warn("[device] ヒントに失敗", error);
+      showFailure(version, error);
     } finally {
       if (version === requestVersion.current) setBusy(false);
     }
@@ -328,17 +386,28 @@ function Device() {
     const before = { state, problemNo, caption };
     setBusy(true);
     applyState("checking", problemNo);
+    hintWhileCheckingRef.current = false;
     try {
       const check = await requestCheck();
-      if (version !== requestVersion.current || checkedProblemNo !== problemNoRef.current || stateRef.current === "ended") return;
+      if (version !== requestVersion.current || checkedProblemNo !== problemNoRef.current) return;
+      if (check.state === "ended") {
+        lastCheckRef.current = check.display;
+        setCaption(stateRef.current === "ended" ? `${check.display} ${closingWords()}` : check.display);
+        return;
+      }
+      if (stateRef.current === "ended") return;
       applyState(check.state, check.next_problem_no ?? check.problem_no);
-      if (check.state !== "ended" && !FIXED_CAPTIONS[check.state]) setCaption(check.display);
+      if (!FIXED_CAPTIONS[check.state]) setCaption(check.display);
     } catch (error) {
-      if (version === requestVersion.current && checkedProblemNo === problemNoRef.current && stateRef.current !== "ended") {
-        ignoreError(error);
+      console.warn("[device] できたに失敗", error);
+      const message = failureCaption(error);
+      if (
+        version === requestVersion.current && checkedProblemNo === problemNoRef.current &&
+        stateRef.current === "checking" && !finishingRef.current
+      ) {
         stateRef.current = before.state;
         setState(before.state);
-        setCaption(before.caption);
+        if (!hintWhileCheckingRef.current) setCaption(message ?? before.caption);
       }
     } finally {
       if (version === requestVersion.current) setBusy(false);
@@ -354,21 +423,24 @@ function Device() {
       applyState(response.state, response.current_problem_no);
       if (response.state !== "ended") setCaption(NEXT_CAPTION);
     } catch (error) {
-      if (version === requestVersion.current) ignoreError(error);
+      console.warn("[device] 次へに失敗", error);
+      showFailure(version, error);
     } finally {
       if (version === requestVersion.current) setBusy(false);
     }
   }
 
   async function handleEnd() {
-    if (personaUpdatingRef.current || startingRef.current || stateRef.current === "ended") return;
+    if (personaUpdatingRef.current || startingRef.current || finishingRef.current || stateRef.current === "ended") return;
     if (!window.confirm(END_CONFIRM)) return;
     const version = requestVersion.current;
     setBusy(true);
     try {
       await end();
     } catch (error) {
-      if (version === requestVersion.current) ignoreError(error);
+      console.warn("[device] 終わりを伝えられなかった", error);
+      const unreachable = error instanceof TypeError || error instanceof DOMException || (error instanceof ApiError && error.status >= 500);
+      if (version === requestVersion.current && unreachable) setCaption(END_FAILED_CAPTION);
     } finally {
       if (version === requestVersion.current) {
         stopRef.current = null;
@@ -389,7 +461,7 @@ function Device() {
       setRecordStatus("idle");
     } catch (error) {
       if (version === requestVersion.current) {
-        ignoreError(error);
+        console.warn("[device] 記録を読めなかった", error);
         setRecordStatus("failed");
       }
     } finally {
@@ -445,7 +517,7 @@ function Device() {
           {state !== "ended" && <CharacterPicker
             value={characterId}
             onChange={(id) => void handlePersonaChange(id === "handsome" ? "ikemen" : "teacher")}
-            disabled={!session || busy || personaUpdating || !canChangePersona}
+            disabled={!session || busy || personaUpdating || finishing || !canChangePersona}
           />}
           {personaError && <p role="status" className="px-2 text-sm text-red-700">{personaError}</p>}
           {state === "created" && selectedSeconds !== null && (
@@ -453,7 +525,7 @@ function Device() {
           )}
           <Buttons
             state={state}
-            busy={busy || personaUpdating || !session}
+            busy={busy || personaUpdating || finishing || !session}
             onStart={handleStart}
             onHint={handleHint}
             onCheck={handleCheck}

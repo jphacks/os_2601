@@ -133,6 +133,7 @@ function Device() {
       onBrightness: setBrightness,
       onConnection: setConnected,
       onHeard: (text) => setHeard({ text }),
+      onProblem: setProblemText,
     });
     setBusy(false);
     startingRef.current = false;

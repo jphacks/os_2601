@@ -5,6 +5,7 @@ import {
   postEnd,
   postFrame,
   postSignal,
+  readProblem,
   requestHint,
   type AdvanceResponse,
   type CheckResponse,
@@ -25,6 +26,7 @@ export type SessionHandlers = {
   onBrightness: (brightness: number) => void;
   onConnection: (connected: boolean) => void;
   onHeard: (text: string) => void;
+  onProblem?: (text: string | null) => void;
 };
 
 type Session = {
@@ -45,6 +47,7 @@ type Session = {
   pendingUtterance: string | null;
   autoHintDone: boolean;
   prefetchedFrame: Promise<string | null> | null;
+  problemReadTimer: ReturnType<typeof setTimeout> | undefined;
   speechesInProgress: number;
   stop: () => void;
 };
@@ -52,6 +55,8 @@ type Session = {
 const SIGNAL_INTERVAL_MS = 1000;
 const MAX_FAILED_SIGNALS = 3;
 const GREETING = "見守りを始めるよ";
+const FIRST_PROBLEM_READ_MS = 3000;
+const NEXT_PROBLEM_READ_MS = 1000;
 const MIN_UTTERANCE_CHARS = 3;
 const MAX_UTTERANCE_CHARS = 200;
 const LISTEN_STATES: State[] = ["watching", "still", "cooldown"];
@@ -65,6 +70,7 @@ function requireSession(): Session {
 
 function updateState(session: Session, state: State, problemNo: number): void {
   session.state = state;
+  if (problemNo !== session.problemNo && state !== "ended") scheduleProblemRead(session, NEXT_PROBLEM_READ_MS);
   session.problemNo = problemNo;
   if (!LISTEN_STATES.includes(state)) {
     stopListening();
@@ -102,6 +108,21 @@ function applyResponse(session: Session, speech: string | null, state: State, pr
   say(session, speech);
   if (state === "ended") finish(session, problemNo);
   else updateState(session, state, problemNo);
+}
+
+function scheduleProblemRead(session: Session, delayMs: number): void {
+  clearTimeout(session.problemReadTimer);
+  session.problemReadTimer = setTimeout(() => void readCurrentProblem(session), delayMs);
+}
+
+async function readCurrentProblem(session: Session): Promise<void> {
+  if (!session.running) return;
+  try {
+    const response = await readProblem(session.id, session.token, { frame_id: await sendFrame(session) });
+    if (session.running && response.problem_no === session.problemNo) session.handlers.onProblem?.(response.problem_text);
+  } catch (error) {
+    console.warn("[loop] 問題文の読み取りに失敗", error);
+  }
 }
 
 async function sendFrame(session: Session): Promise<string> {
@@ -180,6 +201,7 @@ function handleSignal(session: Session, signal: SignalResponse): void {
   if (signal.state === "watching" && !session.greeted) {
     session.greeted = true;
     say(session, GREETING);
+    scheduleProblemRead(session, FIRST_PROBLEM_READ_MS);
   }
   updateState(session, signal.state, signal.current_problem_no);
   if (signal.state !== "stuck") session.autoHintDone = false;
@@ -250,6 +272,7 @@ export function startSession(
     pendingUtterance: null,
     autoHintDone: false,
     prefetchedFrame: null,
+    problemReadTimer: undefined,
     speechesInProgress: 0,
     stop: () => {},
   };
@@ -264,6 +287,7 @@ export function startSession(
   session.stop = () => {
     session.running = false;
     clearInterval(timer);
+    clearTimeout(session.problemReadTimer);
     stopMotion();
     stopListening();
     if (activeSession === session) activeSession = null;

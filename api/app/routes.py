@@ -46,6 +46,7 @@ from app.hints import (
     compose_answer,
     compose_hint,
     fixed_hint,
+    read_problem,
 )
 from app.store import SessionStore
 from app.worksheets import PRINT_LAYOUT, Worksheet
@@ -130,6 +131,10 @@ class HintRequest(BaseModel):
 
 
 class CheckRequest(BaseModel):
+    frame_id: str
+
+
+class ProblemRequest(BaseModel):
     frame_id: str
 
 
@@ -628,6 +633,30 @@ async def post_check(
         "next_problem_no": None if session.state == "ended" else session.current_problem_no,
         "state": session.state,
     }
+
+
+@router.post("/sessions/{session_id}/problem")
+async def post_problem(
+    session_id: str, body: ProblemRequest, request: Request, context: AppContext = Depends(get_context)
+) -> dict:
+    session = _find_session(context, session_id)
+    _require_device(request, context, session)
+    if session.state == "ended":
+        _fail(409, "終了したセッションでは読み取れない")
+    problem_no = session.current_problem_no
+    started = time.monotonic()
+    problem_text = await read_problem(
+        context.ai, context.hint_model, _latest_frame(context, session_id), session.current_problem.problem_text
+    )
+    session = _find_session(context, session_id)
+    if problem_text and session.current_problem_no == problem_no:
+        session.problems[problem_no - 1].problem_text = problem_text
+        context.store.put(session)
+        context.store.save()
+    logger.info(
+        "problem session=%s read=%s latency_ms=%s", session.session_id, problem_text is not None, int((time.monotonic() - started) * 1000)
+    )
+    return {"problem_no": problem_no, "problem_text": session.problems[problem_no - 1].problem_text, "state": session.state}
 
 
 @router.post("/sessions/{session_id}/advance")

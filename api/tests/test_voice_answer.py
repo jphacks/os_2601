@@ -97,3 +97,11 @@ def test_scripted_session_does_not_answer_what_it_hears(device: Device, ai: List
     scripted = Device(device.client, created["session_id"], {"Authorization": f"Bearer {created['session_token']}"})
     assert ask(scripted, start_watching(scripted), "これ分からない").status_code == 204
     assert ai.requests == []
+
+
+def test_problem_text_is_read_from_the_latest_frame_without_a_hint(device: Device, ai: ListeningAI) -> None:
+    frame_id = start_watching(device)
+    response = device.client.post(f"/sessions/{device.session_id}/problem", json={"frame_id": frame_id}, headers=device.headers)
+    assert response.json() == {"problem_no": 1, "problem_text": "2x - 7 = 4x + 3", "state": "watching"}
+    assert "問題文" in ai.requests[0]
+    assert device.client.get(f"/sessions/{device.session_id}", headers=device.headers).json()["problems"][0]["problem_text"] == "2x - 7 = 4x + 3"

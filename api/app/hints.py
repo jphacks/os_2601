@@ -276,3 +276,27 @@ async def compose_answer(
         return _checked(out, model, problem_text, leaks, (ANSWER_SPEECH_MAX_CHARS, ANSWER_DISPLAY_MAX_CHARS), ANSWER_FALLBACK)
     except (KeyError, TypeError, AttributeError) as error:
         raise AIUnavailable("AI の応答の形が違う") from error
+
+
+READ_PROMPT = (
+    "画像は、学習者が紙で問題を解こうとしている手元の写真です。学習者がいま解いている（これから解く）問題の文を読み取り、"
+    "problem_text に書いてください。式だけなら式を書く。読み取れなければ readable を false にし、problem_text は空にする。"
+    "問題を解かない。" + PROBLEM_PICK_RULE
+)
+READ_SCHEMA = {
+    "type": "OBJECT",
+    "propertyOrdering": ["problem_text", "readable"],
+    "properties": {"problem_text": {"type": "STRING"}, "readable": {"type": "BOOLEAN"}},
+    "required": ["problem_text", "readable"],
+}
+
+
+async def read_problem(ai: Gemini | None, model: str, frame: bytes | None, known_problem: str | None) -> str | None:
+    if ai is None or frame is None:
+        return None
+    request = "\n".join(_context_lines([], known_problem)) or "問題文を読み取ってください。"
+    try:
+        out = await ai.generate_json(model, READ_PROMPT, request, frame, READ_SCHEMA)
+        return (out["problem_text"].strip() or None) if out["readable"] is True else None
+    except (AIUnavailable, KeyError, TypeError, AttributeError):
+        return None

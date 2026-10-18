@@ -92,7 +92,7 @@ LEAK_CASES = json.loads((Path(__file__).parent / "leak_cases.json").read_text(en
 @pytest.mark.parametrize("case", LEAK_CASES, ids=[f"{case['answer']}/{case['hint']}" for case in LEAK_CASES])
 def test_evaluation_set(case: dict) -> None:
     strings = leak_strings(case["answer"], case["key_values"])
-    assert contains_leak(to_reading(case["hint"]), strings) == case["leak"]
+    assert any(contains_leak(text, strings) for text in (to_reading(case["hint"]), case["hint"])) == case["leak"]
 
 
 def test_fractions_are_spelled_the_same_way() -> None:

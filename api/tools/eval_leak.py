@@ -16,7 +16,7 @@ def main() -> int:
     false_alarms: list[dict] = []
     for case in cases:
         strings = leak_strings(case["answer"], case["key_values"])
-        blocked = contains_leak(to_reading(case["hint"]), strings)
+        blocked = any(contains_leak(text, strings) for text in (to_reading(case["hint"]), case["hint"]))
         if case["leak"] and not blocked:
             missed.append(case)
         if not case["leak"] and blocked:

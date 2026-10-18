@@ -4,35 +4,46 @@ from fractions import Fraction
 
 MIN_LEAK_CHARS = 3
 MIN_ANSWER_VALUE_CHARS = 2
+MAX_DECIMAL_DIGITS = 6
+ENDS_A_CLAIM = r"(?=$|[、。,.!！?？]|だ|です|かな|になる)"
 SHORT_ANSWER_PHRASES = (
     r"(答え|こたえ)[はがを]?[、,]?{v}(?![\d.])",
     r"(?<![\d.])={v}(?![\d.])",
     r"(?<![\d.]){v}(だよ|だね|です|になる|になります|かな|にして|にする|が答え|で合って|が正しい|が正解)",
-    r"(?<![\d.]){v}(を|と)(書|かい|入れ|いれ|置|おい)",
-    r"(?<![\d.a-z])[xy](は|が)?{v}(?![\d.])",
-    r"(?<![\d.]){v}[。.!！]*$",
+    r"(?<![\d.]){v}を(書いて|書く|書け|かいて|入れて|入れる|いれて|置いて|おいて)",
+    r"(?<![\d.a-z])[xy](は|が){v}" + ENDS_A_CLAIM,
 )
-KANJI_DIGITS = {"〇": "0", "一": "1", "二": "2", "三": "3", "四": "4", "五": "5", "六": "6", "七": "7", "八": "8", "九": "9", "十": "10"}
+NUMBER = re.compile(r"-?[\d./]+")
+KANJI_DIGITS = {"〇": 0, "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+KANJI_NUMBER = r"[\d〇一二三四五六七八九十]+"
 READINGS = {"=": "イコール", "*": "かける", "÷": "わる", "-": "マイナス", "+": "プラス", "x": "エックス"}
 SPOKEN_SYMBOLS = {reading: symbol for symbol, reading in READINGS.items()}
 
 
-def _fraction_words(text: str) -> str:
-    def to_digits(word: str) -> str:
-        return "".join(KANJI_DIGITS.get(char, char) for char in word)
+def _kanji_number(word: str) -> str:
+    if word.isdigit():
+        return word
+    if "十" not in word:
+        return "".join(str(KANJI_DIGITS[char]) for char in word)
+    tens, ones = word.split("十", 1)
+    return str(KANJI_DIGITS.get(tens, 1) * 10 + KANJI_DIGITS.get(ones, 0))
 
+
+def _fraction_words(text: str) -> str:
     return re.sub(
-        r"([\d〇一二三四五六七八九十]+)分の([\d〇一二三四五六七八九十]+)",
-        lambda match: f"{to_digits(match.group(2))}/{to_digits(match.group(1))}",
+        rf"({KANJI_NUMBER})分の({KANJI_NUMBER})",
+        lambda match: f"{_kanji_number(match.group(2))}/{_kanji_number(match.group(1))}",
         text,
     )
 
 
 def _same_value_spellings(value: str) -> set[str]:
     if re.fullmatch(r"-?\d+/\d+", value):
-        fraction = Fraction(value)
-        decimal = str(fraction.numerator / fraction.denominator)
-        return {decimal} if len(decimal) <= 6 else set()
+        numerator, denominator = (int(part) for part in value.split("/"))
+        if denominator == 0:
+            return set()
+        decimal = str(numerator / denominator)
+        return {decimal} if len(decimal.lstrip("-")) <= MAX_DECIMAL_DIGITS else set()
     if re.fullmatch(r"-?\d*\.\d+", value):
         fraction = Fraction(value).limit_denominator(100)
         return {f"{fraction.numerator}/{fraction.denominator}"} if fraction.denominator > 1 else set()
@@ -41,9 +52,9 @@ def _same_value_spellings(value: str) -> set[str]:
 
 def normalize(text: str) -> str:
     text = text.replace("²", "^2").replace("³", "^3")
-    text = unicodedata.normalize("NFKC", text)
-    text = _fraction_words(text)
+    text = unicodedata.normalize("NFKC", text).replace("⁄", "/")
     text = re.sub(r"\s+", "", text)
+    text = _fraction_words(text)
     for spoken, symbol in SPOKEN_SYMBOLS.items():
         text = text.replace(spoken, symbol)
     text = re.sub(r"の(\d)乗", r"^\1", text)
@@ -71,6 +82,8 @@ def without_written(strings: list[str], written_lines: list[str]) -> list[str]:
 def _mentions(normalized: str, string: str) -> bool:
     if len(string) == 1:
         return any(re.search(phrase.format(v=string), normalized) for phrase in SHORT_ANSWER_PHRASES)
+    if NUMBER.fullmatch(string):
+        return re.search(rf"(?<![\d./]){re.escape(string)}(?![\d./a-z])", normalized) is not None
     return string in normalized
 
 

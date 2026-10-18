@@ -171,9 +171,9 @@ class ComposedHint:
 
 def fixed_hint(text: str, source: HintSource, leak_check: LeakCheck, known_leaks: list[str], persona: str = "teacher") -> ComposedHint:
     rendered = fallback_message(text, persona)
-    if contains_leak(rendered.speech, known_leaks):
+    if contains_leak(rendered, known_leaks):
         rendered = fallback_message(text, "teacher")
-    return ComposedHint(rendered.speech, rendered.display, FALLBACK_STUCK_POINT, source, None, leak_check, None, known_leaks)
+    return ComposedHint(rendered, rendered, FALLBACK_STUCK_POINT, source, None, leak_check, None, known_leaks)
 
 
 def _persona_prompt(prompt: str, persona: str) -> str:
@@ -184,12 +184,6 @@ def _persona_prompt(prompt: str, persona: str) -> str:
         f"口調：{style}。下の段階の指示にある例文も、この口調に言い換える。示す場所と操作の中身は口調で変えない。",
         1,
     )
-
-
-def _persona_fallback(hint: ComposedHint, persona: str) -> ComposedHint:
-    if hint.source != "fallback":
-        return hint
-    return fixed_hint(hint.speech, hint.source, hint.leak_check, hint.leak_strings, persona)
 
 
 def _context_lines(previous: list[str], known_problem: str | None) -> list[str]:
@@ -218,17 +212,17 @@ def _unreadable(out: dict, fallback: str, leaks: list[str], persona: str = "teac
 
 
 def _checked(
-    out: dict, model: str, problem_text: str | None, leaks: list[str], limits: tuple[int, int], fallback: str
+    out: dict, model: str, problem_text: str | None, leaks: list[str], limits: tuple[int, int], fallback: str, persona: str
 ) -> ComposedHint:
     written_speech = out["speech"].strip()
     speech = to_reading(written_speech)
     display = out["display"].strip()
     stuck_point = out["stuck_point"] if out["stuck_point"] in STUCK_POINTS else STUCK_POINTS[-1]
     if any(contains_leak(text, leaks) for text in (speech, display)):
-        return fixed_hint(fallback, "fallback", LeakCheck(ok=False, fallback=True), leaks)
+        return fixed_hint(fallback, "fallback", LeakCheck(ok=False, fallback=True), leaks, persona)
     speech_limit, display_limit = limits
     if not speech or not display or len(written_speech) > speech_limit or len(display) > display_limit:
-        return fixed_hint(fallback, "fallback", LeakCheck(ok=True, fallback=False), leaks)
+        return fixed_hint(fallback, "fallback", LeakCheck(ok=True, fallback=False), leaks, persona)
     return ComposedHint(speech, display, stuck_point, "ai", model, LeakCheck(ok=True, fallback=False), problem_text, leaks)
 
 
@@ -242,7 +236,7 @@ def asks_if_correct(utterance: str) -> bool:
 
 def check_reply(known_leaks: list[str], persona: str = "teacher") -> ComposedHint:
     rendered = fallback_message(CHECK_REPLY, persona)
-    return ComposedHint(rendered.speech, rendered.display, "答えの確認", "fallback", None, LeakCheck(ok=True, fallback=False), None, known_leaks)
+    return ComposedHint(rendered, rendered, "答えの確認", "fallback", None, LeakCheck(ok=True, fallback=False), None, known_leaks)
 
 
 def answer_fallback(known_leaks: list[str], persona: str = "teacher") -> ComposedHint:
@@ -259,21 +253,20 @@ async def compose_hint(
     known_leaks: list[str],
     persona: str = "teacher",
 ) -> ComposedHint:
-    get_persona(persona)
     if ai is None or frame is None:
         return fixed_hint(FALLBACK_HINTS[level], "fallback", LeakCheck(ok=True, fallback=False), known_leaks, persona)
     try:
         request = "\n".join([LEVEL_INSTRUCTIONS[level], *_context_lines(previous, known_problem)])
         out = await ai.generate_json(model, _persona_prompt(SYSTEM_PROMPT, persona), request, frame, HINT_SCHEMA)
         problem_text, leaks = _read_problem(out, known_problem, known_leaks)
-        hint = _checked(out, model, problem_text, leaks, (SPEECH_MAX_CHARS, DISPLAY_MAX_CHARS), FALLBACK_HINTS[level])
+        hint = _checked(out, model, problem_text, leaks, (SPEECH_MAX_CHARS, DISPLAY_MAX_CHARS), FALLBACK_HINTS[level], persona)
         readable = out["readable"] is True
     except (AIUnavailable, KeyError, TypeError, AttributeError) as error:
         logger.warning("hint failed: %r", error)
         return fixed_hint(FALLBACK_HINTS[level], "fallback", LeakCheck(ok=True, fallback=False), known_leaks, persona)
     if not readable and hint.leak_check.ok:
         return _unreadable(out, UNREADABLE_HINT, leaks, persona)
-    return _persona_fallback(hint, persona)
+    return hint
 
 
 async def compose_answer(
@@ -286,7 +279,6 @@ async def compose_answer(
     known_leaks: list[str],
     persona: str = "teacher",
 ) -> ComposedHint | None:
-    get_persona(persona)
     if ai is None or frame is None:
         raise AIUnavailable("AI かフレームが無い")
     request = "\n".join([f"学習者の発話：「{utterance}」", *_context_lines(previous, known_problem)])
@@ -299,8 +291,9 @@ async def compose_answer(
         problem_text, leaks = _read_problem(out, known_problem, known_leaks)
         if problem_text and not leaks:
             return answer_fallback(leaks, persona)
-        hint = _checked(out, model, problem_text, leaks, (ANSWER_SPEECH_MAX_CHARS, ANSWER_DISPLAY_MAX_CHARS), ANSWER_FALLBACK)
-        return _persona_fallback(hint, persona)
+        return _checked(
+            out, model, problem_text, leaks, (ANSWER_SPEECH_MAX_CHARS, ANSWER_DISPLAY_MAX_CHARS), ANSWER_FALLBACK, persona
+        )
     except (KeyError, TypeError, AttributeError) as error:
         raise AIUnavailable("AI の応答の形が違う") from error
 

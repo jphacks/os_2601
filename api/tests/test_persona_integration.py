@@ -8,7 +8,7 @@ import pytest
 from conftest import OPERATOR_KEY, Device
 
 from app.gemini import Gemini
-from app.personas import end_message, get_persona
+from app.personas import PERSONAS, get_persona
 
 
 def analysis(speech="右辺に移したときの符号を見てみて", display="右辺に移した項の符号を確認してみて"):
@@ -67,7 +67,7 @@ def test_selected_persona_uses_the_camera_and_keeps_answers_private(device: Devi
     detail = device.client.get(f"/sessions/{device.session_id}", headers=device.headers).json()
     assert detail["problems"][0]["problem_text"] == result["problem_text"]
     assert {option["id"] for option in detail["persona_options"]} == {"teacher", "ikemen"}
-    assert next(option["end_message"] for option in detail["persona_options"] if option["id"] == persona) == end_message(persona).display
+    assert next(option["end_message"] for option in detail["persona_options"] if option["id"] == persona) == PERSONAS[persona].end_message
     encoded = json.dumps([result, detail], ensure_ascii=False)
     assert "final_answer" not in encoded and "leak_strings" not in encoded and "key_values" not in encoded
     assert "x=-5" not in encoded and "-2x=10" not in encoded

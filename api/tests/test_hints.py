@@ -273,16 +273,16 @@ def test_each_generated_output_still_runs_through_the_answer_leak_check(field: s
     reply = {**ai_hint("左辺を見てみて"), field: "答えは x=-5 だよ"}
     hint = compose(FakeAI(reply), level=2, persona=persona)
     assert hint.leak_check == LeakCheck(ok=False, fallback=True)
-    assert hint.speech == fallback_message(FALLBACK_HINTS[2], persona).speech
+    assert hint.speech == fallback_message(FALLBACK_HINTS[2], persona)
     assert "x=-5" not in hint.display
 
 
 @pytest.mark.parametrize("persona", ["teacher", "ikemen"])
 def test_fixed_failures_and_unreadable_replies_use_the_persona_without_more_ai_calls(persona: str) -> None:
-    assert compose(None, persona=persona).speech == fallback_message(FALLBACK_HINTS[1], persona).speech
+    assert compose(None, persona=persona).speech == fallback_message(FALLBACK_HINTS[1], persona)
     ai = FakeAI({**ai_hint("左辺を見てみて"), "readable": False, "unreadable_reason": "dark"})
     hint = compose(ai, persona=persona)
-    assert hint.speech == hint.display == fallback_message("もう少し明るいところで見せてみて", persona).speech
+    assert hint.speech == hint.display == fallback_message("もう少し明るいところで見せてみて", persona)
     assert hint.source == "fallback" and len(ai.requests) == 1
 
 

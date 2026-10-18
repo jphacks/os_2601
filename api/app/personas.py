@@ -1,5 +1,3 @@
-"""Two wording styles and fixed messages; mathematical hints are AI-generated."""
-
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -15,14 +13,6 @@ class PersonaConfig:
     fixed_messages: dict[str, str] = field(default_factory=dict)
 
 
-@dataclass(frozen=True)
-class HintText:
-    speech: str
-    display: str
-
-
-# Only wording belongs here. Gemini keeps the existing mathematical instructions,
-# structured output, separate speech/display strings, and server leak checks.
 PERSONAS: dict[str, PersonaConfig] = {
     "teacher": PersonaConfig(
         persona_id="teacher",
@@ -61,12 +51,9 @@ PERSONAS: dict[str, PersonaConfig] = {
 
 
 def get_persona(persona: str = "teacher") -> PersonaConfig:
-    if not isinstance(persona, str) or persona not in PERSONAS:
-        raise ValueError("未定義の人格です")
-    config = PERSONAS[persona]
-    if not isinstance(config, PersonaConfig) or config.persona_id != persona:
-        raise ValueError("人格IDと設定が一致しません")
-    return config
+    if persona not in PERSONAS:
+        raise ValueError(f"未定義の人格: {persona}")
+    return PERSONAS[persona]
 
 
 def persona_options() -> list[dict[str, str]]:
@@ -76,17 +63,5 @@ def persona_options() -> list[dict[str, str]]:
     ]
 
 
-def _message(text: str) -> HintText:
-    if not isinstance(text, str) or not text.strip():
-        raise ValueError("メッセージには空でない文字列が必要です")
-    return HintText(speech=text, display=text)
-
-
-def end_message(persona: str = "teacher") -> HintText:
-    return _message(get_persona(persona).end_message)
-
-
-def fallback_message(text: str, persona: str = "teacher") -> HintText:
-    config = get_persona(persona)
-    _message(text)
-    return _message(config.fixed_messages.get(text, text))
+def fallback_message(text: str, persona: str = "teacher") -> str:
+    return get_persona(persona).fixed_messages.get(text, text)

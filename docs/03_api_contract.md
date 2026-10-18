@@ -10,7 +10,7 @@ Hack Day 版はヒント 2 段階（どちらも AI が答案を見て作る。A
 - **10/18 の変更（ADR 0040）**：`source` と `/healthz` の `gpt` を `ai` に改名。使っていない `GET /worksheets*` と、`signals` の `ts`・`advance` の `reason` を消した。
 - ベース URL：`NEXT_PUBLIC_API_BASE`（例 `https://tonari-api.up.railway.app`）。
 - 認可（02 参照）：デバイス `Authorization: Bearer <session_token>`、オペレータ `X-Operator-Key: <OPERATOR_KEY>`、公開はヘッダなし。
-- エラー形式：`{"error": {"code": "STATE_CONFLICT", "message": "..."}}`。使う HTTP ステータス：400 / 401 / 403 / 404 / 409（状態競合）/ 413（フレームが大きい）/ 422（検証）/ 503（固定ヒントも読めない）。
+- エラー形式：`{"error": {"code": "STATE_CONFLICT", "message": "..."}}`。使う HTTP ステータス：400 / 401 / 403 / 404 / 409（状態競合）/ 413（フレームが大きい）/ 422（検証）/ 429（回数の上限）/ 503（読み上げの声を作れない）。
 - 時刻は ISO 8601（UTC、`Z` 付き）。ID は推測できない乱数（`ses_`・`tok_`・`frm_`・`hnt_`・`chk_` の接頭辞）。
 - **正答・`leak_strings`・典型ミスの一覧・固定ヒントの表（問題ごと・段階ごとの一覧）は、どのエンドポイントからも返さない。** 出したヒント文はその都度 `display` で返る（それは学習者が聞いた文なので隠さない）。
 - `speech` は読み上げ用（AI には 35 文字以内で書かせる。記号は言葉に）、`display` は字幕用（50 文字以内。数式は半角）。文が壊れるので切らず、60 文字・80 文字を超えたら固定の問い返しにする（ADR 0029）。フロントは文章を組み立てず、値をそのまま出す。
@@ -76,15 +76,14 @@ Hack Day 版はヒント 2 段階（どちらも AI が答案を見て作る。A
        "stuck_point": "移項の符号", "source": "ai",
        "leak_check": {"ok": true, "fallback": false}, "latency_ms": 2300, "created_at": "…"}],
     "check": null},
-   {"problem_no": 3, "status": "pending", "stuck_count": 0, "max_level": 0, "seconds_spent": 0, "hints": [], "check": null},
-   "…"],
+   {"problem_no": 3, "status": "pending", "stuck_count": 0, "max_level": 0, "seconds_spent": 0, "hints": [], "check": null}],
  "stuck_points": [{"label": "移項の符号", "count": 1}],
  "leak_blocked_count": 0,
  "created_at": "…", "ended_at": null}
 ```
 
 - `problems[].status` は `pending` | `working` | `done` | `skipped`。
-- `hints[]` に `speech` は含めない（読み上げは出した瞬間だけ）。`trigger`（`auto` / `manual` / `voice`）は含める。`stuck_point` は AI が 12 種の一覧から選ぶ。固定の問い返しでは「読み取れず」。
+- `hints[]` に `speech` は含めない（読み上げは出した瞬間だけ）。`trigger`（`auto` / `manual` / `voice`）は含める。`stuck_point` は AI が 12 種の一覧から選ぶ。固定の問い返しでは「読み取れず」、声の「合ってる？」への固定の返事では「答えの確認」。
 - `stuck_points` は AI の文のヒント（`source: ai`）の `stuck_point` をラベルごとに数え、多い順に並べる。固定文のラベル（「読み取れず」「答えの確認」）は数えない。`/log` の「どこで詰まったか」に出す。
 - `leak_blocked_count` は答え漏れ検査で捨てた回数の合計（「答えを言いそうになって止めた回数」として `/log` に出す）。
 - `seconds_spent` は `working` になってから `done` / `skipped` になるまで（進行中は現在まで）。
@@ -168,7 +167,7 @@ Hack Day 版はヒント 2 段階（どちらも AI が答案を見て作る。A
 - `level` は、`auto` ならその問題の `stuck_count` と `max_level` の小さい方（1 回目は段階 1、2 回目以降は段階 2）。`manual` と `voice` なら、その問題でボタン・声の AI のヒントが初めてなら 1、2 回目以降は 2（自動ヒントと固定文は数えない。ADR 0033）。
 - `cooldown`（一度声をかけた後の沈黙）が止めるのは `auto` だけ。`manual` と `voice` は本人が頼んだので `cooldown` 中でも通る（`speaking`・`checking`・`stuck` 中は 409）。
 - `leak_check.ok: false` かつ `fallback: true` は、AI の文が答え漏れ検査に一致したので固定の問い返しに差し替えたことを示す。`leak_blocked_count` が 1 増える。
-- AI がタイムアウト（8 秒）・エラーのときは固定の問い返しで返し `source: "fallback"`、`leak_check.ok: true`。固定ヒントも読めないほど壊れていれば 503。
+- AI がタイムアウト（8 秒）・エラーのときは固定の問い返しで返し `source: "fallback"`、`leak_check.ok: true`。
 - `auto` は `stuck` のときだけ受理（受理の判定はリクエスト到着時。AI を待つ間に `signals` の途絶で `watching` に戻っていても、応答時に `speaking` へ進める）。それ以外は 409（デバイスは無視する）。合成中に「できた」「次へ」を受けて状態が変わっていたら、応答時に 409（デバイスは捨てる。ADR 0037）。`manual` と `voice` は `watching`・`still`・`cooldown` だけ受理し、`created`・`stuck`・`speaking`・`checking`・`ended` で 409。
 - 応答を返した時点でサーバは `speaking` にし、読み上げ推定時間（`speech` の文字数 × 0.15 秒 + 1 秒）後に `cooldown`、`cooldown_seconds` 後に `watching` へ戻す。デバイスからの「読み終わった」通知は作らない。
 - `speech` が `null` になることは Hack Day 版では無い（不在判定は作らない）。デバイスは念のため `null` なら読まない。
@@ -190,9 +189,9 @@ Hack Day 版はヒント 2 段階（どちらも AI が答案を見て作る。A
 - `verdict` は `correct` | `incorrect` | `unreadable`。
 - 受理した時点で `checking` にし、AI の応答で `speaking` → `cooldown` → `watching`（ヒントと同じ時間規則）。
 - `correct` のときサーバは問題を `done` にし `current_problem_no` を進める。最後の問題なら `next_problem_no: null`、`state: "ended"`、`ended_at` を入れる。
-- `speech`・`display` は固定文で、`display` は `speech` と同じ文（`correct` は `fixed_check_correct`、`incorrect` は `fixed_check_incorrect`。問題に無ければ既定文「正解。その調子」「もう一回、途中の式を見てみて」）。AI には `verdict` だけを出させる（正答を渡した呼び出しなので、文を作らせると答えを言いうる）。`incorrect` のとき問題は `working` のまま、`next_problem_no` は現在の番号。
+- `speech`・`display` は固定文で、`display` は `speech` と同じ文（`correct` は「正解。その調子」、`incorrect` は「もう一回、途中の式を見てみて」）。AI には写真から解かせて `verdict` だけを出させる（文を作らせると答えを言いうる）。`incorrect` のとき問題は `working` のまま、`next_problem_no` は現在の番号。
 - `unreadable` は 2 文：AI が読めないと言ったら「もう少し明るいところで、もう一回見せて」、AI が 8 秒で返らない・例外・フレーム無しなら「うまく読めなかった。もう一回、できたを押してみて」。
-- `scripted` モードでは AI を呼ばず常に `correct`（`fixed_check_correct`）。
+- `scripted` モードでは AI を呼ばず常に `correct`（「正解。その調子」）。
 - 正答の値は応答に含めない。`watching`・`still`・`cooldown`・`stuck` で受理し（`stuck` なら作りかけの自動ヒントは捨てる。ADR 0037）、`created`・`speaking`・`checking`・`ended` では 409。
 
 ## 進行

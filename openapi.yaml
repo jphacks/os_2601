@@ -138,8 +138,7 @@ paths:
                        "stuck_point": "移項の符号", "source": "ai",
                        "leak_check": {"ok": true, "fallback": false}, "latency_ms": 2300, "created_at": "…"}],
                     "check": null},
-                   {"problem_no": 3, "status": "pending", "stuck_count": 0, "max_level": 0, "seconds_spent": 0, "hints": [], "check": null},
-                   "…"],
+                   {"problem_no": 3, "status": "pending", "stuck_count": 0, "max_level": 0, "seconds_spent": 0, "hints": [], "check": null}],
                  "stuck_points": [{"label": "移項の符号", "count": 1}],
                  "leak_blocked_count": 0,
                  "created_at": "…", "ended_at": null}
@@ -355,8 +354,6 @@ paths:
           $ref: "#/components/responses/StateConflict"
         "422":
           $ref: "#/components/responses/ValidationError"
-        "503":
-          $ref: "#/components/responses/HintUnavailable"
         "429":
           $ref: "#/components/responses/RateLimited"
 
@@ -370,7 +367,7 @@ paths:
       description: |
         - 受理した時点で `checking` にし、判定が出たら `speaking` → `cooldown` → `watching`（ヒントと同じ時間規則）。
         - `correct` なら問題を `done` にし `current_problem_no` を進める。最後の問題なら `next_problem_no: null`、`state: ended`。`incorrect` なら問題は `working` のままで、`next_problem_no` は今の番号。
-        - `speech`・`display` は固定文で同じ文（`correct` は fixed_check_correct、`incorrect` は fixed_check_incorrect、無ければ「正解。その調子」「もう一回、途中の式を見てみて」）。
+        - `speech`・`display` は固定文で同じ文（`correct` は「正解。その調子」、`incorrect` は「もう一回、途中の式を見てみて」）。
         - `unreadable` は、AI が読めないと言ったら「もう少し明るいところで、もう一回見せて」、8 秒で返らない・例外・フレーム無しなら「うまく読めなかった。もう一回、できたを押してみて」。
         - `scripted` は AI を呼ばず常に `correct`。正答の値は応答に含めない。
         - 受理は `watching`・`still`・`cooldown`・`stuck`（作りかけの自動ヒントは捨てる。ADR 0037）。`created`・`speaking`・`checking`・`ended` では 409。
@@ -682,7 +679,7 @@ components:
             $ref: "#/components/schemas/Error"
           example: {"error": {"code": "VALIDATION_ERROR", "message": "..."}}
     HintUnavailable:
-      description: 固定ヒントも読めない
+      description: 読み上げの声を作れない（`/tts` だけ）
       content:
         application/json:
           schema:
@@ -703,7 +700,7 @@ components:
     HintSource:
       type: string
       enum: [ai, fallback, scripted]
-      description: ai は Gemini が作った文。fallback は AI が使えないときや答え漏れ検査に落ちたときの固定の問い返し。scripted は台本の固定文
+      description: ai は Gemini が作った文。fallback は AI が使えないときや答え漏れ検査に落ちたときの固定の問い返し。scripted は scripted のモードで出した固定の問い返し
     HintLevel:
       type: integer
       enum: [1, 2]
@@ -934,7 +931,7 @@ components:
                       maxLength: 120
                     stuck_point:
                       type: string
-                      description: AI が 12 種の一覧から選ぶ。固定の問い返しでは「読み取れず」
+                      description: AI が 12 種の一覧から選ぶ。固定の問い返しでは「読み取れず」、声の「合ってる？」への固定の返事では「答えの確認」
                     source:
                       $ref: "#/components/schemas/HintSource"
                     leak_check:

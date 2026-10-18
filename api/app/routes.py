@@ -55,7 +55,6 @@ from app.state import (
 )
 from app.store import SessionStore
 from app.voicevox import VoiceUnavailable, Voicevox
-from app.worksheets import FREE_WORKSHEET
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +70,9 @@ OPEN_SESSION_LABEL = "自分で始めた"
 SPEECH_REQUEST_MAX_CHARS = 200
 SPEECH_AFTER_END_SECONDS = 60
 MODE_DEFAULT = "live"
+WORKSHEET_ID = "FREE"
+WORKSHEET_TITLE = "自由な問題"
+PROBLEM_SLOTS = 20
 
 
 @dataclass
@@ -393,13 +395,13 @@ def _new_session(
     context: AppContext, learner_label: str, mode: Mode, settings: SessionSettings, auto_end_at: datetime | None
 ) -> dict:
     now = _now()
-    problems = [Problem(problem_no=problem_no) for problem_no in range(1, FREE_WORKSHEET.problem_count + 1)]
+    problems = [Problem(problem_no=problem_no) for problem_no in range(1, PROBLEM_SLOTS + 1)]
     problems[0].status = "working"
     problems[0].started_at = now
     session = Session(
         session_id=_new_id("ses"),
         session_token=_new_id("tok"),
-        worksheet_id=FREE_WORKSHEET.worksheet_id,
+        worksheet_id=WORKSHEET_ID,
         learner_label=learner_label,
         mode=mode,
         settings=settings,
@@ -414,7 +416,7 @@ def _new_session(
         "session_token": session.session_token,
         "mode": session.mode,
         "state": session.state,
-        "worksheet": {"worksheet_id": FREE_WORKSHEET.worksheet_id, "title": FREE_WORKSHEET.title, "problem_count": len(problems)},
+        "worksheet": {"worksheet_id": WORKSHEET_ID, "title": WORKSHEET_TITLE, "problem_count": len(problems)},
         "settings": asdict(session.settings),
         "created_at": _iso(session.created_at),
     }
@@ -475,7 +477,7 @@ async def get_session(session_id: str, request: Request, context: AppContext = D
     return {
         "session_id": session.session_id,
         "worksheet_id": session.worksheet_id,
-        "worksheet_title": FREE_WORKSHEET.title,
+        "worksheet_title": WORKSHEET_TITLE,
         "problem_count": len(session.problems),
         "learner_label": session.learner_label,
         "mode": session.mode,

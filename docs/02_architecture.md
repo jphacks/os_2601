@@ -81,7 +81,6 @@ os_2601/
 │   │   ├── routes.py      # 全エンドポイント（1 ファイル）
 │   │   ├── state.py       # 状態機械（純粋関数 step()＋表駆動テスト）
 │   │   ├── store.py       # JSON ファイル 1 つに保存・読込
-│   │   ├── worksheets.py  # 見えないワークシート FREE（問題の枠 20）
 │   │   ├── hints.py       # Gemini の呼び出し、プロンプト、構造化出力、固定の問い返し、scripted
 │   │   ├── leak.py        # 答え漏れ検査（正規化と照合）
 │   │   └── check.py       # 正誤チェック

@@ -161,7 +161,6 @@ B・C・D 向け。読めば「バックエンドと `web/lib` を壊さずに�
 | CORS エラー | `localhost:3000`・Vercel・`trycloudflare.com` 以外から開いていないか（高橋に連絡） |
 | 20 秒止めても「考え中？」にならない | `?debug=1` で動きスコアを見る。τ より上なら照明・手ぶれ・紙の揺れ。`camera_ok` が false なら映像が止まっている |
 | 型エラー | `web/lib/api.ts` の型が正。`git merge main` で最新にしてから Claude Code に赤を貼る |
-| `validate_worksheets.py` が赤 | 全角文字・空白・段階の欠け・問題文に正答。メッセージの行番号を見る |
 
 ## 10/16 夜の予行でやること（60 分。進行は D）
 

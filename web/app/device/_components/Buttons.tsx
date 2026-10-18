@@ -1,8 +1,12 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import type { State } from "@/lib/api";
 
 const HINT_STATES: State[] = ["watching", "still", "cooldown"];
 const CHECK_STATES: State[] = ["watching", "still", "cooldown", "stuck"];
 const NEXT_STATES: State[] = ["watching", "still", "cooldown", "speaking", "stuck"];
+const END_CONFIRM_MS = 4000;
 
 type Props = {
   state: State;
@@ -19,8 +23,18 @@ const PRIMARY =
   "min-h-14 flex-1 rounded-full bg-sky-500 px-6 text-lg font-bold text-white shadow-md transition active:scale-95 disabled:opacity-40 disabled:shadow-none";
 const SECONDARY =
   "min-h-11 flex-1 rounded-full bg-white px-4 text-base font-bold text-slate-600 shadow-sm transition active:scale-95 disabled:opacity-40";
+const CONFIRMING =
+  "min-h-11 flex-1 rounded-full bg-rose-500 px-4 text-base font-bold text-white shadow-sm transition active:scale-95 disabled:opacity-40";
 
 export function Buttons({ state, busy, onStart, onHint, onCheck, onNext, onEnd, onRestart }: Props) {
+  const [confirmingEnd, setConfirmingEnd] = useState(false);
+
+  useEffect(() => {
+    if (!confirmingEnd) return;
+    const timer = setTimeout(() => setConfirmingEnd(false), END_CONFIRM_MS);
+    return () => clearTimeout(timer);
+  }, [confirmingEnd]);
+
   if (state === "ended") {
     return (
       <button type="button" onClick={onRestart} className={PRIMARY}>
@@ -50,8 +64,20 @@ export function Buttons({ state, busy, onStart, onHint, onCheck, onNext, onEnd, 
         <button type="button" onClick={onNext} disabled={busy || !NEXT_STATES.includes(state)} className={SECONDARY}>
           次へ
         </button>
-        <button type="button" onClick={onEnd} disabled={busy} className={SECONDARY}>
-          おわる
+        <button
+          type="button"
+          onClick={() => {
+            if (!confirmingEnd) {
+              setConfirmingEnd(true);
+              return;
+            }
+            setConfirmingEnd(false);
+            onEnd();
+          }}
+          disabled={busy}
+          className={confirmingEnd ? CONFIRMING : SECONDARY}
+        >
+          {confirmingEnd ? "本当におわる？" : "おわる"}
         </button>
       </div>
     </div>

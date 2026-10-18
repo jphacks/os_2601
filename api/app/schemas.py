@@ -2,6 +2,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.personas import PersonaId
+
 MAX_UTTERANCE_CHARS = 200
 SPEECH_REQUEST_MAX_CHARS = 200
 StuckSeconds = Annotated[int, Field(ge=5, le=1200)]
@@ -14,7 +16,7 @@ class SettingsInput(BaseModel):
     stuck_seconds: StuckSeconds | None = None
     cooldown_seconds: CooldownSeconds | None = None
     max_level: MaxLevel | None = None
-    persona: Literal["teacher", "ikemen"] | None = None
+    persona: PersonaId | None = None
 
 
 class SessionCreateRequest(BaseModel):
@@ -28,7 +30,7 @@ class SettingsPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
     stuck_seconds: StuckSeconds | None = None
     cooldown_seconds: CooldownSeconds | None = None
-    persona: Literal["teacher", "ikemen"] | None = None
+    persona: PersonaId | None = None
 
     @model_validator(mode="after")
     def require_one(self) -> "SettingsPatch":

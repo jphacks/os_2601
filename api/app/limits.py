@@ -7,6 +7,7 @@ from fastapi import Request
 from app.context import AppContext
 from app.errors import fail
 
+MAX_FRAME_BYTES = 600 * 1024
 OPEN_SESSIONS_PER_MINUTE = 3
 OPEN_SESSIONS_PER_MINUTE_TOTAL = 30
 AI_CALLS_PER_MINUTE = 20

@@ -4,7 +4,7 @@ import time
 from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
 
 from app.auth import require_device, require_device_or_operator, require_operator
 from app.check import CORRECT_TEXT, Judgement, judge
@@ -23,7 +23,7 @@ from app.hints import (
     read_problem,
 )
 from app.leak import same_problem
-from app.limits import AI_CALLS_PER_MINUTE, SPEECHES_PER_MINUTE, allow_open, client_ip, count_call, one_at_a_time
+from app.limits import AI_CALLS_PER_MINUTE, MAX_FRAME_BYTES, SPEECHES_PER_MINUTE, allow_open, client_ip, count_call, one_at_a_time
 from app.personas import persona_options
 from app.prefetch import discard_prefetch, settle_prefetch, start_prefetch, take_prefetch
 from app.schemas import CheckRequest, HintRequest, ProblemRequest, SessionCreateRequest, SettingsPatch, SignalRequest, SpeechRequest
@@ -57,7 +57,6 @@ from app.voicevox import VoiceUnavailable
 
 logger = logging.getLogger(__name__)
 
-MAX_FRAME_BYTES = 600 * 1024
 OPEN_SESSION_LIFETIME = timedelta(minutes=30)
 OPEN_SESSION_KEPT_FOR = timedelta(hours=2)
 OPEN_SESSION_LABEL = "自分で始めた"
@@ -230,10 +229,7 @@ async def patch_settings(
 ) -> dict:
     session = _find_session(context, session_id)
     require_device(request, context, session)
-    old_persona = session.settings.persona
     session, _ = _apply(context, session, ChangeSettings(body.stuck_seconds, body.cooldown_seconds, body.persona), _now())
-    if session.settings.persona != old_persona:
-        discard_prefetch(context, session_id)
     context.store.save()
     return {"settings": asdict(session.settings), "state": session.state}
 
@@ -275,13 +271,14 @@ async def post_frame(
     data = await frame.read(MAX_FRAME_BYTES + 1)
     if len(data) > MAX_FRAME_BYTES:
         fail(413, f"フレームは {MAX_FRAME_BYTES // 1024} KB まで")
-    session, _ = _apply(context, _find_session(context, session_id), Tick(), _now())
+    now = _now()
+    session, _ = _apply(context, _find_session(context, session_id), Tick(), now)
     if session.state == "ended":
         fail(409, "終了したセッションにはフレームを送れない")
     frame_id = _new_id("frm")
     context.frames[session.session_id] = (frame_id, data)
     start_prefetch(context, session, data)
-    return {"frame_id": frame_id, "received_at": iso(_now()), "bytes": len(data)}
+    return {"frame_id": frame_id, "received_at": iso(now), "bytes": len(data)}
 
 
 def _issue_hint(
@@ -526,7 +523,7 @@ async def post_tts(session_id: str, body: SpeechRequest, request: Request, conte
         audio = await context.voice.synthesize(body.text, body.character)
     except VoiceUnavailable as error:
         logger.warning("tts session=%s failed=%s", session.session_id, error)
-        raise HTTPException(status_code=503, detail="読み上げの声を作れなかった") from error
+        fail(503, "読み上げの声を作れなかった")
     logger.info(
         "tts session=%s character=%s chars=%s latency_ms=%s",
         session.session_id,

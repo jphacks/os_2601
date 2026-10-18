@@ -25,8 +25,18 @@ async def _compose_ahead(
     return composed
 
 
+def _wanted(session: Session) -> bool:
+    return session.state == "still" and session.prefetch_requested
+
+
+def _matches(prefetch: Prefetch, session: Session, stuck_count: int) -> bool:
+    return (prefetch.problem_no, prefetch.stuck_count, prefetch.persona) == (
+        session.current_problem_no, stuck_count, session.settings.persona
+    )
+
+
 def start_prefetch(context: AppContext, session: Session, frame: bytes) -> None:
-    if session.state != "still" or not session.prefetch_requested or session.session_id in context.prefetches:
+    if not _wanted(session) or session.session_id in context.prefetches:
         return
     problem = session.current_problem
     stuck_count = problem.stuck_count + 1
@@ -36,7 +46,12 @@ def start_prefetch(context: AppContext, session: Session, frame: bytes) -> None:
 
 
 def settle_prefetch(context: AppContext, session: Session) -> None:
-    if session.state == "stuck" or (session.state == "still" and session.prefetch_requested):
+    prefetch = context.prefetches.get(session.session_id)
+    if prefetch is None:
+        return
+    if _wanted(session) and _matches(prefetch, session, session.current_problem.stuck_count + 1):
+        return
+    if session.state == "stuck" and _matches(prefetch, session, session.current_problem.stuck_count):
         return
     discard_prefetch(context, session.session_id)
 
@@ -51,9 +66,7 @@ def take_prefetch(context: AppContext, session: Session) -> asyncio.Task[Compose
     prefetch = context.prefetches.pop(session.session_id, None)
     if prefetch is None:
         return None
-    if (prefetch.problem_no, prefetch.stuck_count, prefetch.persona) == (
-        session.current_problem_no, session.current_problem.stuck_count, session.settings.persona
-    ):
+    if _matches(prefetch, session, session.current_problem.stuck_count):
         return prefetch.composing
     prefetch.composing.cancel()
     return None

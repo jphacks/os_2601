@@ -1,12 +1,16 @@
 {
   "hint_id": "hnt_mock_2",
   "problem_no": 2,
+  "problem_text": "2x - 7 = 4x + 3",
   "level": 2,
   "trigger": "auto",
   "speech": "右辺に移したときの符号、もう一回見てみて",
   "display": "右辺に移したときの符号、もう一回見てみて",
   "stuck_point": "移項の符号",
-  "leak_check": { "ok": true, "fallback": false },
+  "leak_check": {
+    "ok": true,
+    "fallback": false
+  },
   "source": "gpt",
   "model": "gpt-6.1-sol",
   "latency_ms": 2300,

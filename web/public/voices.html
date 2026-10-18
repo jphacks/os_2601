@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>声の一覧</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 16px; font-size: 17px; }
+  button { font-size: 17px; padding: 10px 14px; margin: 4px 0; width: 100%; text-align: left; }
+  label { display: block; margin: 8px 0; }
+</style>
+</head>
+<body>
+<p>この端末の日本語の声。押すと「2行目の右辺の4を見てみて。」と読む。</p>
+<label>高さ <input id="pitch" type="range" min="0.5" max="2" step="0.1" value="1"> <span id="pitchValue">1.0</span></label>
+<label>速さ <input id="rate" type="range" min="0.6" max="1.6" step="0.1" value="1"> <span id="rateValue">1.0</span></label>
+<div id="list">読み込み中…</div>
+<script>
+  const text = "2行目の右辺の4を見てみて。";
+  const pitch = document.getElementById("pitch");
+  const rate = document.getElementById("rate");
+  pitch.oninput = () => (document.getElementById("pitchValue").textContent = Number(pitch.value).toFixed(1));
+  rate.oninput = () => (document.getElementById("rateValue").textContent = Number(rate.value).toFixed(1));
+  const render = () => {
+    const voices = speechSynthesis.getVoices().filter((voice) => voice.lang.replace("_", "-").startsWith("ja"));
+    const list = document.getElementById("list");
+    list.textContent = voices.length ? "" : "日本語の声が見つからない";
+    for (const voice of voices) {
+      const button = document.createElement("button");
+      button.textContent = `${voice.name}（${voice.lang}${voice.localService ? "、端末内" : "、ネット"}）`;
+      button.onclick = () => {
+        speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.voice = voice;
+        utterance.lang = "ja-JP";
+        utterance.pitch = Number(pitch.value);
+        utterance.rate = Number(rate.value);
+        speechSynthesis.speak(utterance);
+      };
+      list.append(button);
+    }
+  };
+  render();
+  speechSynthesis.addEventListener("voiceschanged", render);
+</script>
+</body>
+</html>

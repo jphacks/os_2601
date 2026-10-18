@@ -63,9 +63,9 @@ Hack Day 版はヒント 2 段階（H1 固定文・H2 GPT）、SSE なし（記�
  "state": "watching", "current_problem_no": 2, "still_seconds": 7,
  "settings": {"stuck_seconds": 20, "cooldown_seconds": 60, "max_level": 2},
  "problems": [
-   {"problem_no": 1, "status": "done", "stuck_count": 0, "max_level": 0, "seconds_spent": 95,
+   {"problem_no": 1, "problem_text": "3x + 2 = 8", "status": "done", "stuck_count": 0, "max_level": 0, "seconds_spent": 95,
     "hints": [], "check": {"verdict": "correct", "display": "正解！ 移項がきれい", "created_at": "…"}},
-   {"problem_no": 2, "status": "working", "stuck_count": 2, "max_level": 2, "seconds_spent": 140,
+   {"problem_no": 2, "problem_text": "2x - 7 = 4x + 3", "status": "working", "stuck_count": 2, "max_level": 2, "seconds_spent": 140,
     "hints": [
       {"hint_id": "hnt_…", "level": 1, "trigger": "auto", "display": "今、何を求めようとしてる？",
        "stuck_point": "移項の符号", "source": "fallback",

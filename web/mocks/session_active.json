@@ -8,19 +8,29 @@
   "state": "watching",
   "current_problem_no": 2,
   "still_seconds": 0,
-  "settings": { "stuck_seconds": 20, "cooldown_seconds": 60, "max_level": 2 },
+  "settings": {
+    "stuck_seconds": 20,
+    "cooldown_seconds": 60,
+    "max_level": 2
+  },
   "problems": [
     {
       "problem_no": 1,
+      "problem_text": "2x - 7 = 4x + 3",
       "status": "done",
       "stuck_count": 0,
       "max_level": 0,
       "seconds_spent": 95,
       "hints": [],
-      "check": { "verdict": "correct", "display": "正解。移項の符号、ばっちり", "created_at": "2026-10-17T01:31:35Z" }
+      "check": {
+        "verdict": "correct",
+        "display": "正解。移項の符号、ばっちり",
+        "created_at": "2026-10-17T01:31:35Z"
+      }
     },
     {
       "problem_no": 2,
+      "problem_text": "2x - 7 = 4x + 3",
       "status": "working",
       "stuck_count": 3,
       "max_level": 2,
@@ -33,7 +43,10 @@
           "display": "今、何を求めようとしてる？",
           "stuck_point": "移項で符号を変え忘れる",
           "source": "fallback",
-          "leak_check": { "ok": true, "fallback": false },
+          "leak_check": {
+            "ok": true,
+            "fallback": false
+          },
           "latency_ms": 3,
           "created_at": "2026-10-17T01:32:20Z"
         },
@@ -44,7 +57,10 @@
           "display": "4x を左に移したとき、符号はどうなった？",
           "stuck_point": "移項の符号",
           "source": "gpt",
-          "leak_check": { "ok": true, "fallback": false },
+          "leak_check": {
+            "ok": true,
+            "fallback": false
+          },
           "latency_ms": 2300,
           "created_at": "2026-10-17T01:33:05Z"
         },
@@ -55,7 +71,10 @@
           "display": "右辺に移したときの符号、もう一回見てみて",
           "stuck_point": "移項で符号を変え忘れる",
           "source": "fallback",
-          "leak_check": { "ok": false, "fallback": true },
+          "leak_check": {
+            "ok": false,
+            "fallback": true
+          },
           "latency_ms": 2450,
           "created_at": "2026-10-17T01:33:40Z"
         }
@@ -64,6 +83,7 @@
     },
     {
       "problem_no": 3,
+      "problem_text": null,
       "status": "pending",
       "stuck_count": 0,
       "max_level": 0,
@@ -73,6 +93,7 @@
     },
     {
       "problem_no": 4,
+      "problem_text": null,
       "status": "pending",
       "stuck_count": 0,
       "max_level": 0,
@@ -82,8 +103,14 @@
     }
   ],
   "stuck_points": [
-    { "label": "移項で符号を変え忘れる", "count": 2 },
-    { "label": "移項の符号", "count": 1 }
+    {
+      "label": "移項で符号を変え忘れる",
+      "count": 2
+    },
+    {
+      "label": "移項の符号",
+      "count": 1
+    }
   ],
   "leak_blocked_count": 1,
   "created_at": "2026-10-17T01:30:00Z",

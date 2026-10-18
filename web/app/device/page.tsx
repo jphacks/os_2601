@@ -12,7 +12,7 @@ import { Caption, HeardBubble } from "./_components/Caption";
 import { Character } from "./_components/Character";
 import { Header } from "./_components/Header";
 import { nearestChoice, SecondsPicker } from "./_components/SecondsPicker";
-import { StateBadge } from "./_components/StateBadge";
+import { ProblemText } from "./_components/ProblemText";
 import { VideoFrame } from "./_components/VideoFrame";
 
 // docs/06 の「状態と表示」で字幕が固定の状態
@@ -45,6 +45,7 @@ function Device() {
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [state, setState] = useState<State>("created");
   const [problemNo, setProblemNo] = useState(1);
+  const [problemText, setProblemText] = useState<string | null>(null);
   const [caption, setCaption] = useState(FIXED_CAPTIONS.created ?? "");
   const [stuckSeconds, setStuckSeconds] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -62,6 +63,7 @@ function Device() {
         if (cancelled) return;
         setSession(detail);
         setProblemNo(detail.current_problem_no);
+        setProblemText(detail.problems[detail.current_problem_no - 1]?.problem_text ?? null);
       })
       .catch((error) => console.warn("[device] getSession に失敗", error));
     return () => {
@@ -125,6 +127,7 @@ function Device() {
       },
       onHint: (hint) => {
         if (hint.speech !== null) setCaption(hint.display);
+        setProblemText(hint.problem_text);
       },
       onBrightness: setBrightness,
       onConnection: setConnected,
@@ -139,6 +142,7 @@ function Device() {
     try {
       const hint = await requestManualHint();
       if (hint.speech !== null) setCaption(hint.display);
+      setProblemText(hint.problem_text);
       applyState(hint.state, hint.problem_no);
     } catch (error) {
       ignoreError(error);
@@ -201,7 +205,7 @@ function Device() {
         <div className="flex items-start gap-3">
           <div className="flex min-w-0 flex-1 flex-col items-center gap-2">
             <Header mode={session?.mode ?? null} connected={connected} />
-            <StateBadge state={state} />
+            <ProblemText text={problemText} />
           </div>
           <VideoFrame
             videoRef={videoRef}

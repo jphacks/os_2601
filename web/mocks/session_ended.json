@@ -8,19 +8,29 @@
   "state": "ended",
   "current_problem_no": 4,
   "still_seconds": 0,
-  "settings": { "stuck_seconds": 20, "cooldown_seconds": 60, "max_level": 2 },
+  "settings": {
+    "stuck_seconds": 20,
+    "cooldown_seconds": 60,
+    "max_level": 2
+  },
   "problems": [
     {
       "problem_no": 1,
+      "problem_text": "2x - 7 = 4x + 3",
       "status": "done",
       "stuck_count": 0,
       "max_level": 0,
       "seconds_spent": 110,
       "hints": [],
-      "check": { "verdict": "correct", "display": "正解。移項の符号、ばっちり", "created_at": "2026-10-17T00:51:50Z" }
+      "check": {
+        "verdict": "correct",
+        "display": "正解。移項の符号、ばっちり",
+        "created_at": "2026-10-17T00:51:50Z"
+      }
     },
     {
       "problem_no": 2,
+      "problem_text": "2x - 7 = 4x + 3",
       "status": "done",
       "stuck_count": 2,
       "max_level": 2,
@@ -33,7 +43,10 @@
           "display": "今、何を求めようとしてる？",
           "stuck_point": "移項で符号を変え忘れる",
           "source": "fallback",
-          "leak_check": { "ok": true, "fallback": false },
+          "leak_check": {
+            "ok": true,
+            "fallback": false
+          },
           "latency_ms": 2,
           "created_at": "2026-10-17T00:53:10Z"
         },
@@ -44,15 +57,23 @@
           "display": "右辺に移したときの符号、もう一回見てみて",
           "stuck_point": "移項の符号",
           "source": "gpt",
-          "leak_check": { "ok": true, "fallback": false },
+          "leak_check": {
+            "ok": true,
+            "fallback": false
+          },
           "latency_ms": 2180,
           "created_at": "2026-10-17T00:54:00Z"
         }
       ],
-      "check": { "verdict": "correct", "display": "正解。符号の直し方、ばっちり", "created_at": "2026-10-17T00:56:10Z" }
+      "check": {
+        "verdict": "correct",
+        "display": "正解。符号の直し方、ばっちり",
+        "created_at": "2026-10-17T00:56:10Z"
+      }
     },
     {
       "problem_no": 3,
+      "problem_text": "2x - 7 = 4x + 3",
       "status": "skipped",
       "stuck_count": 0,
       "max_level": 0,
@@ -62,17 +83,28 @@
     },
     {
       "problem_no": 4,
+      "problem_text": "2x - 7 = 4x + 3",
       "status": "done",
       "stuck_count": 0,
       "max_level": 0,
       "seconds_spent": 150,
       "hints": [],
-      "check": { "verdict": "correct", "display": "正解。3 のかけ方、ばっちり", "created_at": "2026-10-17T00:59:55Z" }
+      "check": {
+        "verdict": "correct",
+        "display": "正解。3 のかけ方、ばっちり",
+        "created_at": "2026-10-17T00:59:55Z"
+      }
     }
   ],
   "stuck_points": [
-    { "label": "移項で符号を変え忘れる", "count": 1 },
-    { "label": "移項の符号", "count": 1 }
+    {
+      "label": "移項で符号を変え忘れる",
+      "count": 1
+    },
+    {
+      "label": "移項の符号",
+      "count": 1
+    }
   ],
   "leak_blocked_count": 0,
   "created_at": "2026-10-17T00:50:00Z",

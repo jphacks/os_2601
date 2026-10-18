@@ -76,6 +76,7 @@ export type SessionDetail = {
   settings: Settings;
   problems: {
     problem_no: number;
+    problem_text: string | null;
     status: ProblemStatus;
     stuck_count: number;
     max_level: number;
@@ -120,6 +121,7 @@ export type HintRequest = { trigger: Trigger; frame_id: string };
 export type HintResponse = {
   hint_id: string;
   problem_no: number;
+  problem_text: string | null;
   level: HintLevel;
   trigger: Trigger;
   speech: string | null;

@@ -171,7 +171,7 @@ function deviceEnvironment({
   const component = (name) => ({ [name]: function () {} })[name];
   const components = {};
   for (const name of ["Buttons", "Caption", "HeardBubble", "Character", "Header", "RecordSheet", "SecondsPicker", "ProblemText", "VideoFrame"]) components[name] = component(name);
-  const spoken = [], updates = [];
+  const spoken = [], updates = [], settingsRequests = [];
   let sessionReads = 0;
   const loop = { callbacks: null,
     startSession(_video, _id, _token, callbacks, persona) { loop.callbacks = callbacks; loop.persona = persona; return () => {}; },
@@ -188,7 +188,10 @@ function deviceEnvironment({
       return { session_id: "s", state: initialState, current_problem_no: initialProblemNo, problems, mode: "live", settings: { stuck_seconds: 20, persona: initialPersona },
         persona_options: [{ id: "teacher", display_name: "家庭教師", end_message: "今日の取り組みを記録で振り返りましょう。" }, { id: "ikemen", display_name: "イケメン", end_message: "今日の頑張り、記録で見てみようぜ。" }] };
     },
-    patchSettings: patch ?? (async (_id, _token, body) => ({ settings: { stuck_seconds: 20, persona: body.persona }, state: "created" })),
+    patchSettings: async (...args) => {
+      settingsRequests.push(args);
+      return patch ? patch(...args) : { settings: { stuck_seconds: 20, persona: args[2].persona }, state: "created" };
+    },
   };
   const overrides = {
     react,
@@ -199,9 +202,17 @@ function deviceEnvironment({
     "@/lib/loop": loop,
     "@/lib/speech": { speak: async (text, persona) => spoken.push({ text, persona }), stopSpeaking() {}, unlockSpeech() {} },
     "@/lib/voice": { primeListening() {}, stopListening() {}, voiceStatus: () => "" },
+    "next/image": { default: component("Image") },
+    "./character.png": { default: { src: "/character.png" } },
+    "./teacher.png": { default: { src: "/teacher.png" } },
   };
-  for (const file of ["Buttons", "Caption", "Character", "Header", "RecordSheet", "SecondsPicker", "ProblemText", "VideoFrame"]) overrides[`./_components/${file}`] = { ...components, nearestChoice: (value) => value };
+  for (const file of ["Buttons", "Caption", "Header", "RecordSheet", "SecondsPicker", "ProblemText", "VideoFrame"]) overrides[`./_components/${file}`] = { ...components, nearestChoice: (value) => value };
   const load = modules(overrides, { window: { confirm: () => true } });
+  components.Character = load("app/device/_components/Character.tsx").Character;
+  components.CharacterPicker = load("app/device/_components/CharacterPicker.tsx").CharacterPicker;
+  overrides["./_components/Character"] = { Character: components.Character };
+  overrides["./_components/CharacterPicker"] = { CharacterPicker: components.CharacterPicker };
+  const characters = load("app/device/_components/characters.ts").CHARACTERS;
   const page = load("app/device/page.tsx");
   const Device = page.default().props.children.type;
   function render() { cursor = 0; return Device(); }
@@ -221,8 +232,16 @@ function deviceEnvironment({
   const first = render();
   find(first, components.VideoFrame).props.videoRef.current = {};
   while (effects.length) effects.shift()();
-  return { render, find, components, spoken, updates, loop,
-    select: () => find(render(), "select"),
+  const picker = () => find(render(), components.CharacterPicker);
+  const pickerButtons = () => findAll(components.CharacterPicker(picker().props), "button");
+  return { render, find, components, spoken, updates, settingsRequests, loop,
+    picker,
+    pickerButtons,
+    choose: (id) => pickerButtons()[characters.findIndex((character) => character.id === id)].props.onClick(),
+    imageSource: () => {
+      const character = find(render(), components.Character);
+      return components.Character(character.props).props.src.src;
+    },
     buttons: () => find(render(), components.Buttons).props,
     caption: () => find(render(), components.Caption).props.text,
     problemText: () => find(render(), components.ProblemText).props.text,
@@ -237,26 +256,73 @@ function deviceEnvironment({
 test("device exposes two choices, waits for confirmation, and keeps the old selection on failure", async () => {
   const pending = deferred();
   const env = deviceEnvironment({ patch: () => pending.promise });
-  assert.equal(env.select().props.disabled, true);
+  assert.equal(env.picker().props.disabled, true);
   await flush();
-  assert.equal(env.select().props.value, "teacher");
-  assert.equal(env.select().props.children.length, 2);
-  env.select().props.onChange({ target: { value: "ikemen" } });
-  assert.equal(env.select().props.value, "teacher");
-  assert.equal(env.select().props.disabled, true);
+  assert.equal(env.picker().props.value, "teacher");
+  assert.equal(env.pickerButtons().length, 2);
+  assert.equal(env.imageSource(), "/teacher.png");
+  env.choose("handsome");
+  assert.equal(env.picker().props.value, "teacher");
+  assert.equal(env.imageSource(), "/teacher.png");
+  assert.equal(env.picker().props.disabled, true);
   pending.reject(new Error("network failure"));
   await flush();
-  assert.equal(env.select().props.value, "teacher");
+  assert.equal(env.picker().props.value, "teacher");
+  assert.equal(env.imageSource(), "/teacher.png");
   assert.equal(env.updates.length, 0);
-  assert.equal(env.select().props.disabled, false);
+  assert.equal(env.picker().props.disabled, false);
+});
+
+test("saved personas restore the matching real character image and pressed picker button", async () => {
+  for (const [persona, character, image] of [
+    ["teacher", "teacher", "/teacher.png"],
+    ["ikemen", "handsome", "/character.png"],
+  ]) {
+    const env = deviceEnvironment({ initialPersona: persona });
+    await flush();
+    assert.equal(env.picker().props.value, character);
+    assert.equal(env.imageSource(), image);
+    assert.equal(env.pickerButtons()[0].props["aria-pressed"], persona === "ikemen");
+    assert.equal(env.pickerButtons()[1].props["aria-pressed"], persona === "teacher");
+    assert.equal(env.settingsRequests.length, 0);
+  }
+});
+
+test("real picker is disabled while loading, saving, or ended and page guards prevent extra API calls", async () => {
+  const pending = deferred();
+  const env = deviceEnvironment({ patch: () => pending.promise });
+  assert.equal(env.components.CharacterPicker(env.picker().props).props.disabled, true);
+  assert.ok(env.pickerButtons().every((button) => button.props.disabled));
+  env.choose("handsome");
+  assert.equal(env.settingsRequests.length, 0);
+  await flush();
+  env.choose("handsome");
+  assert.equal(env.settingsRequests.length, 1);
+  assert.ok(env.pickerButtons().every((button) => button.props.disabled));
+  env.choose("teacher");
+  assert.equal(env.settingsRequests.length, 1);
+  assert.equal(env.imageSource(), "/teacher.png");
+  pending.resolve({ settings: { stuck_seconds: 20, persona: "ikemen" }, state: "created" });
+  await flush();
+  assert.equal(env.picker().props.value, "handsome");
+  assert.equal(env.imageSource(), "/character.png");
+  await env.buttons().onStart();
+  env.loop.callbacks.onState({ state: "ended", current_problem_no: 1, still_seconds: 0 });
+  assert.ok(env.pickerButtons().every((button) => button.props.disabled));
+  env.choose("teacher");
+  assert.equal(env.settingsRequests.length, 1);
+  assert.equal(env.picker().props.value, "handsome");
+  assert.equal(env.imageSource(), "/character.png");
 });
 
 test("confirmed choice reaches the loop; ending displays and speaks exactly the configured message once", async () => {
   const env = deviceEnvironment();
   await flush();
-  env.select().props.onChange({ target: { value: "ikemen" } });
+  env.choose("handsome");
   await flush();
-  assert.equal(env.select().props.value, "ikemen");
+  assert.equal(env.picker().props.value, "handsome");
+  assert.equal(env.imageSource(), "/character.png");
+  assert.equal(env.settingsRequests[0][2].persona, "ikemen");
   assert.equal(env.updates[0].persona, "ikemen");
   await env.buttons().onStart();
   assert.equal(env.loop.persona, "ikemen");
@@ -274,12 +340,13 @@ test("a settings response arriving after ending cannot replace the confirmed per
   await flush();
   await env.buttons().onStart();
   env.loop.callbacks.onState({ state: "watching", current_problem_no: 1, still_seconds: 0 });
-  env.select().props.onChange({ target: { value: "ikemen" } });
+  env.choose("handsome");
   env.loop.callbacks.onState({ state: "ended", current_problem_no: 1, still_seconds: 0 });
   const caption = env.caption();
   pending.resolve({ settings: { stuck_seconds: 20, persona: "ikemen" }, state: "watching" });
   await flush();
-  assert.equal(env.select().props.value, "teacher");
+  assert.equal(env.picker().props.value, "teacher");
+  assert.equal(env.imageSource(), "/teacher.png");
   assert.equal(env.caption(), caption);
   assert.equal(env.spoken[0].text, caption);
   assert.equal(env.updates.length, 0);
@@ -289,8 +356,9 @@ test("legacy friend and an unmounted settings request cannot resurrect the remov
   const pending = deferred();
   const env = deviceEnvironment({ initialPersona: "friend", patch: () => pending.promise });
   await flush();
-  assert.equal(env.select().props.value, "teacher");
-  env.select().props.onChange({ target: { value: "ikemen" } });
+  assert.equal(env.picker().props.value, "teacher");
+  assert.equal(env.imageSource(), "/teacher.png");
+  env.choose("handsome");
   env.unmount();
   pending.resolve({ settings: { stuck_seconds: 20, persona: "ikemen" }, state: "created" });
   await flush();
@@ -305,9 +373,9 @@ test("starting and saving a persona cannot race before a React rerender", async 
     patch: async () => { patches += 1; return { settings: { persona: "ikemen", stuck_seconds: 20 }, state: "created" }; },
   });
   await flush();
-  const staleSelect = env.select();
+  const staleButton = env.pickerButtons()[0];
   const starting = env.buttons().onStart();
-  staleSelect.props.onChange({ target: { value: "ikemen" } });
+  staleButton.props.onClick();
   assert.equal(patches, 0);
   camera.resolve();
   await starting;
@@ -317,7 +385,7 @@ test("starting and saving a persona cannot race before a React rerender", async 
   const saving = deviceEnvironment({ patch: () => pending.promise });
   await flush();
   const staleButtons = saving.buttons();
-  saving.select().props.onChange({ target: { value: "ikemen" } });
+  saving.choose("handsome");
   await staleButtons.onStart();
   assert.equal(saving.loop.callbacks, null);
   pending.resolve({ settings: { persona: "ikemen", stuck_seconds: 20 }, state: "created" });
@@ -459,7 +527,9 @@ test("reloading an ended session restores its persona ending and exposes records
   const env = deviceEnvironment({ initialPersona: "ikemen", initialState: "ended" });
   await flush();
   assert.equal(env.buttons().state, "ended");
-  assert.equal(env.select().props.disabled, true);
+  assert.equal(env.picker().props.disabled, true);
+  assert.equal(env.picker().props.value, "handsome");
+  assert.equal(env.imageSource(), "/character.png");
   assert.equal(env.caption(), "今日の頑張り、記録で見てみようぜ。");
   assert.equal(env.recordButton().props.children, "記録を見る");
   assert.equal(env.spoken.length, 0);

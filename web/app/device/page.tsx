@@ -5,12 +5,13 @@ import { useSearchParams } from "next/navigation";
 import { ApiError, getSession, patchSettings, type SessionDetail, type State } from "@/lib/api";
 import { startCamera, stopCamera } from "@/lib/camera";
 import { advance, end, requestCheck, requestManualHint, startSession, updateSessionPersona } from "@/lib/loop";
-import { endMessage, normalizePersona, personaOptions } from "@/lib/personas";
+import { endMessage, normalizePersona } from "@/lib/personas";
 import { speak, stopSpeaking, unlockSpeech } from "@/lib/speech";
 import { primeListening, stopListening, voiceStatus } from "@/lib/voice";
 import { Buttons } from "./_components/Buttons";
 import { Caption, HeardBubble } from "./_components/Caption";
 import { Character } from "./_components/Character";
+import { CharacterPicker } from "./_components/CharacterPicker";
 import { Header } from "./_components/Header";
 import { RecordSheet } from "./_components/RecordSheet";
 import { nearestChoice, SecondsPicker } from "./_components/SecondsPicker";
@@ -153,7 +154,8 @@ function Device() {
   const defaultSeconds = session ? nearestChoice(session.settings.stuck_seconds) : null;
   const selectedSeconds = stuckSeconds ?? defaultSeconds;
   const selectedPersona = normalizePersona(session?.settings.persona);
-  const options = personaOptions(session?.persona_options);
+  // 絵と話し方は、サーバーで保存が確認できた同じ人格にそろえる。
+  const characterId = selectedPersona === "ikemen" ? "handsome" : "teacher";
   const canChangePersona = ["created", "watching", "still", "cooldown"].includes(state);
 
   async function handlePersonaChange(value: string) {
@@ -384,7 +386,7 @@ function Device() {
         </div>
         {/* 真ん中：キャラクターを左下に大きく、吹き出しを右に重ねる（Tolan の会話画面の並び） */}
         <div className="relative flex min-h-80 flex-1 items-end">
-          <Character state={state} className="absolute bottom-0 -left-4 h-[95%] max-h-[28rem] w-auto" />
+          <Character state={state} id={characterId} className="absolute bottom-0 -left-4 h-[95%] max-h-[28rem] w-auto" />
           <div className="relative ml-[38%] flex w-[62%] flex-col gap-3 self-center">
             {heard && <HeardBubble text={heard.text} />}
             <Caption text={caption} />
@@ -392,18 +394,11 @@ function Device() {
         </div>
         {/* 下：入力欄の位置にボタン */}
         <div className="relative flex flex-col gap-3 rounded-[2rem] bg-white/70 p-3 shadow-lg backdrop-blur">
-          <label className="flex items-center justify-between gap-3 px-2 font-bold">
-            話し方
-            <select
-              value={selectedPersona}
-              onChange={(event) => void handlePersonaChange(event.target.value)}
-              disabled={!session || busy || personaUpdating || !canChangePersona}
-              className="min-h-11 rounded-full border border-sky-200 bg-white px-4 text-base disabled:opacity-50"
-              aria-label="話し方"
-            >
-              {options.map((option) => <option key={option.id} value={option.id}>{option.display_name}</option>)}
-            </select>
-          </label>
+          <CharacterPicker
+            value={characterId}
+            onChange={(id) => void handlePersonaChange(id === "handsome" ? "ikemen" : "teacher")}
+            disabled={!session || busy || personaUpdating || !canChangePersona}
+          />
           {personaError && <p role="status" className="px-2 text-sm text-red-700">{personaError}</p>}
           {state === "created" && selectedSeconds !== null && (
             <SecondsPicker value={selectedSeconds} onChange={setStuckSeconds} />

@@ -2,6 +2,8 @@ import re
 import unicodedata
 from fractions import Fraction
 
+from app.numerals import kanji_number
+
 MIN_LEAK_CHARS = 3
 MIN_ANSWER_VALUE_CHARS = 2
 MAX_DECIMAL_DIGITS = 6
@@ -15,29 +17,15 @@ SHORT_ANSWER_PHRASES = (
     r"(?<![\d.a-z])[xy](は|が){v}" + ENDS_A_CLAIM,
 )
 NUMBER = re.compile(r"-?[\d./]+")
-KANJI_DIGITS = {"〇": 0, "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
 KANJI_NUMBER = r"[\d〇一二三四五六七八九十]+"
 READINGS = {"=": "イコール", "*": "かける", "÷": "わる", "-": "マイナス", "+": "プラス", "x": "エックス"}
 SPOKEN_SYMBOLS = {reading: symbol for symbol, reading in READINGS.items()}
 
 
-def _digit(char: str) -> int:
-    return int(char) if char.isdigit() else KANJI_DIGITS[char]
-
-
-def _kanji_number(word: str) -> str:
-    if "十" not in word:
-        return "".join(str(_digit(char)) for char in word)
-    tens, ones = word.split("十", 1)
-    if len(tens) > 1 or len(ones) > 1 or "十" in ones:
-        return word
-    return str((_digit(tens) if tens else 1) * 10 + (_digit(ones) if ones else 0))
-
-
 def _fraction_words(text: str) -> str:
     return re.sub(
         rf"({KANJI_NUMBER})分の({KANJI_NUMBER})",
-        lambda match: f"{_kanji_number(match.group(2))}/{_kanji_number(match.group(1))}",
+        lambda match: f"{kanji_number(match.group(2))}/{kanji_number(match.group(1))}",
         text,
     )
 

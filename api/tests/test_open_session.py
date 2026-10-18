@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 import pytest
-from conftest import Device
+from conftest import OPERATOR_KEY, Device
 
 from app import routes
 
@@ -49,4 +49,26 @@ def test_the_open_door_can_be_closed(device: Device) -> None:
 def test_operator_sessions_never_end_by_themselves(device: Device) -> None:
     device.now += timedelta(hours=2)
     assert device.client.get(f"/sessions/{device.session_id}", headers=device.headers).json()["state"] != "ended"
-    assert timedelta(minutes=30) == routes.OPEN_SESSION_LIFETIME
+    assert device.client.app.state.context.store.get(device.session_id).auto_end_at is None
+
+
+def test_the_rightmost_forwarded_address_is_the_one_counted(device: Device) -> None:
+    statuses = [open_session(device, ip=f"10.0.0.{number}, 203.0.113.9").status_code for number in range(4)]
+    assert statuses == [201, 201, 201, 429]
+
+
+def test_all_addresses_together_are_capped(device: Device) -> None:
+    statuses = [open_session(device, ip=f"203.0.113.{number}").status_code for number in range(routes.OPEN_SESSIONS_PER_MINUTE_TOTAL + 1)]
+    assert statuses[-1] == 429
+    assert len(device.client.app.state.context.opened_at) == routes.OPEN_SESSIONS_PER_MINUTE_TOTAL
+
+
+def test_expired_open_sessions_show_as_ended_in_the_list_and_are_forgotten_after_a_day(device: Device) -> None:
+    created = open_session(device).json()
+    operator = {"X-Operator-Key": OPERATOR_KEY}
+    device.now += timedelta(minutes=31)
+    listed = {item["session_id"]: item["state"] for item in device.client.get("/sessions", headers=operator).json()["sessions"]}
+    assert listed[created["session_id"]] == "ended"
+    device.now += timedelta(days=1)
+    open_session(device, ip="203.0.113.50")
+    assert device.client.app.state.context.store.get(created["session_id"]) is None

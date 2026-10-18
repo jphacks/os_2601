@@ -2,7 +2,7 @@ import asyncio
 import logging
 import secrets
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal, NoReturn
 
@@ -59,7 +59,9 @@ logger = logging.getLogger(__name__)
 MAX_FRAME_BYTES = 600 * 1024
 MAX_UTTERANCE_CHARS = 200
 OPEN_SESSIONS_PER_MINUTE = 3
+OPEN_SESSIONS_PER_MINUTE_TOTAL = 30
 OPEN_SESSION_LIFETIME = timedelta(minutes=30)
+OPEN_SESSION_KEPT_FOR = timedelta(days=1)
 OPEN_SESSION_LABEL = "自分で始めた"
 SPEECH_REQUEST_MAX_CHARS = 200
 SPEECH_AFTER_END_SECONDS = 60
@@ -267,26 +269,33 @@ def _find_session(context: AppContext, session_id: str) -> Session:
     session = context.store.get(session_id)
     if session is None:
         _fail(404, f"セッション {session_id} が無い")
-    if session.auto_end_at is not None and session.state != "ended" and _now() >= session.auto_end_at:
-        session, _ = _apply(context, session, End(), _now())
-        context.store.save()
     return session
 
 
 def _client_ip(request: Request) -> str:
     forwarded = request.headers.get("x-forwarded-for", "")
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        return forwarded.split(",")[-1].strip()
     return request.client.host if request.client else "unknown"
 
 
 def _allow_open(context: AppContext, ip: str, now: datetime) -> bool:
-    recent = [opened for opened in context.opened_at.get(ip, []) if now - opened < timedelta(minutes=1)]
-    if len(recent) >= OPEN_SESSIONS_PER_MINUTE:
-        context.opened_at[ip] = recent
+    context.opened_at = {
+        key: recent
+        for key, times in context.opened_at.items()
+        if (recent := [opened for opened in times if now - opened < timedelta(minutes=1)])
+    }
+    total = sum(len(times) for times in context.opened_at.values())
+    if total >= OPEN_SESSIONS_PER_MINUTE_TOTAL or len(context.opened_at.get(ip, [])) >= OPEN_SESSIONS_PER_MINUTE:
         return False
-    context.opened_at[ip] = [*recent, now]
+    context.opened_at[ip] = [*context.opened_at.get(ip, []), now]
     return True
+
+
+def _forget_old_open_sessions(context: AppContext, now: datetime) -> None:
+    for session in context.store.all():
+        if session.auto_end_at is not None and now - session.auto_end_at > OPEN_SESSION_KEPT_FOR:
+            context.store.remove(session.session_id)
 
 
 def _apply(context: AppContext, session: Session, event: Event, now: datetime) -> tuple[Session, Accepted]:
@@ -395,9 +404,11 @@ async def open_session(request: Request, context: AppContext = Depends(get_conte
         _fail(404, "OPEN_SESSIONS が 0")
     now = _now()
     if not _allow_open(context, _client_ip(request), now):
-        _fail(429, f"1 分に {OPEN_SESSIONS_PER_MINUTE} 回まで")
+        _fail(429, "少し待ってから、もう一度開いてね")
+    _forget_old_open_sessions(context, now)
     worksheet = context.worksheets[FREE_WORKSHEET.worksheet_id]
-    return _new_session(context, worksheet, OPEN_SESSION_LABEL, "live", context.default_settings, now + OPEN_SESSION_LIFETIME)
+    settings = replace(context.default_settings)
+    return _new_session(context, worksheet, OPEN_SESSION_LABEL, "live", settings, now + OPEN_SESSION_LIFETIME)
 
 
 @router.get("/sessions")

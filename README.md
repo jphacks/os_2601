@@ -152,8 +152,8 @@ Photomath や ChatGPT のカメラは「聞かれて答える」。Khanmigo は�
 
 - API：`uv run --directory api --env-file .env uvicorn app.main:app --reload --port 8000`。`.env` に `GEMINI_API_KEY`・`OPERATOR_KEY`（任意で `VOICEVOX_URL`。無ければブラウザの声）
 - 画面：root で `pnpm dev:mock`（モック。API 不要）か `pnpm dev`（本物の API。`web/.env.local` に `NEXT_PUBLIC_API_BASE`）
-- 検査：`pnpm check`（型・lint・ビルド）、`uvx ruff check api`、`uv run --directory api pytest`（158 件）。CI でも同じものを回す
-- 始め方：`/device` を開くだけでセッションができる（IP ごとに 1 分 3 件、30 分で自動終了。`OPEN_SESSIONS=0` で止められる）。運営が作って配るなら `uv run --directory api --env-file .env tools/create_session.py --worksheet FREE --mode live --stuck 20 --count 1`（`.env` に `API_BASE`・`WEB_BASE` も要る）か `/ops`。出た `/device?s=…&t=…` を手元を撮るスマホで開く
+- 検査：`pnpm check`（型・lint・ビルド）、`uvx ruff check api`、`uv run --directory api pytest`。CI でも同じものを回す
+- 始め方：`/device` を開くだけでセッションができる（IP ごとに 1 分 3 件・全体で 1 分 30 件、30 分で自動終了。`OPEN_SESSIONS=0` で止められる）。運営が作って配るなら `uv run --directory api --env-file .env tools/create_session.py --worksheet FREE --mode live --stuck 20 --count 1`（`.env` に `API_BASE`・`WEB_BASE` も要る）か `/ops`。出た `/device?s=…&t=…` を手元を撮るスマホで開く
 
 ## 文書
 

@@ -21,6 +21,7 @@ Hack Day 版はヒント 2 段階（H1 固定文・H2 GPT）、SSE なし（記�
 | メソッド | パス | 認可 | 役割 |
 |---|---|---|---|
 | POST | `/sessions` | operator | セッション作成。`session_token` を返す |
+| POST | `/sessions/open` | 公開 | 誰でもセッションを作る（IP ごとに 1 分 3 件・全体で 1 分 30 件、429 `RATE_LIMITED`。30 分で自動終了。10/18、ADR 0036） |
 | GET | `/sessions` | operator | セッション一覧（`/ops`・`/log`） |
 | GET | `/sessions/{id}` | operator・device | セッションの要約と問題ごとの経過 |
 | PATCH | `/sessions/{id}/settings` | device | 学習者が「止まったと判定する秒数」を選ぶ（10 秒・20 秒・30 秒・1 分・3 分・5 分・10 分・20 分） |

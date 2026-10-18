@@ -367,6 +367,8 @@ def _on_ended(event: Event) -> Result:
 
 def step(session: Session, event: Event, now: datetime, thresholds: Thresholds) -> tuple[Session, Result]:
     next_session = deepcopy(session)
+    if next_session.state != "ended" and next_session.auto_end_at is not None and now >= next_session.auto_end_at:
+        _end_session(next_session, next_session.auto_end_at)
     if next_session.state == "ended":
         return next_session, _on_ended(event)
     _apply_clock(next_session, now, thresholds)

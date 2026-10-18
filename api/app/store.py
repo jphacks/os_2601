@@ -102,6 +102,9 @@ class SessionStore:
     def all(self) -> list[Session]:
         return list(self._sessions.values())
 
+    def remove(self, session_id: str) -> None:
+        self._sessions.pop(session_id, None)
+
     def clear(self) -> int:
         removed = len(self._sessions)
         self._sessions = {}

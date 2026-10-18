@@ -25,6 +25,7 @@ const FIXED_CAPTIONS: Partial<Record<State, string>> = {
 };
 const CAMERA_DENIED_CAPTION = "設定からカメラを許可してね。LINE などの中のブラウザなら Safari か Chrome で開いてね";
 const NO_SESSION_CAPTION = "セッションの URL から開いてね";
+const BUSY_CAPTION = "少し待ってから、もう一度開いてね";
 const END_CONFIRM = "おわる？";
 // 平均輝度がこれ未満なら「明るさが足りません」を重ねる（docs/tasks/b.md の B1-4）
 const DARK_BRIGHTNESS = 60;
@@ -43,6 +44,7 @@ function Device() {
   const token = params.get("t") ?? "";
   const debug = params.get("debug") === "1";
 
+  const openingRef = useRef<ReturnType<typeof openSession> | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const stopRef = useRef<(() => void) | null>(null);
   const startingRef = useRef(false);
@@ -73,9 +75,11 @@ function Device() {
   useEffect(() => {
     if (sessionId && token) return;
     let cancelled = false;
-    openSession()
+    openingRef.current ??= openSession();
+    openingRef.current
       .then((created) => {
         if (cancelled) return;
+        openingRef.current = null;
         const query = new URLSearchParams({ s: created.session_id, t: created.session_token });
         if (debug) query.set("debug", "1");
         router.replace(`/device?${query}`);
@@ -83,7 +87,7 @@ function Device() {
       .catch((error) => {
         if (cancelled) return;
         ignoreError(error);
-        setCaption(NO_SESSION_CAPTION);
+        setCaption(error instanceof ApiError && error.status === 429 ? BUSY_CAPTION : NO_SESSION_CAPTION);
       });
     return () => {
       cancelled = true;

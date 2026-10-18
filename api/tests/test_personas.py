@@ -29,7 +29,6 @@ EXPECTED_NORMAL = (
     "「おっと、待った！」もう答えが分かった気になってない？ 最後まで考え抜いてこそ、カッコいいんじゃない？",
 )
 EXPECTED_SPECIAL = (
-    "「今回は先日の騒動でみなさんにつらい思いをさせてしまって、本当に申し訳ない気持ちでいっぱいです……。って、おっと、待った！ 今は数学の話だろ？」",
     "「あれこれ言うつもりはないさ。自分で気づいたことって、意外と忘れないもんだろ？ ヒントは出す。あとは自分で考えてみな。」",
     "「点数ばっか気にすんなよ。答案に書いてある自分の名前、胸張って言えるくらい頑張れたなら、それって結構カッコいいことだろ？」",
     "「点数より大事なもんもあるだろ？ ……おっと、待った！ 名前書き忘れて0点とか、そういう話じゃないからな？」",
@@ -142,6 +141,9 @@ class PersonaTests(unittest.TestCase):
         replacement = replace(PERSONAS["ikemen"], references=PersonaReferences(normal=("別の参考文",), special=("長い参考文。" * 20,)))
         with patch.dict(PERSONAS, {"ikemen": replacement}):
             self.assertEqual(render_h2("右辺", "ikemen"), baseline)
+
+    def test_personas_do_not_include_removed_apology_reference(self):
+        self.assertNotIn("騒動", repr(PERSONAS))
 
     def test_style_prompt_is_abstract_and_references_are_not_sent(self):
         self.assertEqual(PERSONAS["ikemen"].style_instruction, IKEMEN_STYLE_PROMPT)

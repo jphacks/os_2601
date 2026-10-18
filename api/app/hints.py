@@ -42,7 +42,7 @@ PROBLEM_PICK_RULE = (
     "(a) 答案が書かれていて、最後の行がまだ答え（x = 数 の形）になっていない問題。複数あれば、答案を最後に書いた問題。"
     "(b) (a) が無ければ、答案の無い問題のうち最初のもの。"
     "答案が無い問題を、答案が途中の問題より先に選んではいけない。"
-    "前に読み取った問題文が渡されていて、その答案がまだ途中なら、それを選ぶ。"
+    "前に読み取った問題文が渡されていて、その問題に答案が書かれていてまだ途中なら、それを選ぶ（答案が無ければ (a)(b) で選ぶ）。"
 )
 POINTING_RULES = """- 誤りを示すときは、誤っている数字や記号そのものを、行と位置で指す（「3行目の左辺の 7」）。符号・数字・計算のどれが違うかを見分け、違う種類のことは言わない（数字の誤りに「符号を確認して」と言わない）。種類は言わなくてよく、その数字や記号を指す。正しい値は言わない。
 - 学習者が正しく書いた式や値は、読み上げずに行と位置で指す（「最後の行の左辺」）。"""
@@ -318,3 +318,27 @@ async def compose_answer(
         return _checked(out, model, problem_text, leaks, (ANSWER_SPEECH_MAX_CHARS, ANSWER_DISPLAY_MAX_CHARS), ANSWER_FALLBACK, persona)
     except (KeyError, TypeError, AttributeError) as error:
         raise AIUnavailable("AI の応答の形が違う") from error
+
+
+READ_PROMPT = (
+    "画像は、学習者が紙で問題を解こうとしている手元の写真です。学習者がいま解いている（これから解く）問題の文を読み取り、"
+    "problem_text に書いてください。式だけなら式を書く。(1) のような問題番号は付けない。読み取れなければ readable を false にし、problem_text は空にする。"
+    "問題を解かない。" + PROBLEM_PICK_RULE
+)
+READ_SCHEMA = {
+    "type": "OBJECT",
+    "propertyOrdering": ["problem_text", "readable"],
+    "properties": {"problem_text": {"type": "STRING"}, "readable": {"type": "BOOLEAN"}},
+    "required": ["problem_text", "readable"],
+}
+
+
+async def read_problem(ai: Gemini | None, model: str, frame: bytes | None, known_problem: str | None) -> str | None:
+    if ai is None or frame is None:
+        return None
+    request = "\n".join(_context_lines([], known_problem)) or "問題文を読み取ってください。"
+    try:
+        out = await ai.generate_json(model, READ_PROMPT, request, frame, READ_SCHEMA)
+        return (out["problem_text"].strip() or None) if out["readable"] is True else None
+    except (AIUnavailable, KeyError, TypeError, AttributeError):
+        return None

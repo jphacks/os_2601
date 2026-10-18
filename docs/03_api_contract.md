@@ -28,6 +28,7 @@ Hack Day 版はヒント 2 段階（H1 固定文・H2 GPT）、SSE なし（記�
 | POST | `/sessions/{id}/frames` | device | フレーム 1 枚（JPEG） |
 | POST | `/sessions/{id}/hints` | device | ヒント要求（`auto` はサーバの指示で、`manual` はボタンで） |
 | POST | `/sessions/{id}/check` | device | 「できた」。正誤チェック |
+| POST | `/sessions/{id}/problem` | device | 最新のフレームから問題文だけを読み取る（10/18、ADR 0034） |
 | POST | `/sessions/{id}/advance` | device | 次の問題へ（スキップ） |
 | POST | `/sessions/{id}/end` | device・operator | 終了 |
 | GET | `/worksheets` | 公開 | ワークシート一覧（正答なし） |
@@ -83,6 +84,7 @@ Hack Day 版はヒント 2 段階（H1 固定文・H2 GPT）、SSE なし（記�
 
 - `problems[].status` は `pending` | `working` | `done` | `skipped`。
 - `hints[]` に `speech` は含めない（読み上げは出した瞬間だけ）。`trigger`（`auto` / `manual` / `voice`）は含める。`stuck_point` は H1（固定文）では典型ミスの 1 つ目。
+- `stuck_points` は AI の文のヒント（`source: gpt`）の `stuck_point` をラベルごとに数え、多い順に並べる。固定文のラベル（「読み取れず」「答えの確認」）は数えない。`/log` の「どこで詰まったか」に出す。
 - `leak_blocked_count` は答え漏れ検査で捨てた回数の合計（「答えを言いそうになって止めた回数」として `/log` に出す）。
 - `seconds_spent` は `working` になってから `done` / `skipped` になるまで（進行中は現在まで）。
 
@@ -194,6 +196,10 @@ Hack Day 版はヒント 2 段階（H1 固定文・H2 GPT）、SSE なし（記�
 
 ## 進行
 
+### POST /sessions/{id}/problem（device）
+
+`{"frame_id": "frm_…"}` → `{"problem_no": 1, "problem_text": "2x - 7 = 4x + 3", "state": "watching"}`。「はじめる」の 3 秒後と、問題が変わった 1 秒後に `web/lib/loop.ts` が呼ぶ（ADR 0034）。AI に問題文だけを読ませ（答案は解かない）、`problems[].problem_text` に入れる。読めなければ今の値のまま（まだなら `null`）。状態は変えない。`ended` では 409。
+
 ### POST /sessions/{id}/advance（device）
 
 `{"reason": "skip"}` → `{"current_problem_no": 3, "state": "watching"}`。前の問題は `skipped`（`done` なら変えない）。最後の問題なら `state: "ended"`、`current_problem_no` はそのまま。`watching`・`still`・`cooldown`・`speaking` で受理し（`speaking` なら読み上げを打ち切って `watching`）、`created`・`stuck`・`checking`・`ended` では 409。
@@ -265,6 +271,7 @@ Hack Day 版はヒント 2 段階（H1 固定文・H2 GPT）、SSE なし（記�
 | `postFrame(id, token, blob)` | `POST /sessions/{id}/frames` | device |
 | `requestHint(id, token, body)` | `POST /sessions/{id}/hints` | device |
 | `postCheck(id, token, body)` | `POST /sessions/{id}/check` | device |
+| `readProblem(id, token, {frame_id})` | `POST /sessions/{id}/problem` | device |
 | `postAdvance(id, token)` | `POST /sessions/{id}/advance` | device |
 | `postEnd(id, token)` | `POST /sessions/{id}/end` | device |
 | `getWorksheets()` / `getWorksheet(id)` | `GET /worksheets*` | なし |

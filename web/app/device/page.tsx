@@ -12,6 +12,7 @@ import { Buttons } from "./_components/Buttons";
 import { Caption, HeardBubble } from "./_components/Caption";
 import { Character } from "./_components/Character";
 import { Header } from "./_components/Header";
+import { RecordSheet } from "./_components/RecordSheet";
 import { nearestChoice, SecondsPicker } from "./_components/SecondsPicker";
 import { ProblemText } from "./_components/ProblemText";
 import { VideoFrame } from "./_components/VideoFrame";
@@ -48,7 +49,10 @@ function Device() {
   const problemNoRef = useRef(1);
   const endSpokenRef = useRef(false);
   const personaUpdatingRef = useRef(false);
+  const recordLoadingRef = useRef(false);
   const [session, setSession] = useState<SessionDetail | null>(null);
+  const [record, setRecord] = useState<SessionDetail | null>(null);
+  const [recordStatus, setRecordStatus] = useState<"idle" | "loading" | "failed">("idle");
   const [state, setState] = useState<State>("created");
   const [problemNo, setProblemNo] = useState(1);
   const [problemText, setProblemText] = useState<string | null>(null);
@@ -70,15 +74,21 @@ function Device() {
     getSession(sessionId, { token })
       .then((detail) => {
         if (cancelled || version !== requestVersion.current) return;
+        const initialState = detail.state === "ended" ? "ended" : "created";
         sessionRef.current = detail;
-        stateRef.current = "created";
+        stateRef.current = initialState;
         problemNoRef.current = detail.current_problem_no;
-        endSpokenRef.current = false;
+        endSpokenRef.current = initialState === "ended";
         personaUpdatingRef.current = false;
         startingRef.current = false;
+        recordLoadingRef.current = false;
         setSession(detail);
-        setState("created");
-        setCaption(FIXED_CAPTIONS.created ?? "");
+        setRecord(null);
+        setRecordStatus("idle");
+        setState(initialState);
+        setCaption(initialState === "ended"
+          ? endMessage(normalizePersona(detail.settings.persona), detail.persona_options)
+          : FIXED_CAPTIONS.created ?? "");
         setBusy(false);
         setPersonaUpdating(false);
         setPersonaError("");
@@ -236,6 +246,9 @@ function Device() {
       onBrightness: setBrightness,
       onConnection: setConnected,
       onHeard: (text) => setHeard({ text }),
+      onProblem: (text) => {
+        if (version === requestVersion.current && stateRef.current !== "ended") setProblemText(text);
+      },
     }, normalizePersona(sessionRef.current.settings.persona));
     setBusy(false);
     startingRef.current = false;
@@ -314,6 +327,26 @@ function Device() {
     }
   }
 
+  async function handleShowRecord() {
+    if (recordLoadingRef.current || stateRef.current !== "ended") return;
+    const version = requestVersion.current;
+    recordLoadingRef.current = true;
+    setRecordStatus("loading");
+    try {
+      const latest = await getSession(sessionId, { token });
+      if (version !== requestVersion.current || stateRef.current !== "ended") return;
+      setRecord(latest);
+      setRecordStatus("idle");
+    } catch (error) {
+      if (version === requestVersion.current) {
+        ignoreError(error);
+        setRecordStatus("failed");
+      }
+    } finally {
+      if (version === requestVersion.current) recordLoadingRef.current = false;
+    }
+  }
+
   return (
     <main className="relative isolate flex flex-1 flex-col overflow-hidden bg-linear-to-b from-sky-400 via-sky-200 to-cyan-100 text-slate-800">
       {/* 下の丘（飾り） */}
@@ -328,11 +361,26 @@ function Device() {
             <Header mode={session?.mode ?? null} connected={connected} />
             <ProblemText text={problemText} />
           </div>
-          <VideoFrame
-            videoRef={videoRef}
-            dark={brightness !== null && brightness < DARK_BRIGHTNESS}
-            debugText={debug ? `輝度 ${brightness === null ? "-" : Math.round(brightness)} / 静止 ${stillSeconds} 秒 / 声 ${voiceStatus()}` : null}
-          />
+          <div className="flex w-28 shrink-0 flex-col gap-3">
+            <VideoFrame
+              videoRef={videoRef}
+              dark={brightness !== null && brightness < DARK_BRIGHTNESS}
+              debugText={debug ? `輝度 ${brightness === null ? "-" : Math.round(brightness)} / 静止 ${stillSeconds} 秒 / 声 ${voiceStatus()}` : null}
+            />
+            {(state === "ended" || session?.state === "ended") && (
+              <button
+                type="button"
+                onClick={handleShowRecord}
+                disabled={recordStatus === "loading"}
+                className="rounded-full bg-white px-3 py-2.5 text-sm font-bold text-sky-700 shadow-md ring-2 ring-sky-300 disabled:opacity-60"
+              >
+                {recordStatus === "loading" ? "読み込み中…" : "記録を見る"}
+              </button>
+            )}
+            {recordStatus === "failed" && (
+              <p className="rounded-lg bg-white/80 px-2 py-1 text-center text-xs font-bold text-red-700">記録を読めませんでした</p>
+            )}
+          </div>
         </div>
         {/* 真ん中：キャラクターを左下に大きく、吹き出しを右に重ねる（Tolan の会話画面の並び） */}
         <div className="relative flex min-h-80 flex-1 items-end">
@@ -371,6 +419,7 @@ function Device() {
           />
         </div>
       </div>
+      {record && <RecordSheet session={record} onClose={() => setRecord(null)} />}
     </main>
   );
 }

@@ -146,8 +146,9 @@ test("unsupported pitch/rate falls back without modifying the spoken text", asyn
 });
 
 function deviceEnvironment({
-  initialPersona = "teacher", initialProblemNo = 1, endingProblemNo = initialProblemNo, problems = [], patch,
+  initialPersona = "teacher", initialState = "watching", initialProblemNo = 1, endingProblemNo = initialProblemNo, problems = [], patch,
   cameraStart = async () => {}, manualHint, next = async () => ({ state: "watching", current_problem_no: 2 }),
+  readRecord,
 } = {}) {
   const slots = [], effects = [];
   let cursor = 0;
@@ -169,8 +170,9 @@ function deviceEnvironment({
   };
   const component = (name) => ({ [name]: function () {} })[name];
   const components = {};
-  for (const name of ["Buttons", "Caption", "HeardBubble", "Character", "Header", "SecondsPicker", "ProblemText", "VideoFrame"]) components[name] = component(name);
+  for (const name of ["Buttons", "Caption", "HeardBubble", "Character", "Header", "RecordSheet", "SecondsPicker", "ProblemText", "VideoFrame"]) components[name] = component(name);
   const spoken = [], updates = [];
+  let sessionReads = 0;
   const loop = { callbacks: null,
     startSession(_video, _id, _token, callbacks, persona) { loop.callbacks = callbacks; loop.persona = persona; return () => {}; },
     updateSessionPersona(id, persona) { updates.push({ id, persona }); },
@@ -180,8 +182,12 @@ function deviceEnvironment({
   };
   const api = {
     ApiError: class extends Error {},
-    getSession: async () => ({ session_id: "s", current_problem_no: initialProblemNo, problems, mode: "live", settings: { stuck_seconds: 20, persona: initialPersona },
-      persona_options: [{ id: "teacher", display_name: "家庭教師", end_message: "今日の取り組みを記録で振り返りましょう。" }, { id: "ikemen", display_name: "イケメン", end_message: "今日の頑張り、記録で見てみようぜ。" }] }),
+    getSession: async () => {
+      sessionReads += 1;
+      if (sessionReads > 1 && readRecord) return readRecord();
+      return { session_id: "s", state: initialState, current_problem_no: initialProblemNo, problems, mode: "live", settings: { stuck_seconds: 20, persona: initialPersona },
+        persona_options: [{ id: "teacher", display_name: "家庭教師", end_message: "今日の取り組みを記録で振り返りましょう。" }, { id: "ikemen", display_name: "イケメン", end_message: "今日の頑張り、記録で見てみようぜ。" }] };
+    },
     patchSettings: patch ?? (async (_id, _token, body) => ({ settings: { stuck_seconds: 20, persona: body.persona }, state: "created" })),
   };
   const overrides = {
@@ -194,7 +200,7 @@ function deviceEnvironment({
     "@/lib/speech": { speak: async (text, persona) => spoken.push({ text, persona }), stopSpeaking() {}, unlockSpeech() {} },
     "@/lib/voice": { primeListening() {}, stopListening() {}, voiceStatus: () => "" },
   };
-  for (const file of ["Buttons", "Caption", "Character", "Header", "SecondsPicker", "ProblemText", "VideoFrame"]) overrides[`./_components/${file}`] = { ...components, nearestChoice: (value) => value };
+  for (const file of ["Buttons", "Caption", "Character", "Header", "RecordSheet", "SecondsPicker", "ProblemText", "VideoFrame"]) overrides[`./_components/${file}`] = { ...components, nearestChoice: (value) => value };
   const load = modules(overrides, { window: { confirm: () => true } });
   const page = load("app/device/page.tsx");
   const Device = page.default().props.children.type;
@@ -205,6 +211,13 @@ function deviceEnvironment({
     for (const child of [tree.props?.children].flat(Infinity)) { const found = find(child, type); if (found) return found; }
     return null;
   }
+  function findAll(tree, type) {
+    if (!tree || typeof tree !== "object") return [];
+    return [
+      ...(tree.type === type ? [tree] : []),
+      ...[tree.props?.children].flat(Infinity).flatMap((child) => findAll(child, type)),
+    ];
+  }
   const first = render();
   find(first, components.VideoFrame).props.videoRef.current = {};
   while (effects.length) effects.shift()();
@@ -213,6 +226,10 @@ function deviceEnvironment({
     buttons: () => find(render(), components.Buttons).props,
     caption: () => find(render(), components.Caption).props.text,
     problemText: () => find(render(), components.ProblemText).props.text,
+    recordSheet: () => find(render(), components.RecordSheet),
+    recordButton: () => findAll(render(), "button").find((button) => ["記録を見る", "読み込み中…"].includes(button.props.children)),
+    recordError: () => findAll(render(), "p").find((paragraph) => paragraph.props.children === "記録を読めませんでした"),
+    sessionReads: () => sessionReads,
     unmount: () => slots.forEach((slot) => slot?.cleanup?.()),
   };
 }
@@ -421,4 +438,181 @@ test("ending a resumed session before its first signal preserves the current pro
   assert.equal(env.buttons().state, "ended");
   assert.equal(env.problemText(), "再開した現在の問題。");
   assert.equal(env.spoken.length, 1);
+});
+
+test("startup problem reading updates the text without changing the hint or speaking again", async () => {
+  const env = deviceEnvironment({ initialPersona: "ikemen" });
+  await flush();
+  await env.buttons().onStart();
+  const caption = env.caption();
+  env.loop.callbacks.onProblem("開始時に読み取った問題文。");
+  assert.equal(env.problemText(), "開始時に読み取った問題文。");
+  assert.equal(env.caption(), caption);
+  assert.equal(env.spoken.length, 0);
+  await env.buttons().onEnd();
+  env.loop.callbacks.onProblem("終了後に届いた問題文。");
+  assert.equal(env.problemText(), "開始時に読み取った問題文。");
+  assert.equal(env.spoken.length, 1);
+});
+
+test("reloading an ended session restores its persona ending and exposes records without restarting audio", async () => {
+  const env = deviceEnvironment({ initialPersona: "ikemen", initialState: "ended" });
+  await flush();
+  assert.equal(env.buttons().state, "ended");
+  assert.equal(env.select().props.disabled, true);
+  assert.equal(env.caption(), "今日の頑張り、記録で見てみようぜ。");
+  assert.equal(env.recordButton().props.children, "記録を見る");
+  assert.equal(env.spoken.length, 0);
+  await env.buttons().onStart();
+  assert.equal(env.loop.callbacks, null);
+});
+
+test("records fetch a fresh session once, expose loading, and close back to the ending", async () => {
+  const pending = deferred();
+  const fresh = { session_id: "s", state: "ended", problems: [{ problem_no: 1, problem_text: "最新の問題文。" }] };
+  const env = deviceEnvironment({ initialState: "ended", readRecord: () => pending.promise });
+  await flush();
+  const button = env.recordButton();
+  const loading = button.props.onClick();
+  await button.props.onClick();
+  assert.equal(env.sessionReads(), 2);
+  assert.equal(env.recordButton().props.children, "読み込み中…");
+  assert.equal(env.recordButton().props.disabled, true);
+  pending.resolve(fresh);
+  await loading;
+  assert.equal(env.recordSheet().props.session, fresh);
+  env.recordSheet().props.onClose();
+  assert.equal(env.recordSheet(), null);
+  assert.equal(env.buttons().state, "ended");
+  assert.equal(env.spoken.length, 0);
+});
+
+test("record errors remain retryable and detached responses cannot reopen the record sheet", async () => {
+  const pending = deferred();
+  let attempts = 0;
+  const env = deviceEnvironment({ initialState: "ended", readRecord: () => {
+    attempts += 1;
+    if (attempts === 1) return Promise.reject(new Error("temporarily unavailable"));
+    return pending.promise;
+  } });
+  await flush();
+  await env.recordButton().props.onClick();
+  assert.ok(env.recordError());
+  assert.equal(env.recordButton().props.disabled, false);
+  const loading = env.recordButton().props.onClick();
+  env.unmount();
+  pending.resolve({ session_id: "s", state: "ended", problems: [] });
+  await loading;
+  assert.equal(env.recordSheet(), null);
+  assert.equal(env.sessionReads(), 3);
+});
+
+function fakeClock() {
+  let now = 0, nextId = 0;
+  const jobs = new Map();
+  const schedule = (callback, delay, interval = 0) => {
+    const id = ++nextId;
+    jobs.set(id, { callback, at: now + delay, interval });
+    return id;
+  };
+  return {
+    setTimeout: (callback, delay) => schedule(callback, delay),
+    clearTimeout: (id) => jobs.delete(id),
+    setInterval: (callback, delay) => schedule(callback, delay, delay),
+    clearInterval: (id) => jobs.delete(id),
+    async tick(milliseconds) {
+      const target = now + milliseconds;
+      for (;;) {
+        const next = [...jobs.entries()].filter(([, job]) => job.at <= target).sort((a, b) => a[1].at - b[1].at)[0];
+        if (!next) break;
+        const [id, job] = next;
+        now = job.at;
+        if (job.interval) job.at += job.interval;
+        else jobs.delete(id);
+        job.callback();
+        await flush();
+      }
+      now = target;
+    },
+  };
+}
+
+function loopEnvironment({ read, capture = async () => "jpeg" } = {}) {
+  const clock = fakeClock();
+  const problems = [], reads = [], spoken = [];
+  let currentProblem = 1;
+  const api = {
+    postSignal: async () => ({ state: "watching", current_problem_no: currentProblem, still_seconds: 0, next_action: null }),
+    postFrame: async () => ({ frame_id: "frame" }),
+    readProblem: async (...args) => {
+      reads.push(args);
+      return read ? read(currentProblem) : { problem_no: currentProblem, problem_text: `読み取った問題${currentProblem}` };
+    },
+    postAdvance: async () => ({ state: "watching", current_problem_no: ++currentProblem }),
+    postEnd: async () => ({ state: "ended" }),
+  };
+  const load = modules({
+    "./api": api,
+    "./camera": { captureFrame: capture, stopCamera() {} },
+    "./motion": { startMotionLoop: () => () => {} },
+    "./speech": { speak: async (text, persona) => spoken.push({ text, persona }), stopSpeaking() {} },
+    "./voice": { startListening() {}, stopListening() {}, voiceStatus: () => "" },
+  }, { ...clock, window: { location: { search: "" } } });
+  const loop = load("lib/loop.ts");
+  const stop = loop.startSession({}, "s", "test", {
+    onState() {}, onHint() {}, onBrightness() {}, onConnection() {}, onHeard() {},
+    onProblem: (text) => problems.push(text),
+  }, "ikemen");
+  return { loop, clock, problems, reads, spoken, stop };
+}
+
+test("the real loop reads three seconds after watching and rereads the next problem", async () => {
+  const env = loopEnvironment();
+  await env.clock.tick(1000);
+  assert.equal(env.spoken[0].persona, "ikemen");
+  await env.clock.tick(2999);
+  assert.equal(env.reads.length, 0);
+  await env.clock.tick(1);
+  assert.equal(env.reads.length, 1);
+  assert.deepEqual(env.problems, ["読み取った問題1"]);
+  await env.loop.advance();
+  await env.clock.tick(1000);
+  assert.equal(env.reads.length, 2);
+  assert.deepEqual(env.problems, ["読み取った問題1", "読み取った問題2"]);
+  env.stop();
+  await env.clock.tick(10000);
+  assert.equal(env.reads.length, 2);
+});
+
+test("startup reading retries only once and never publishes a superseded problem", async () => {
+  let attempts = 0;
+  const retrying = loopEnvironment({ read: async () => {
+    if (++attempts === 1) throw new Error("retryable");
+    return { problem_no: 1, problem_text: "再試行した問題文。" };
+  } });
+  await retrying.clock.tick(7000);
+  assert.equal(attempts, 2);
+  assert.deepEqual(retrying.problems, ["再試行した問題文。"]);
+  retrying.stop();
+
+  const pending = deferred();
+  const stale = loopEnvironment({ read: () => pending.promise });
+  await stale.clock.tick(4000);
+  await stale.loop.advance();
+  pending.resolve({ problem_no: 1, problem_text: "前の問題文。" });
+  await flush();
+  assert.deepEqual(stale.problems, []);
+  stale.stop();
+});
+
+test("ending during startup capture prevents a late read request and retry", async () => {
+  const pending = deferred();
+  const env = loopEnvironment({ capture: () => pending.promise });
+  await env.clock.tick(4000);
+  await env.loop.end();
+  pending.resolve("late jpeg");
+  await flush();
+  await env.clock.tick(10000);
+  assert.equal(env.reads.length, 0);
+  assert.deepEqual(env.problems, []);
 });

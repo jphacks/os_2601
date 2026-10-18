@@ -46,6 +46,7 @@ from app.hints import (
     compose_answer,
     compose_hint,
     fixed_hint,
+    read_problem,
 )
 from app.store import SessionStore
 from app.personas import persona_options
@@ -134,6 +135,10 @@ class HintRequest(BaseModel):
 
 
 class CheckRequest(BaseModel):
+    frame_id: str
+
+
+class ProblemRequest(BaseModel):
     frame_id: str
 
 
@@ -303,7 +308,8 @@ def _stuck_points(session: Session) -> list[dict]:
     counts: dict[str, int] = {}
     for problem in session.problems:
         for hint in problem.hints:
-            counts[hint.stuck_point] = counts.get(hint.stuck_point, 0) + 1
+            if hint.source == "gpt":
+                counts[hint.stuck_point] = counts.get(hint.stuck_point, 0) + 1
     return [{"label": label, "count": count} for label, count in sorted(counts.items(), key=lambda item: -item[1])]
 
 
@@ -650,6 +656,32 @@ async def post_check(
         "next_problem_no": None if session.state == "ended" else session.current_problem_no,
         "state": session.state,
     }
+
+
+@router.post("/sessions/{session_id}/problem")
+async def post_problem(
+    session_id: str, body: ProblemRequest, request: Request, context: AppContext = Depends(get_context)
+) -> dict:
+    session = _find_session(context, session_id)
+    _require_device(request, context, session)
+    if session.state == "ended":
+        _fail(409, "終了したセッションでは読み取れない")
+    problem_no = session.current_problem_no
+    started = time.monotonic()
+    problem_text = await read_problem(
+        context.ai, context.hint_model, _latest_frame(context, session_id), session.current_problem.problem_text
+    )
+    session = _find_session(context, session_id)
+    problem = session.problems[problem_no - 1]
+    if problem_text and session.current_problem_no == problem_no and problem_text != problem.problem_text:
+        problem.problem_text = problem_text
+        problem.leak_strings = []
+        context.store.put(session)
+        context.store.save()
+    logger.info(
+        "problem session=%s read=%s latency_ms=%s", session.session_id, problem_text is not None, int((time.monotonic() - started) * 1000)
+    )
+    return {"problem_no": problem_no, "problem_text": session.problems[problem_no - 1].problem_text, "state": session.state}
 
 
 @router.post("/sessions/{session_id}/advance")

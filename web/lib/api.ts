@@ -150,6 +150,8 @@ export type CheckResponse = {
   state: State;
 };
 
+export type ProblemResponse = { problem_no: number; problem_text: string | null; state: State };
+
 export type AdvanceResponse = { current_problem_no: number; state: State };
 
 export type EndResponse = { state: "ended"; ended_at: string };
@@ -348,6 +350,11 @@ export async function answerUtterance(
 export async function postCheck(id: string, token: string, body: CheckRequest): Promise<CheckResponse> {
   if (USE_MOCK) return checkCorrectMock as CheckResponse;
   return request(sessionPath(id, "/check"), jsonInit("POST", { token }, body));
+}
+
+export async function readProblem(id: string, token: string, body: { frame_id: string }): Promise<ProblemResponse> {
+  if (USE_MOCK) return { problem_no: mockAdvanceCount + 1, problem_text: "2x - 7 = 4x + 3", state: "watching" };
+  return request(sessionPath(id, "/problem"), jsonInit("POST", { token }, body));
 }
 
 export async function postAdvance(id: string, token: string): Promise<AdvanceResponse> {

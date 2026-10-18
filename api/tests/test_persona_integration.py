@@ -73,6 +73,56 @@ def test_selected_persona_uses_the_camera_and_keeps_answers_private(device: Devi
     assert "x=-5" not in encoded and "-2x=10" not in encoded
 
 
+@pytest.mark.parametrize("persona", ["teacher", "ikemen"])
+def test_startup_read_remains_separate_from_the_persona_hint_and_keeps_analysis_private(device: Device, ai, persona):
+    assert select(device, persona).status_code == 200
+    frame_id = start(device)
+    read = device.client.post(
+        f"/sessions/{device.session_id}/problem", headers=device.headers, json={"frame_id": frame_id}
+    )
+    assert read.status_code == 200
+    assert read.json() == {"problem_no": 1, "problem_text": "2x - 7 = 4x + 3", "state": "watching"}
+    assert len(ai.calls) == 1 and ai.calls[0][2] == b"\xff\xd8jpeg"
+    assert set(ai.calls[0][3]["properties"]) == {"problem_text", "readable"}
+    initial = device.client.get(f"/sessions/{device.session_id}", headers=device.headers).json()
+    assert initial["problems"][0]["hints"] == []
+    assert initial["problems"][0]["stuck_count"] == 0
+    assert initial["stuck_points"] == []
+
+    hint = device.hint(frame_id, "manual")
+    assert hint["source"] == "gpt"
+    assert hint["speech"] == hint["display"] and len(hint["speech"]) <= 40
+    assert len(ai.calls) == 2
+    assert "前に読み取った問題文：2x - 7 = 4x + 3" in ai.calls[1][1]
+    assert {"focus", "action", "variant"} <= set(ai.calls[1][3]["required"])
+    detail = device.client.get(f"/sessions/{device.session_id}", headers=device.headers).json()
+    assert detail["stuck_points"] == [{"label": "移項の符号", "count": 1}]
+    encoded = json.dumps([read.json(), initial, hint, detail], ensure_ascii=False)
+    for private_value in ("final_answer", "key_values", "leak_strings", "x=-5", "-2x=10"):
+        assert private_value not in encoded
+
+
+@pytest.mark.parametrize("persona", ["teacher", "ikemen"])
+def test_only_generated_hints_add_labels_when_persona_fallbacks_are_recorded(device: Device, ai, persona):
+    assert select(device, persona).status_code == 200
+    frame_id = start(device)
+    assert device.hint(frame_id, "manual")["source"] == "gpt"
+    device.signal(20, 0.05)
+    ai.reply = {**analysis(), "readable": False, "unreadable_reason": "dark"}
+    unreadable = device.hint(frame_id, "manual")
+    assert unreadable["source"] == "fallback"
+    assert "明る" in unreadable["display"]
+    device.signal(40, 0.05)
+    check = device.hint(frame_id, "voice", "これで合ってる？")
+    assert check["source"] == "fallback" and check["stuck_point"] == "答えの確認"
+    assert len(ai.calls) == 2
+    for response in (unreadable, check):
+        assert response["speech"] == response["display"] and len(response["speech"]) <= 40
+    detail = device.client.get(f"/sessions/{device.session_id}", headers=device.headers).json()
+    assert [hint["source"] for hint in detail["problems"][0]["hints"]] == ["gpt", "fallback", "fallback"]
+    assert detail["stuck_points"] == [{"label": "移項の符号", "count": 1}]
+
+
 def test_read_problem_survives_a_fallback_but_does_not_leak_into_the_next_problem(device: Device, ai):
     frame_id = start(device)
     assert device.hint(frame_id, "manual")["problem_text"] == "2x - 7 = 4x + 3"

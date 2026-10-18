@@ -27,12 +27,12 @@ function mean(values: Float32Array): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
-function median(values: ArrayLike<number>): number {
+export function median(values: ArrayLike<number>): number {
   const sorted = Array.from(values).sort((a, b) => a - b);
   return sorted[Math.floor(sorted.length / 2)];
 }
 
-function differenceIgnoringBrightness(current: Float32Array, previous: Float32Array): number {
+export function differenceIgnoringBrightness(current: Float32Array, previous: Float32Array): number {
   const differences = current.map((value, i) => value - previous[i]);
   const shift = median(differences);
   return differences.reduce((sum, difference) => sum + Math.abs(difference - shift), 0) / differences.length;

@@ -63,9 +63,9 @@ Hack Day 版はヒント 2 段階（H1 固定文・H2 GPT）、SSE なし（記�
  "state": "watching", "current_problem_no": 2, "still_seconds": 7,
  "settings": {"stuck_seconds": 20, "cooldown_seconds": 60, "max_level": 2},
  "problems": [
-   {"problem_no": 1, "status": "done", "stuck_count": 0, "max_level": 0, "seconds_spent": 95,
+   {"problem_no": 1, "problem_text": "3x + 2 = 8", "status": "done", "stuck_count": 0, "max_level": 0, "seconds_spent": 95,
     "hints": [], "check": {"verdict": "correct", "display": "正解！ 移項がきれい", "created_at": "…"}},
-   {"problem_no": 2, "status": "working", "stuck_count": 2, "max_level": 2, "seconds_spent": 140,
+   {"problem_no": 2, "problem_text": "2x - 7 = 4x + 3", "status": "working", "stuck_count": 2, "max_level": 2, "seconds_spent": 140,
     "hints": [
       {"hint_id": "hnt_…", "level": 1, "trigger": "auto", "display": "今、何を求めようとしてる？",
        "stuck_point": "移項の符号", "source": "fallback",
@@ -152,7 +152,7 @@ Hack Day 版はヒント 2 段階（H1 固定文・H2 GPT）、SSE なし（記�
 `trigger` は `auto`（`next_action` に従って）| `manual`（ボタン）| `voice`（学習者の発話を聞き取った。ブラウザの音声認識で聞き取り、`web/lib/loop.ts` が `utterance` に文を入れて送る）。**`utterance` があれば、AI がその発話に答えるかを決め、答えるときは説明もする（答えと途中の値は言わない）。答えないときは 204 で、状態は変えず記録にも残さない。答案を見ないと答えられない問いで答案が読めないときは、推測せず、理由ごとの固定文（「もう少し明るいところで見せてみて」など）を返す（10/18）。AI を待つ間は状態を変えないので、ボタンと「できた」は止まらない。`utterance` は保存しない（10/17、ADR 0032）。**`frame_id` は直前に送ったフレーム（サーバは照合せず最新 1 枚を使う。`auto` で先に作り始めたヒントが同じ問題の同じ詰まり（`stuck_count`）のものなら、それを返す。ADR 0028）。
 
 ```json
-{"hint_id": "hnt_…", "problem_no": 2, "level": 2, "trigger": "auto",
+{"hint_id": "hnt_…", "problem_no": 2, "problem_text": "2x - 7 = 4x + 3", "level": 2, "trigger": "auto",
  "speech": "右辺に移したときの符号、もう一回見てみて",
  "display": "右辺に移したときの符号、もう一回見てみて",
  "stuck_point": "移項の符号",

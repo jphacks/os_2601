@@ -163,9 +163,15 @@ def answer(ai: FakeAI | None, utterance: str = "移項って何？"):
 
 def ai_answer(speech: str, respond: bool = True) -> dict:
     reply = ai_hint(speech)
-    reply.pop("readable")
     reply["respond"] = respond
     return reply
+
+
+def test_answer_about_an_unreadable_paper_tells_the_reason_instead_of_guessing() -> None:
+    reply = ai_answer("2行目の右辺の4を見てみて")
+    reply.update(readable=False, unreadable_reason="dark")
+    hint = answer(FakeAI(reply))
+    assert (hint.speech, hint.source) == ("もう少し明るいところで見せてみて", "fallback")
 
 
 def test_answer_that_gives_away_the_value_is_replaced_and_an_overlong_one_falls_back() -> None:

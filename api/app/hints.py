@@ -98,6 +98,7 @@ ANSWER_PROMPT = """あなたは中学生の隣に座っている家庭教師で�
 最初に、その発話が、あなた（家庭教師）への問いか、勉強で助けを求める発話かを決めて respond に書いてください。独り言、問題文や式の読み上げ、周りの人との会話、勉強と関係ない話なら false にし、ほかの項目はすべて空にしてください。
 
 respond が true なら：
+0. 答案を見ないと答えられない問いなのに、写真が暗い・ぼやけている・紙が枠の外・手で隠れていて答案が読めないときは、readable を false にし、理由を unreadable_reason に書く（dark・blurry・out_of_frame・hidden・other）。推測で答えない。言葉の意味のように答案が要らない問いは、読めなくても readable を true にして答える。
 1. 写真から、学習者がいま解いている問題の文を読み取り、problem_text に書いてください。""" + PROBLEM_PICK_RULE + """
 2. その問題を自分で解き、最終の答えを final_answer に、途中の決定的な値や式を key_values に必ず書いてください。これらは学習者には見せません。
 3. 問いに答えてください。
@@ -143,8 +144,12 @@ HINT_SCHEMA = _schema(
     {"readable": {"type": "BOOLEAN"}, "unreadable_reason": {"type": "STRING", "enum": ["none", *UNREADABLE_HINTS, "other"]}},
 )
 ANSWER_SCHEMA = _schema(
-    ["respond", "problem_text", "final_answer", "key_values", "written_lines", "stuck_point", "speech", "display"],
-    {"respond": {"type": "BOOLEAN"}},
+    ["respond", "readable", "unreadable_reason", "problem_text", "final_answer", "key_values", "written_lines", "stuck_point", "speech", "display"],
+    {
+        "respond": {"type": "BOOLEAN"},
+        "readable": {"type": "BOOLEAN"},
+        "unreadable_reason": {"type": "STRING", "enum": ["none", *UNREADABLE_HINTS, "other"]},
+    },
 )
 
 
@@ -256,6 +261,10 @@ async def compose_answer(
     try:
         if out["respond"] is not True:
             return None
+        if out["readable"] is not True:
+            reason = str(out.get("unreadable_reason", "other"))
+            logger.info("answer unreadable reason=%s", reason)
+            return fixed_hint(UNREADABLE_HINTS.get(reason, UNREADABLE_HINT), "fallback", LeakCheck(ok=True, fallback=False), known_leaks)
         problem_text, leaks = _read_problem(out, known_problem, known_leaks)
         if not leaks:
             return answer_fallback(leaks)

@@ -11,7 +11,7 @@ class VoiceUnavailable(Exception):
 
 class Voicevox:
     def __init__(self, base_url: str, speaker: int) -> None:
-        self._client = httpx.AsyncClient(base_url=base_url)
+        self._client = httpx.AsyncClient(base_url=base_url, timeout=TIMEOUT_SECONDS)
         self._speaker = speaker
 
     async def synthesize(self, text: str) -> bytes:

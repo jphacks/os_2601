@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ApiError, getSession, openSession, patchSettings, type SessionDetail, type State } from "@/lib/api";
 import { startCamera, stopCamera } from "@/lib/camera";
 import { advance, end, requestCheck, requestManualHint, startSession } from "@/lib/loop";
-import { endMessage, personaOf, voiceOf } from "@/lib/personas";
+import { endMessage, personaOf, voiceOf, type Persona } from "@/lib/personas";
 import { setSpeechCharacter, speak, stopSpeaking, unlockSpeech } from "@/lib/speech";
 import { primeListening, stopListening, voiceStatus } from "@/lib/voice";
 import { Buttons } from "./_components/Buttons";
@@ -17,7 +17,7 @@ import { RecordSheet } from "./_components/RecordSheet";
 import { nearestChoice, SecondsPicker } from "./_components/SecondsPicker";
 import { ProblemText } from "./_components/ProblemText";
 import { VideoFrame } from "./_components/VideoFrame";
-import { useSyncedState } from "./useSyncedState";
+import { useSyncedState } from "./_components/useSyncedState";
 
 // docs/06 の「状態と表示」で字幕が固定の状態
 const FIXED_CAPTIONS: Partial<Record<State, string>> = {
@@ -182,7 +182,7 @@ function Device() {
     return () => {
       cancelled = true;
       requestVersion.current += 1;
-      sessionRef.current = null;
+      setSession(null);
       stopRef.current?.();
       stopRef.current = null;
       stopCamera();
@@ -245,9 +245,9 @@ function Device() {
   const characterId = voiceOf(selectedPersona);
   const canChangePersona = ["created", "watching", "still", "cooldown"].includes(state);
 
-  async function handlePersonaChange(value: string) {
+  async function handlePersonaChange(value: Persona) {
     if (
-      (value !== "teacher" && value !== "ikemen") || personaUpdatingRef.current || startingRef.current || finishingRef.current || busy ||
+      personaUpdatingRef.current || startingRef.current || finishingRef.current || busy ||
       !["created", "watching", "still", "cooldown"].includes(stateRef.current)
     ) return;
     const confirmed = sessionRef.current;

@@ -1,6 +1,6 @@
-import type { VoiceCharacter } from "./api";
-
 export type Persona = "teacher" | "ikemen";
+
+export type VoiceCharacter = "handsome" | "teacher";
 
 export type PersonaOption = { id: Persona; display_name: string; end_message: string };
 

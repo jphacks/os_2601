@@ -1,12 +1,7 @@
-import { Suspense } from "react";
-import { OperatorKeyProvider } from "@/app/_components/operator/OperatorKey";
+import { OperatorLayout } from "@/app/_components/operator/OperatorLayout";
+
+const HINT = "運営用の画面です。運営の鍵を入れてください。セッションの作成とリセットができます。";
 
 export default function OpsLayout({ children }: LayoutProps<"/ops">) {
-  return (
-    <div className="flex-1 bg-white text-gray-900">
-      <Suspense>
-        <OperatorKeyProvider>{children}</OperatorKeyProvider>
-      </Suspense>
-    </div>
-  );
+  return <OperatorLayout hint={HINT}>{children}</OperatorLayout>;
 }

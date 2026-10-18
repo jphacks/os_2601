@@ -24,10 +24,13 @@ export function useOperatorPolling<T>(load: Load<T>): { data: T | null; error: s
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     async function refresh() {
+      let timeout: ReturnType<typeof setTimeout> | undefined;
       try {
         const data = await Promise.race([
           load(operatorKey),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("つながりにくいみたい")), TIMEOUT_MS)),
+          new Promise<never>((_, reject) => {
+            timeout = setTimeout(() => reject(new Error("つながりにくいみたい")), TIMEOUT_MS);
+          }),
         ]);
         if (!cancelled) setPolled({ load, operatorKey, data, error: "" });
       } catch (caught) {
@@ -38,6 +41,8 @@ export function useOperatorPolling<T>(load: Load<T>): { data: T | null; error: s
             data: previous?.load === load && previous.operatorKey === operatorKey ? previous.data : null,
             error: errorText(caught),
           }));
+      } finally {
+        clearTimeout(timeout);
       }
       if (!cancelled) timer = setTimeout(refresh, REFRESH_MS);
     }

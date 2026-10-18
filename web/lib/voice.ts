@@ -65,10 +65,10 @@ function createRecognizer(): Recognizer | null {
       const text = event.results[i][0].transcript.trim();
       if (!text) continue;
       if (!event.results[i].isFinal) {
-        note(`途中「${text}」`);
+        note(`途中 ${text.length} 字`);
         continue;
       }
-      note(`聞こえた「${text}」`);
+      note(`聞こえた ${text.length} 字`);
       onHeard(text);
     }
   };
@@ -147,10 +147,6 @@ export function startListening(handler: (text: string) => void): () => void {
 
 export function primeListening(): void {
   startListening(() => {});
-}
-
-export function isMicBusy(): boolean {
-  return micBusy;
 }
 
 export function voiceStatus(): string {

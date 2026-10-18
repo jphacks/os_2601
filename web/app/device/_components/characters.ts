@@ -12,8 +12,6 @@ export const CHARACTERS: CharacterInfo[] = [
   { id: "teacher", label: "先生", image: teacher },
 ];
 
-export const DEFAULT_CHARACTER: CharacterId = "handsome";
-
 export function characterOf(id: CharacterId): CharacterInfo {
   return CHARACTERS.find((c) => c.id === id) ?? CHARACTERS[0];
 }

@@ -16,8 +16,6 @@ import signalsSpeakingMock from "@/mocks/signals_speaking.json";
 import signalsStillMock from "@/mocks/signals_still.json";
 import signalsStuckMock from "@/mocks/signals_stuck.json";
 import signalsWatchingMock from "@/mocks/signals_watching.json";
-import worksheetWs01Mock from "@/mocks/worksheet_ws01.json";
-import worksheetsMock from "@/mocks/worksheets.json";
 import { personaOptions, type Persona, type PersonaOption } from "./personas";
 
 export type { Persona, PersonaOption } from "./personas";
@@ -158,21 +156,7 @@ export type AdvanceResponse = { current_problem_no: number; state: State };
 
 export type EndResponse = { state: "ended"; ended_at: string };
 
-export type WorksheetList = {
-  worksheets: { worksheet_id: string; title: string; problem_count: number; grade: string }[];
-};
-
-export type WorksheetDetail = {
-  worksheet_id: string;
-  title: string;
-  grade: string;
-  problems: { problem_no: number; text: string }[];
-  print: { paper: string; id_font_px: number; gap_mm: number; footer: string };
-};
-
 export type DemoReset = { ok: true; removed_sessions: number };
-
-export type Health = { ok: boolean; gpt: "ok" | "missing"; worksheets: number; mode_default: Mode };
 
 export type ErrorCode =
   | "BAD_REQUEST"
@@ -388,15 +372,6 @@ export async function postEnd(id: string, token: string): Promise<EndResponse> {
   return request(sessionPath(id, "/end"), { method: "POST", headers: authHeaders({ token }) });
 }
 
-export async function getWorksheets(): Promise<WorksheetList> {
-  if (USE_MOCK) return worksheetsMock;
-  return request("/worksheets");
-}
-
-export async function getWorksheet(id: string): Promise<WorksheetDetail> {
-  if (USE_MOCK) return worksheetWs01Mock;
-  return request(`/worksheets/${encodeURIComponent(id)}`);
-}
 
 export async function demoReset(operatorKey: string): Promise<DemoReset> {
   if (USE_MOCK) {

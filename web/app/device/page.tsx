@@ -70,6 +70,10 @@ function Device() {
         setSession(detail);
         setProblemNo(detail.current_problem_no);
         setProblemText(detail.problems[detail.current_problem_no - 1]?.problem_text ?? null);
+        if (detail.state === "ended") {
+          setState("ended");
+          setCaption(FIXED_CAPTIONS.ended ?? "");
+        }
       })
       .catch((error) => console.warn("[device] getSession に失敗", error));
     return () => {
@@ -232,7 +236,7 @@ function Device() {
               dark={brightness !== null && brightness < DARK_BRIGHTNESS}
               debugText={debug ? `輝度 ${brightness === null ? "-" : Math.round(brightness)} / 静止 ${stillSeconds} 秒 / 声 ${voiceStatus()}` : null}
             />
-            {(state === "ended" || session?.state === "ended") && (
+            {state === "ended" && (
               <button
                 type="button"
                 onClick={handleShowRecord}

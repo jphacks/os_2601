@@ -171,7 +171,7 @@ PC（横持ち）では映像を左、字幕とボタンを右に置く。部品
 ## 字幕の表示
 
 - `state` が `created`・`checking`・`ended` のときは「状態と表示」の表の固定文。それ以外は直近の `display`（`onHint`・`requestManualHint`・`requestCheck` の応答）を 1 つだけ大きく出す。履歴は出さない（記録画面の仕事）。
-- 画面の初期 `state` は `created` 固定。`getSession` の `state` は使わない（`state` は `onState` でだけ更新する。リロードしたら「はじめる」からやり直す）。
+- 画面の初期 `state` は `created`。ただし最初の `getSession` の `state` が `ended` なら、最初から `ended` の画面（「おつかれさま」と「記録を見る」。「はじめる」とキャラ選択は出さない）にする。終わったセッションは始め直せないため。それ以外の `state` は `onState` でだけ更新する（リロードしたら「はじめる」からやり直す）。
 - 数式は `display` の文字列をそのまま等幅で出す。自分で整形しない。
 - 文字は 24px 以上。机の横 50 cm から読める大きさ。
 

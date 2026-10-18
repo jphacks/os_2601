@@ -325,7 +325,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "pillow", specifier = ">=13.0.0" },
+    { name = "pillow", specifier = ">=10.1" },
     { name = "pytest" },
 ]
 

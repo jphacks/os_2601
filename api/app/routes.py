@@ -25,7 +25,7 @@ from app.hints import (
     fixed_hint,
     read_problem,
 )
-from app.leak import normalize
+from app.leak import same_problem
 from app.personas import persona_options
 from app.state import (
     Accepted,
@@ -337,7 +337,8 @@ def _one_at_a_time(context: AppContext, session_id: str, kind: str) -> Iterator[
 
 def _apply(context: AppContext, session: Session, event: Event, now: datetime) -> tuple[Session, Accepted]:
     next_session, result = step(session, event, now, context.thresholds)
-    context.store.put(next_session)
+    if next_session is not session:
+        context.store.put(next_session)
     keeps_prefetch = next_session.state == "stuck" or (next_session.state == "still" and next_session.prefetch_requested)
     if not keeps_prefetch:
         _discard_prefetch(context, next_session.session_id)
@@ -448,9 +449,7 @@ async def open_session(request: Request, context: AppContext = Depends(get_conte
 async def list_sessions(request: Request, context: AppContext = Depends(get_context)) -> dict:
     _require_operator(request, context)
     now = _now()
-    sessions = [
-        session if session.state == "ended" else _apply(context, session, Tick(), now)[0] for session in context.store.all()
-    ]
+    sessions = [_apply(context, session, Tick(), now)[0] for session in context.store.all()]
     sessions.sort(key=lambda session: session.created_at, reverse=True)
     return {
         "sessions": [
@@ -785,7 +784,7 @@ async def post_problem(
     session = _find_session(context, session_id)
     problem = session.problems[problem_no - 1]
     if problem_text and session.current_problem_no == problem_no and problem_text != problem.problem_text:
-        if problem.problem_text is None or normalize(problem_text) != normalize(problem.problem_text):
+        if not same_problem(problem_text, problem.problem_text):
             problem.leak_strings = []
         problem.problem_text = problem_text
         context.store.put(session)

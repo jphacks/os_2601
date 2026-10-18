@@ -2,7 +2,7 @@ import logging
 from dataclasses import dataclass
 
 from app.gemini import AIUnavailable, Gemini
-from app.leak import contains_leak, leak_strings, normalize, without_written
+from app.leak import contains_leak, leak_strings, same_problem, without_written
 from app.personas import fallback_message, get_persona
 from app.reading import to_reading
 from app.state import HintSource, LeakCheck
@@ -198,8 +198,7 @@ def _context_lines(previous: list[str], known_problem: str | None) -> list[str]:
 
 def _read_problem(out: dict, known_problem: str | None, known_leaks: list[str]) -> tuple[str | None, list[str]]:
     problem_text = out["problem_text"] or None
-    same_problem = bool(known_problem and problem_text) and normalize(known_problem) == normalize(problem_text)
-    inherited = known_leaks if same_problem or not problem_text else []
+    inherited = known_leaks if same_problem(problem_text, known_problem) or not problem_text else []
     written = out.get("written_lines") or []
     guarded = set(inherited) | set(leak_strings(out["final_answer"], out["key_values"]))
     return problem_text, without_written(sorted(guarded), written)

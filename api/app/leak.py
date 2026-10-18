@@ -70,6 +70,10 @@ def normalize(text: str) -> str:
     return text.replace("＝", "=")
 
 
+def same_problem(read: str | None, known: str | None) -> bool:
+    return bool(read and known) and normalize(read) == normalize(known)
+
+
 def leak_strings(final_answer: str, key_values: list[str]) -> list[str]:
     answers = [part for part in re.split(r"[,、;]", normalize(final_answer)) if part]
     values = {answer.rsplit("=", 1)[-1] for answer in answers}

@@ -94,6 +94,7 @@ def test_any_unreadable_save_file_is_set_aside(device: Device, tmp_path: Path, c
     (tmp_path / "tonari.json").write_text(content)
     with TestClient(create_app()) as restarted:
         assert restarted.get("/sessions", headers={"X-Operator-Key": OPERATOR_KEY}).json() == {"sessions": []}
+    assert [path.read_text() for path in tmp_path.glob("tonari.*.broken")] == [content]
 
 
 def test_ended_sessions_are_listed_without_being_advanced(device: Device) -> None:

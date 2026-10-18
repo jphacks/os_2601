@@ -155,6 +155,7 @@ function Device() {
         lastCheckRef.current = null;
         setFinishing(false);
         setSession(detail);
+        setConnected(true);
         setNotice("");
         setRecord(null);
         setRecordStatus("idle");
@@ -183,21 +184,14 @@ function Device() {
       cancelled = true;
       requestVersion.current += 1;
       setSession(null);
+      setState("created");
+      setFinishing(false);
       stopRef.current?.();
       stopRef.current = null;
       stopCamera();
       stopSpeaking();
     };
-  }, [sessionId, token, router, tell, sessionRef, setSession, setState, setProblemNo, setPersonaUpdating, setFinishing]);
-
-  useEffect(
-    () => () => {
-      stopRef.current?.();
-      stopCamera();
-      stopSpeaking();
-    },
-    [],
-  );
+  }, [sessionId, token, router, tell, setSession, setState, setProblemNo, setPersonaUpdating, setFinishing]);
 
   useEffect(() => {
     if (!heard) return;

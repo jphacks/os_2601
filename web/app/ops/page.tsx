@@ -2,8 +2,8 @@
 
 import { useState, type FormEvent } from "react";
 import { useOperatorKey } from "@/app/_components/operator/OperatorKey";
-import { useOperatorPolling } from "@/app/_components/operator/useOperatorPolling";
-import { ApiError, createSession, demoReset, listSessions, postSignal, type Mode, type SessionCreated } from "@/lib/api";
+import { errorText, useOperatorPolling } from "@/app/_components/operator/useOperatorPolling";
+import { createSession, demoReset, listSessions, postSignal, type Mode, type SessionCreated } from "@/lib/api";
 
 const MODES: Mode[] = ["live", "scripted"];
 // openapi.yaml の Settings の既定値
@@ -12,10 +12,6 @@ const DEFAULT_COOLDOWN_SECONDS = 60;
 
 const INPUT = "rounded border border-gray-400 px-2 py-1";
 const BUTTON = "rounded bg-blue-600 px-4 py-2 font-bold text-white disabled:opacity-40";
-
-function errorText(error: unknown): string {
-  return error instanceof ApiError ? error.message : String(error);
-}
 
 export default function OpsPage() {
   const operatorKey = useOperatorKey();

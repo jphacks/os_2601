@@ -10,7 +10,7 @@ const TIMEOUT_MS = 5000;
 type Load<T> = (operatorKey: string) => Promise<T>;
 type Polled<T> = { load: Load<T>; operatorKey: string; data: T | null; error: string };
 
-function errorText(error: unknown): string {
+export function errorText(error: unknown): string {
   if (error instanceof ApiError && error.status === 401) return "鍵が違います";
   return error instanceof Error ? error.message : String(error);
 }

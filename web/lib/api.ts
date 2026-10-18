@@ -30,7 +30,6 @@ export type ProblemStatus = "pending" | "working" | "done" | "skipped";
 
 export type LeakCheck = { ok: boolean; fallback: boolean };
 
-
 export type Settings = { stuck_seconds: number; cooldown_seconds: number; max_level: number; persona: Persona };
 
 export type SessionCreateRequest = {

@@ -74,7 +74,7 @@ def speak_hint(session: Session, second: float) -> tuple[Session, int]:
     assert isinstance(accepted, Accepted)
     session, _ = step(session, HintIssued(len(H1_TEXT)), at(second), THRESHOLDS)
     session.current_problem.hints.append(
-        Hint("hnt_test", accepted.level, trigger, H1_TEXT, H1_TEXT, "符号", "fallback", LeakCheck(True, False), None, 0, at(second))
+        Hint("hnt_test", accepted.level, trigger, H1_TEXT, H1_TEXT, "符号", "gpt", LeakCheck(True, False), None, 0, at(second))
     )
     return session, accepted.level
 
@@ -158,6 +158,14 @@ def test_stillness_during_cooldown_waits_for_cooldown_then_counts_again() -> Non
     assert set(states[2:62]) == {"cooldown"}
     assert states[62] == "still"
     assert first_stuck(trace) == 82
+
+
+def test_fixed_replies_do_not_raise_the_manual_level() -> None:
+    session = new_session()
+    session, _ = speak_hint(session, 0)
+    session.current_problem.hints[-1].source = "fallback"
+    _, level = speak_hint(session, 10)
+    assert level == 1
 
 
 def test_second_and_later_manual_hints_are_level_two_and_auto_hints_do_not_count() -> None:

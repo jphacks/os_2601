@@ -6,6 +6,7 @@ from app.check import CORRECT_TEXT, FAILED_TEXT, judge
 from app.gemini import AIUnavailable
 from app.hints import (
     ANSWER_FALLBACK,
+    UNREADABLE_ANSWER,
     ANSWER_SPEECH_MAX_CHARS,
     DISPLAY_MAX_CHARS,
     FALLBACK_HINTS,
@@ -172,6 +173,14 @@ def test_answer_about_an_unreadable_paper_tells_the_reason_instead_of_guessing()
     reply.update(readable=False, unreadable_reason="dark")
     hint = answer(FakeAI(reply))
     assert (hint.speech, hint.source) == ("もう少し明るいところで見せてみて", "fallback")
+    reply.update(unreadable_reason="other")
+    assert answer(FakeAI(reply)).speech == UNREADABLE_ANSWER
+
+
+def test_question_that_needs_no_paper_is_answered_even_without_anything_to_guard() -> None:
+    reply = ai_answer("移項は、項を反対の辺に移すことだよ")
+    reply.update(problem_text="", final_answer="", key_values=[])
+    assert answer(FakeAI(reply)).source == "gpt"
 
 
 def test_answer_that_gives_away_the_value_is_replaced_and_an_overlong_one_falls_back() -> None:

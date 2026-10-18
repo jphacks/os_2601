@@ -330,3 +330,24 @@ def test_a_hint_is_kept_when_the_learner_already_wrote_every_value() -> None:
 
 def test_asking_if_unsure_whether_it_is_right_is_still_a_check_question() -> None:
     assert asks_if_correct("これ合ってるかわからない")
+
+
+def test_a_hint_with_only_intermediate_values_on_a_new_problem_falls_back() -> None:
+    reply = {**ai_hint("エックスはマイナス5だよ"), "final_answer": "", "key_values": ["-2x=10"]}
+    assert asyncio.run(compose_hint(FakeAI(reply), MODEL, FRAME, 1, [], None, [], "teacher")).source == "fallback"
+
+
+def test_a_hint_whose_answer_gives_nothing_to_guard_falls_back() -> None:
+    reply = {**ai_hint("答えはイだよ"), "final_answer": "イ", "key_values": []}
+    assert asyncio.run(compose_hint(FakeAI(reply), MODEL, FRAME, 1, [], None, [], "teacher")).source == "fallback"
+
+
+def test_an_unguarded_voice_answer_that_states_a_value_falls_back() -> None:
+    reply = ai_answer("x は 5 だよ")
+    reply.update(problem_text="", final_answer="", key_values=[])
+    assert answer(FakeAI(reply)).source == "fallback"
+
+
+@pytest.mark.parametrize("utterance", ["これ正しいかわからない", "これ正解？", "合ってるかな"])
+def test_check_questions_in_other_words(utterance: str) -> None:
+    assert asks_if_correct(utterance)

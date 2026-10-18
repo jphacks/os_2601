@@ -86,6 +86,11 @@ def _mentions(normalized: str, string: str) -> bool:
     return string in normalized
 
 
+def states_an_answer(text: str) -> bool:
+    normalized = normalize(text)
+    return any(re.search(phrase.format(v=r"-?\d[\d./]*"), normalized) for phrase in SHORT_ANSWER_PHRASES)
+
+
 def contains_leak(text: str, strings: list[str]) -> bool:
     normalized = normalize(text)
     return any(_mentions(normalized, string) for string in strings)

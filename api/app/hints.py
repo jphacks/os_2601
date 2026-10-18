@@ -1,8 +1,9 @@
 import logging
+import re
 from dataclasses import dataclass, replace
 
 from app.gemini import AIUnavailable, Gemini
-from app.leak import contains_leak, leak_strings, same_problem, without_written
+from app.leak import contains_leak, leak_strings, same_problem, states_an_answer, without_written
 from app.personas import fallback_message, get_persona
 from app.reading import to_reading
 from app.state import HintSource, LeakCheck
@@ -81,7 +82,7 @@ LEVEL_INSTRUCTIONS = {
 ANSWER_FALLBACK = "一緒に考えよう。今どこまでできたか、声に出してみて"
 CHECK_REPLY = "できたボタンを押してみて"
 CHECK_WORDS = ("合ってる", "あってる", "合ってます", "できてる")
-CHECK_WORDS_UNLESS_HELP = ("正解", "正しい")
+CHECK_QUESTION = re.compile(r"(正解|正しい)(か|\?|？|$)")
 HELP_WORDS = (
     "わからない",
     "わかんない",
@@ -197,12 +198,13 @@ def _context_lines(previous: list[str], known_problem: str | None) -> list[str]:
     return lines
 
 
-def _read_problem(out: dict, known_problem: str | None, known_leaks: list[str]) -> tuple[str | None, list[str]]:
+def _read_problem(out: dict, known_problem: str | None, known_leaks: list[str]) -> tuple[str | None, list[str], bool]:
     problem_text = out["problem_text"] or None
     inherited = known_leaks if same_problem(problem_text, known_problem) or not problem_text else []
+    from_answer = leak_strings(out["final_answer"], [])
     written = out.get("written_lines") or []
-    guarded = set(inherited) | set(leak_strings(out["final_answer"], out["key_values"]))
-    return problem_text, without_written(sorted(guarded), written)
+    guarded = set(inherited) | set(from_answer) | set(leak_strings(out["final_answer"], out["key_values"]))
+    return problem_text, without_written(sorted(guarded), written), bool(inherited or from_answer)
 
 
 def _unreadable(out: dict, fallback: str, leaks: list[str], persona: str = "teacher") -> ComposedHint:
@@ -231,13 +233,7 @@ def asks_for_help(utterance: str) -> bool:
 
 
 def asks_if_correct(utterance: str) -> bool:
-    if any(word in utterance for word in CHECK_WORDS):
-        return True
-    return not asks_for_help(utterance) and any(word in utterance for word in CHECK_WORDS_UNLESS_HELP)
-
-
-def _unguarded(out: dict, leaks: list[str]) -> bool:
-    return not leaks and not str(out.get("final_answer", "")).strip()
+    return any(word in utterance for word in CHECK_WORDS) or CHECK_QUESTION.search(utterance.strip()) is not None
 
 
 def _unchecked_fallback(problem_text: str | None, leaks: list[str], fallback: str, persona: str) -> ComposedHint:
@@ -269,9 +265,9 @@ async def compose_hint(
     try:
         request = "\n".join([LEVEL_INSTRUCTIONS[level], *_context_lines(previous, known_problem)])
         out = await ai.generate_json(model, _persona_prompt(SYSTEM_PROMPT, persona), request, frame, HINT_SCHEMA)
-        problem_text, leaks = _read_problem(out, known_problem, known_leaks)
+        problem_text, leaks, answer_guarded = _read_problem(out, known_problem, known_leaks)
         readable = out["readable"] is True
-        if readable and _unguarded(out, leaks):
+        if readable and not answer_guarded:
             return _unchecked_fallback(problem_text, leaks, FALLBACK_HINTS[level], persona)
         hint = _checked(out, model, problem_text, leaks, (SPEECH_MAX_CHARS, DISPLAY_MAX_CHARS), FALLBACK_HINTS[level], persona)
     except (AIUnavailable, KeyError, TypeError, AttributeError) as error:
@@ -301,8 +297,8 @@ async def compose_answer(
             return None
         if out["readable"] is not True:
             return _unreadable(out, UNREADABLE_ANSWER, known_leaks, persona)
-        problem_text, leaks = _read_problem(out, known_problem, known_leaks)
-        if problem_text and _unguarded(out, leaks):
+        problem_text, leaks, answer_guarded = _read_problem(out, known_problem, known_leaks)
+        if not answer_guarded and (problem_text or states_an_answer(f"{out['speech']} {out['display']}")):
             return _unchecked_fallback(problem_text, leaks, ANSWER_FALLBACK, persona)
         return _checked(
             out, model, problem_text, leaks, (ANSWER_SPEECH_MAX_CHARS, ANSWER_DISPLAY_MAX_CHARS), ANSWER_FALLBACK, persona

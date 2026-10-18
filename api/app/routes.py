@@ -440,15 +440,11 @@ async def request_hint(
             frame = _latest_frame(context, session_id)
             if body.trigger != "auto":
                 _count_ai_call(context, session_id, frame, now)
-            if body.trigger == "auto" and not try_count_call(
+            elif context.ai is not None and frame is not None and not try_count_call(
                 context.background_calls, session_id, BACKGROUND_CALLS_PER_MINUTE, now
             ):
-                composed = fixed_hint(
-                    FALLBACK_HINTS[accepted.level], "fallback", LeakCheck(ok=True, fallback=False), problem.leak_strings,
-                    session.settings.persona,
-                )
-            else:
-                composed = await compose(context, problem, accepted.level, frame, session.settings.persona)
+                frame = None
+            composed = await compose(context, problem, accepted.level, frame, session.settings.persona)
     except Exception:
         _abandon_hint(context, session_id, accepted.ticket)
         raise
@@ -477,6 +473,8 @@ async def post_check(
     session = _find_session(context, session_id)
     require_device(request, context, session)
     now = _now()
+    if isinstance(step(session, CheckRequested(), now, context.thresholds)[1], Rejected):
+        fail(409, f"今の状態（{session.state}）では受理できない")
     frame = _latest_frame(context, session_id)
     if session.mode != "scripted":
         _count_ai_call(context, session_id, frame, now)

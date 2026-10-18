@@ -196,3 +196,15 @@ def test_check_counts_toward_the_ai_budget(device: Device) -> None:
     frame_id = device.frame()
     device.client.post(f"/sessions/{device.session_id}/check", json={"frame_id": frame_id}, headers=device.headers)
     assert len(device.client.app.state.context.ai_calls[device.session_id]) == 1
+
+
+def test_a_rejected_check_does_not_use_the_ai_budget(device: Device) -> None:
+    response = device.client.post(f"/sessions/{device.session_id}/check", json={"frame_id": "frm_x"}, headers=device.headers)
+    assert (response.status_code, device.client.app.state.context.ai_calls.get(device.session_id, [])) == (409, [])
+
+
+def test_an_auto_hint_without_a_frame_does_not_use_the_background_budget(device: Device) -> None:
+    device.signal(0, 0.05)
+    device.force_stuck(1)
+    device.client.post(f"/sessions/{device.session_id}/hints", json={"trigger": "auto", "frame_id": "frm_x"}, headers=device.headers)
+    assert device.client.app.state.context.background_calls.get(device.session_id, []) == []

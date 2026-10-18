@@ -99,17 +99,16 @@ stateDiagram-v2
 ```yaml
 motion_threshold: 0.03      # τ。T0-2 と Day 1 の計測で更新する（10/17 に 0.02 から変更）
 motion_exit_threshold: 0.045  # 静止を抜ける境目。τ 以上でないと起動しない（10/17 に追加、ADR 0027）
-warmup_seconds: 3
 stuck_seconds: 20           # セッション作成時と /device の選択で上書き可（5〜1200）
 cooldown_seconds: 60        # 同上（0〜300）
 max_level: 2
 signal_timeout_seconds: 5
 prefetch_lead_seconds: 3     # stuck の何秒前にフレームを送らせ、ヒントを先に作るか（10/17 に追加、ADR 0028）
-frame_interval_seconds: 10
 speech_seconds_per_char: 0.15
 speech_seconds_base: 1.0
-min_brightness: 60
 ```
+
+ウォームアップ（最初の 3 回は動きスコアを送らない）と、暗さの警告（平均輝度 60 未満）は web の定数（`web/lib/motion.ts` の `MEDIAN_WINDOW`、`/device` の `DARK_BRIGHTNESS`）。
 
 ## テスト（表駆動）
 

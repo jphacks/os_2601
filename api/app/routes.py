@@ -25,6 +25,7 @@ from app.hints import (
     fixed_hint,
     read_problem,
 )
+from app.leak import same_problem
 from app.personas import persona_options
 from app.state import (
     Accepted,
@@ -336,7 +337,8 @@ def _one_at_a_time(context: AppContext, session_id: str, kind: str) -> Iterator[
 
 def _apply(context: AppContext, session: Session, event: Event, now: datetime) -> tuple[Session, Accepted]:
     next_session, result = step(session, event, now, context.thresholds)
-    context.store.put(next_session)
+    if next_session is not session:
+        context.store.put(next_session)
     keeps_prefetch = next_session.state == "stuck" or (next_session.state == "still" and next_session.prefetch_requested)
     if not keeps_prefetch:
         _discard_prefetch(context, next_session.session_id)
@@ -782,8 +784,9 @@ async def post_problem(
     session = _find_session(context, session_id)
     problem = session.problems[problem_no - 1]
     if problem_text and session.current_problem_no == problem_no and problem_text != problem.problem_text:
+        if not same_problem(problem_text, problem.problem_text):
+            problem.leak_strings = []
         problem.problem_text = problem_text
-        problem.leak_strings = []
         context.store.put(session)
         context.store.save()
     logger.info(

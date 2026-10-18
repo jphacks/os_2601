@@ -119,7 +119,7 @@ os_2601/
 
 ## データ
 
-JSON ファイル 1 つ（`DATA_PATH`、既定 `./data/tonari.json`。親ディレクトリは作る）に `{"sessions": {id: Session}}` を持つ。起動時に読み（`ended` 以外は `watching` に戻す）、セッション作成・設定変更・ヒント・チェック・進行・終了のときだけ tmp に書いて rename する。全ルートは `async def`、uvicorn は 1 ワーカーなのでロックは要らない。`signals` は書かない（状態と `still_since` はメモリ）。再デプロイで消えてよい（ピッチ前に `/demo/reset` する）。
+JSON ファイル 1 つ（`DATA_PATH`、既定 `./data/tonari.json`。親ディレクトリは作る）に `{"sessions": {id: Session}}` を持つ。起動時に読み（`ended` 以外は `watching` に戻す）、セッション作成・設定変更・ヒント・チェック・進行・終了のときだけ tmp に書いて rename する。書き出すときに JSON に直すのは前回から `put()` したセッションだけで、残りは前回の文字列を使う（取り出して書き換えたら `put()` してから `save()`）。読めないファイルは `tonari.<UTC 時刻>.broken` に退けて空で起動する。終わったセッションは時刻を進めても変わらないので、複製も保存もしない。全ルートは `async def`、uvicorn は 1 ワーカーなのでロックは要らない。`signals` は書かない（状態と `still_since` はメモリ）。再デプロイで消えてよい（ピッチ前に `/demo/reset` する）。
 
 ```mermaid
 erDiagram

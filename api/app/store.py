@@ -1,6 +1,7 @@
 import json
+import logging
 from dataclasses import asdict
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,8 @@ RUNTIME_FIELDS = (
     "prefetch_requested",
 )
 RENAMED_SOURCES = {"gpt": "ai"}
+
+logger = logging.getLogger(__name__)
 
 
 def _encode(value: Any) -> Any:
@@ -80,23 +83,35 @@ class SessionStore:
     def __init__(self, path: Path) -> None:
         self._path = path
         self._sessions: dict[str, Session] = {}
+        self._encoded: dict[str, str] = {}
+        self._changed: set[str] = set()
 
     def load(self) -> None:
         if not self._path.exists():
             return
-        raw = json.loads(self._path.read_text(encoding="utf-8"))
-        self._sessions = {session_id: _decode_session(body) for session_id, body in raw["sessions"].items()}
+        try:
+            raw = json.loads(self._path.read_text(encoding="utf-8"))
+            sessions = {session_id: _decode_session(body) for session_id, body in raw["sessions"].items()}
+        except (ValueError, KeyError, TypeError, AttributeError) as error:
+            broken = self._path.with_name(f"{self._path.stem}.{datetime.now(UTC):%Y%m%dT%H%M%S}.broken")
+            self._path.replace(broken)
+            logger.error("保存ファイルを読めないので %s に退けて空で始める: %r", broken.name, error)
+            return
+        self._sessions = sessions
+        self._encoded = {}
+        self._changed = set(sessions)
 
     def save(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        sessions = {}
-        for session_id, session in self._sessions.items():
-            body = asdict(session)
+        for session_id in self._changed:
+            body = asdict(self._sessions[session_id])
             for name in RUNTIME_FIELDS:
                 body.pop(name)
-            sessions[session_id] = _encode(body)
+            self._encoded[session_id] = json.dumps(_encode(body), ensure_ascii=False)
+        self._changed.clear()
+        self._path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self._path.with_suffix(".tmp")
-        temporary.write_text(json.dumps({"sessions": sessions}, ensure_ascii=False), encoding="utf-8")
+        sessions = ",".join(f"{json.dumps(session_id)}:{body}" for session_id, body in self._encoded.items())
+        temporary.write_text(f'{{"sessions":{{{sessions}}}}}', encoding="utf-8")
         temporary.replace(self._path)
 
     def get(self, session_id: str) -> Session | None:
@@ -104,14 +119,19 @@ class SessionStore:
 
     def put(self, session: Session) -> None:
         self._sessions[session.session_id] = session
+        self._changed.add(session.session_id)
 
     def all(self) -> list[Session]:
         return list(self._sessions.values())
 
     def remove(self, session_id: str) -> None:
         self._sessions.pop(session_id, None)
+        self._encoded.pop(session_id, None)
+        self._changed.discard(session_id)
 
     def clear(self) -> int:
         removed = len(self._sessions)
         self._sessions = {}
+        self._encoded = {}
+        self._changed.clear()
         return removed

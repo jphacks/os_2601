@@ -135,6 +135,16 @@ def test_unreadable_frame_keeps_the_problem_text_and_a_new_text_resets_the_leak_
     assert store.get(device.session_id).problems[0].leak_strings == []
 
 
+def test_the_same_problem_read_with_other_spacing_keeps_the_leak_strings(device: Device, ai: ListeningAI) -> None:
+    frame_id = start_watching(device)
+    ask(device, frame_id, "移項って何？")
+    store = device.client.app.state.context.store
+    leaks = store.get(device.session_id).problems[0].leak_strings
+    ai.problem_text = "2x-7=4x+3"
+    assert read(device, frame_id).json()["problem_text"] == "2x-7=4x+3"
+    assert store.get(device.session_id).problems[0].leak_strings == leaks != []
+
+
 def test_reading_after_the_session_ended_is_rejected(device: Device, ai: ListeningAI) -> None:
     frame_id = start_watching(device)
     device.client.post(f"/sessions/{device.session_id}/end", headers=device.headers)

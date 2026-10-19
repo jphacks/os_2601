@@ -3,6 +3,7 @@ import secrets
 import time
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime, timedelta
+from typing import NoReturn
 
 from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
 
@@ -45,6 +46,7 @@ from app.state import (
     Session,
     SessionSettings,
     Signal,
+    State,
     Tick,
     Trigger,
     cooldown_remaining,
@@ -123,6 +125,14 @@ def _forget_old_open_sessions(context: AppContext, now: datetime) -> None:
             del calls[session_id]
 
 
+def _state_conflict(state: State) -> NoReturn:
+    fail(409, f"今の状態（{state}）では受理できない")
+
+
+def _would_accept(context: AppContext, session: Session, event: Event, now: datetime) -> bool:
+    return not isinstance(step(session, event, now, context.thresholds)[1], Rejected)
+
+
 def _apply(context: AppContext, session: Session, event: Event, now: datetime) -> tuple[Session, Accepted]:
     next_session, result = step(session, event, now, context.thresholds)
     if next_session is not session:
@@ -131,8 +141,19 @@ def _apply(context: AppContext, session: Session, event: Event, now: datetime) -
     if next_session.state == "ended":
         context.frames.pop(next_session.session_id, None)
     if isinstance(result, Rejected):
-        fail(409, f"今の状態（{next_session.state}）では受理できない")
+        _state_conflict(next_session.state)
     return next_session, result
+
+
+def _tick(context: AppContext, session: Session, now: datetime) -> Session:
+    return _apply(context, session, Tick(), now)[0]
+
+
+def _tick_unless_ended(context: AppContext, session: Session, now: datetime, refusal: str) -> Session:
+    session = _tick(context, session, now)
+    if session.state == "ended":
+        fail(409, refusal)
+    return session
 
 
 def _new_session(
@@ -183,7 +204,7 @@ async def open_session(request: Request, context: AppContext = Depends(get_conte
 async def list_sessions(request: Request, context: AppContext = Depends(get_context)) -> dict:
     require_operator(request, context)
     now = _now()
-    sessions = [_apply(context, session, Tick(), now)[0] for session in context.store.all()]
+    sessions = [_tick(context, session, now) for session in context.store.all()]
     sessions.sort(key=lambda session: session.created_at, reverse=True)
     return {"sessions": [session_summary(session) for session in sessions]}
 
@@ -193,8 +214,7 @@ async def get_session(session_id: str, request: Request, context: AppContext = D
     session = _find_session(context, session_id)
     require_device_or_operator(request, context, session)
     now = _now()
-    session, _ = _apply(context, session, Tick(), now)
-    return session_detail(session, now)
+    return session_detail(_tick(context, session, now), now)
 
 
 @router.patch("/sessions/{session_id}/settings")
@@ -248,9 +268,7 @@ async def post_frame(
     if len(data) > MAX_FRAME_BYTES:
         fail(413, f"フレームは {MAX_FRAME_BYTES // 1024} KB まで")
     now = _now()
-    session, _ = _apply(context, _find_session(context, session_id), Tick(), now)
-    if session.state == "ended":
-        fail(409, "終了したセッションにはフレームを送れない")
+    session = _tick_unless_ended(context, _find_session(context, session_id), now, "終了したセッションにはフレームを送れない")
     frame_id = _new_id("frm")
     context.frames[session.session_id] = (frame_id, data)
     start_prefetch(context, session, data, now)
@@ -310,9 +328,8 @@ def _accept_and_issue_voice_hint(
 async def _answer_utterance(context: AppContext, session: Session, utterance: str) -> dict | Response:
     started = time.monotonic()
     now = _now()
-    _, acceptable = step(session, HintRequested("voice"), now, context.thresholds)
-    if isinstance(acceptable, Rejected):
-        fail(409, f"今の状態（{session.state}）では受理できない")
+    if not _would_accept(context, session, HintRequested("voice"), now):
+        _state_conflict(session.state)
     if session.mode == "scripted":
         return Response(status_code=204)
     problem_no = session.current_problem_no
@@ -386,7 +403,7 @@ async def post_check(
     session = _find_session(context, session_id)
     require_device(request, context, session)
     now = _now()
-    if isinstance(step(session, CheckRequested(), now, context.thresholds)[1], Rejected):
+    if not _would_accept(context, session, CheckRequested(), now):
         _apply(context, session, CheckRequested(), now)
     frame = _latest_frame(context, session_id)
     if session.mode != "scripted":
@@ -429,9 +446,7 @@ async def post_problem(
     session = _find_session(context, session_id)
     require_device(request, context, session)
     now = _now()
-    session, _ = _apply(context, session, Tick(), now)
-    if session.state == "ended":
-        fail(409, "終了したセッションでは読み取れない")
+    session = _tick_unless_ended(context, session, now, "終了したセッションでは読み取れない")
     problem_no = session.current_problem_no
     started = time.monotonic()
     with one_at_a_time(context, session_id, f"problem-{problem_no}"):
@@ -457,7 +472,7 @@ async def post_tts(session_id: str, body: SpeechRequest, request: Request, conte
     session = _find_session(context, session_id)
     require_device(request, context, session)
     now = _now()
-    session, _ = _apply(context, session, Tick(), now)
+    session = _tick(context, session, now)
     if session.ended_at is not None and now - session.ended_at > timedelta(seconds=SPEECH_AFTER_END_SECONDS):
         fail(409, "終わったセッションの読み上げは受け付けない")
     count_call(context.speeches, session_id, SPEECHES_PER_MINUTE, now)

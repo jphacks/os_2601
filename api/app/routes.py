@@ -24,7 +24,6 @@ from app.limits import (
     count_call,
     one_at_a_time,
 )
-from app.personas import persona_options
 from app.prefetch import discard_prefetch, settle_prefetch, start_prefetch, take_prefetch
 from app.schemas import CheckRequest, HintRequest, ProblemRequest, SessionCreateRequest, SettingsPatch, SignalRequest, SpeechRequest
 from app.state import (
@@ -53,7 +52,7 @@ from app.state import (
 )
 from app.timing import elapsed_ms
 from app.utterances import asks_for_help, asks_if_correct
-from app.views import iso, problem_record, stuck_points
+from app.views import hint_response, iso, session_created, session_detail, session_summary
 from app.voicevox import VoiceUnavailable
 
 logger = logging.getLogger(__name__)
@@ -64,7 +63,6 @@ OPEN_SESSION_LABEL = "自分で始めた"
 SPEECH_AFTER_END_SECONDS = 60
 MODE_DEFAULT = "live"
 WORKSHEET_ID = "FREE"
-WORKSHEET_TITLE = "自由な問題"
 PROBLEM_SLOTS = 20
 
 
@@ -146,15 +144,7 @@ def _new_session(
     )
     context.store.put(session)
     context.store.save()
-    return {
-        "session_id": session.session_id,
-        "session_token": session.session_token,
-        "mode": session.mode,
-        "state": session.state,
-        "worksheet": {"worksheet_id": WORKSHEET_ID, "title": WORKSHEET_TITLE, "problem_count": len(problems)},
-        "settings": asdict(session.settings),
-        "created_at": iso(session.created_at),
-    }
+    return session_created(session)
 
 
 @router.post("/sessions", status_code=201)
@@ -184,23 +174,7 @@ async def list_sessions(request: Request, context: AppContext = Depends(get_cont
     now = _now()
     sessions = [_apply(context, session, Tick(), now)[0] for session in context.store.all()]
     sessions.sort(key=lambda session: session.created_at, reverse=True)
-    return {
-        "sessions": [
-            {
-                "session_id": session.session_id,
-                "worksheet_id": session.worksheet_id,
-                "learner_label": session.learner_label,
-                "mode": session.mode,
-                "state": session.state,
-                "problem_done": sum(problem.status == "done" for problem in session.problems),
-                "problem_count": len(session.problems),
-                "stuck_total": sum(problem.stuck_count for problem in session.problems),
-                "created_at": iso(session.created_at),
-                "ended_at": iso(session.ended_at),
-            }
-            for session in sessions
-        ]
-    }
+    return {"sessions": [session_summary(session) for session in sessions]}
 
 
 @router.get("/sessions/{session_id}")
@@ -209,24 +183,7 @@ async def get_session(session_id: str, request: Request, context: AppContext = D
     require_device_or_operator(request, context, session)
     now = _now()
     session, _ = _apply(context, session, Tick(), now)
-    return {
-        "session_id": session.session_id,
-        "worksheet_id": session.worksheet_id,
-        "worksheet_title": WORKSHEET_TITLE,
-        "problem_count": len(session.problems),
-        "learner_label": session.learner_label,
-        "mode": session.mode,
-        "state": session.state,
-        "current_problem_no": session.current_problem_no,
-        "still_seconds": still_seconds(session, now),
-        "settings": asdict(session.settings),
-        "problems": [problem_record(problem, session, now) for problem in session.problems],
-        "persona_options": persona_options(),
-        "stuck_points": stuck_points(session),
-        "leak_blocked_count": session.leak_blocked_count,
-        "created_at": iso(session.created_at),
-        "ended_at": iso(session.ended_at),
-    }
+    return session_detail(session, now)
 
 
 @router.patch("/sessions/{session_id}/settings")
@@ -333,21 +290,7 @@ def _issue_hint(
         prefetched,
         hint.latency_ms,
     )
-    return {
-        "hint_id": hint.hint_id,
-        "problem_no": problem_no,
-        "problem_text": recorded.problem_text,
-        "level": hint.level,
-        "trigger": hint.trigger,
-        "speech": hint.speech,
-        "display": hint.display,
-        "stuck_point": hint.stuck_point,
-        "leak_check": asdict(hint.leak_check),
-        "source": hint.source,
-        **({"model": hint.model} if hint.model else {}),
-        "latency_ms": hint.latency_ms,
-        "state": session.state,
-    }
+    return hint_response(hint, recorded, session)
 
 
 async def _answer_utterance(context: AppContext, session: Session, utterance: str) -> dict | Response:

@@ -365,11 +365,12 @@ function Device() {
     const video = videoRef.current;
     if (!video || startingRef.current) return;
     const version = requestVersion.current;
+    const outdated = () => version !== requestVersion.current || finishingRef.current || stateRef.current === "ended";
     startingRef.current = true;
     setBusy(true);
     try {
       await startCamera(video);
-      if (version !== requestVersion.current || stateRef.current === "ended") {
+      if (outdated()) {
         stopCamera();
         return;
       }
@@ -377,7 +378,7 @@ function Device() {
       tell(GREETING);
     } catch (error) {
       console.warn("[device] カメラを取り直せなかった", error);
-      if (version === requestVersion.current) tell(cameraFailureCaption(error));
+      if (!outdated()) tell(cameraFailureCaption(error));
     } finally {
       if (version === requestVersion.current) {
         setBusy(false);

@@ -1,27 +1,20 @@
 import logging
 import secrets
 import time
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime, timedelta
+from typing import NoReturn
 
 from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
 
 from app.auth import require_device, require_device_or_operator, require_operator, require_operator_only
 from app.check import CORRECT_TEXT, Judgement, judge
-from app.composer import answer, compose
+from app.composer import answer_for, hint_for
 from app.context import AppContext, get_context
 from app.errors import fail
+from app.fixed_texts import FALLBACK_HINTS
 from app.gemini import AIUnavailable
-from app.hints import (
-    FALLBACK_HINTS,
-    ComposedHint,
-    answer_fallback,
-    asks_for_help,
-    asks_if_correct,
-    check_reply,
-    fixed_hint,
-    read_problem,
-)
+from app.hints import ComposedHint, answer_fallback, check_reply, fixed_hint, read_problem
 from app.leak import same_problem
 from app.limits import (
     MAX_FRAME_BYTES,
@@ -33,10 +26,11 @@ from app.limits import (
     count_call,
     one_at_a_time,
 )
-from app.personas import persona_options
+from app.personas import PersonaId
 from app.prefetch import discard_prefetch, settle_prefetch, start_prefetch, take_prefetch
 from app.schemas import CheckRequest, HintRequest, ProblemRequest, SessionCreateRequest, SettingsPatch, SignalRequest, SpeechRequest
 from app.state import (
+    WORKSHEET_ID,
     Accepted,
     Advance,
     ChangeSettings,
@@ -49,19 +43,22 @@ from app.state import (
     HintAbandoned,
     HintIssued,
     HintRequested,
-    LeakCheck,
     Mode,
     Problem,
     Rejected,
     Session,
     SessionSettings,
     Signal,
+    State,
     Tick,
+    Trigger,
     cooldown_remaining,
     step,
     still_seconds,
 )
-from app.views import iso, problem_record, stuck_points
+from app.timing import elapsed_ms
+from app.utterances import asks_for_help, asks_if_correct
+from app.views import hint_response, iso, session_created, session_detail, session_summary
 from app.voicevox import VoiceUnavailable
 
 logger = logging.getLogger(__name__)
@@ -71,9 +68,18 @@ OPEN_SESSION_KEPT_FOR = timedelta(hours=2)
 OPEN_SESSION_LABEL = "自分で始めた"
 SPEECH_AFTER_END_SECONDS = 60
 MODE_DEFAULT = "live"
-WORKSHEET_ID = "FREE"
-WORKSHEET_TITLE = "自由な問題"
 PROBLEM_SLOTS = 20
+
+
+@dataclass(frozen=True)
+class PendingHint:
+    problem_no: int
+    persona: PersonaId
+    level: int
+    trigger: Trigger
+    ticket: datetime
+    started: float
+    requested_at: datetime
 
 
 router = APIRouter()
@@ -122,6 +128,14 @@ def _forget_old_open_sessions(context: AppContext, now: datetime) -> None:
             del calls[session_id]
 
 
+def _state_conflict(state: State) -> NoReturn:
+    fail(409, f"今の状態（{state}）では受理できない")
+
+
+def _would_accept(context: AppContext, session: Session, event: Event, now: datetime) -> bool:
+    return not isinstance(step(session, event, now, context.thresholds)[1], Rejected)
+
+
 def _apply(context: AppContext, session: Session, event: Event, now: datetime) -> tuple[Session, Accepted]:
     next_session, result = step(session, event, now, context.thresholds)
     if next_session is not session:
@@ -130,8 +144,19 @@ def _apply(context: AppContext, session: Session, event: Event, now: datetime) -
     if next_session.state == "ended":
         context.frames.pop(next_session.session_id, None)
     if isinstance(result, Rejected):
-        fail(409, f"今の状態（{next_session.state}）では受理できない")
+        _state_conflict(next_session.state)
     return next_session, result
+
+
+def _tick(context: AppContext, session: Session, now: datetime) -> Session:
+    return _apply(context, session, Tick(), now)[0]
+
+
+def _tick_unless_ended(context: AppContext, session: Session, now: datetime, refusal: str) -> Session:
+    session = _tick(context, session, now)
+    if session.state == "ended":
+        fail(409, refusal)
+    return session
 
 
 def _new_session(
@@ -154,15 +179,7 @@ def _new_session(
     )
     context.store.put(session)
     context.store.save()
-    return {
-        "session_id": session.session_id,
-        "session_token": session.session_token,
-        "mode": session.mode,
-        "state": session.state,
-        "worksheet": {"worksheet_id": WORKSHEET_ID, "title": WORKSHEET_TITLE, "problem_count": len(problems)},
-        "settings": asdict(session.settings),
-        "created_at": iso(session.created_at),
-    }
+    return session_created(session)
 
 
 @router.post("/sessions", status_code=201)
@@ -190,25 +207,9 @@ async def open_session(request: Request, context: AppContext = Depends(get_conte
 async def list_sessions(request: Request, context: AppContext = Depends(get_context)) -> dict:
     require_operator(request, context)
     now = _now()
-    sessions = [_apply(context, session, Tick(), now)[0] for session in context.store.all()]
+    sessions = [_tick(context, session, now) for session in context.store.all()]
     sessions.sort(key=lambda session: session.created_at, reverse=True)
-    return {
-        "sessions": [
-            {
-                "session_id": session.session_id,
-                "worksheet_id": session.worksheet_id,
-                "learner_label": session.learner_label,
-                "mode": session.mode,
-                "state": session.state,
-                "problem_done": sum(problem.status == "done" for problem in session.problems),
-                "problem_count": len(session.problems),
-                "stuck_total": sum(problem.stuck_count for problem in session.problems),
-                "created_at": iso(session.created_at),
-                "ended_at": iso(session.ended_at),
-            }
-            for session in sessions
-        ]
-    }
+    return {"sessions": [session_summary(session) for session in sessions]}
 
 
 @router.get("/sessions/{session_id}")
@@ -216,25 +217,7 @@ async def get_session(session_id: str, request: Request, context: AppContext = D
     session = _find_session(context, session_id)
     require_device_or_operator(request, context, session)
     now = _now()
-    session, _ = _apply(context, session, Tick(), now)
-    return {
-        "session_id": session.session_id,
-        "worksheet_id": session.worksheet_id,
-        "worksheet_title": WORKSHEET_TITLE,
-        "problem_count": len(session.problems),
-        "learner_label": session.learner_label,
-        "mode": session.mode,
-        "state": session.state,
-        "current_problem_no": session.current_problem_no,
-        "still_seconds": still_seconds(session, now),
-        "settings": asdict(session.settings),
-        "problems": [problem_record(problem, session, now) for problem in session.problems],
-        "persona_options": persona_options(),
-        "stuck_points": stuck_points(session),
-        "leak_blocked_count": session.leak_blocked_count,
-        "created_at": iso(session.created_at),
-        "ended_at": iso(session.ended_at),
-    }
+    return session_detail(_tick(context, session, now), now)
 
 
 @router.patch("/sessions/{session_id}/settings")
@@ -288,43 +271,29 @@ async def post_frame(
     if len(data) > MAX_FRAME_BYTES:
         fail(413, f"フレームは {MAX_FRAME_BYTES // 1024} KB まで")
     now = _now()
-    session, _ = _apply(context, _find_session(context, session_id), Tick(), now)
-    if session.state == "ended":
-        fail(409, "終了したセッションにはフレームを送れない")
+    session = _tick_unless_ended(context, _find_session(context, session_id), now, "終了したセッションにはフレームを送れない")
     frame_id = _new_id("frm")
     context.frames[session.session_id] = (frame_id, data)
     start_prefetch(context, session, data, now)
     return {"frame_id": frame_id, "received_at": iso(now), "bytes": len(data)}
 
 
-def _issue_hint(
-    context: AppContext,
-    session_id: str,
-    *,
-    problem_no: int,
-    level: int,
-    trigger: str,
-    composed: ComposedHint,
-    ticket: datetime,
-    started: float,
-    requested_at: datetime,
-    prefetched: bool,
-) -> dict:
-    session, _ = _apply(context, _find_session(context, session_id), HintIssued(len(composed.speech), ticket), _now())
+def _issue_hint(context: AppContext, session_id: str, pending: PendingHint, composed: ComposedHint, *, prefetched: bool) -> dict:
+    session, _ = _apply(context, _find_session(context, session_id), HintIssued(len(composed.speech), pending.ticket), _now())
     hint = Hint(
         hint_id=_new_id("hnt"),
-        level=level,
-        trigger=trigger,
+        level=pending.level,
+        trigger=pending.trigger,
         speech=composed.speech,
         display=composed.display,
         stuck_point=composed.stuck_point,
         source=composed.source,
         leak_check=composed.leak_check,
         model=composed.model,
-        latency_ms=int((time.monotonic() - started) * 1000),
-        created_at=requested_at,
+        latency_ms=elapsed_ms(pending.started),
+        created_at=pending.requested_at,
     )
-    recorded = session.problems[problem_no - 1]
+    recorded = session.problems[pending.problem_no - 1]
     recorded.hints.append(hint)
     recorded.problem_text = composed.problem_text or recorded.problem_text
     recorded.leak_strings = composed.leak_strings
@@ -341,51 +310,42 @@ def _issue_hint(
         prefetched,
         hint.latency_ms,
     )
-    return {
-        "hint_id": hint.hint_id,
-        "problem_no": problem_no,
-        "problem_text": recorded.problem_text,
-        "level": hint.level,
-        "trigger": hint.trigger,
-        "speech": hint.speech,
-        "display": hint.display,
-        "stuck_point": hint.stuck_point,
-        "leak_check": asdict(hint.leak_check),
-        "source": hint.source,
-        **({"model": hint.model} if hint.model else {}),
-        "latency_ms": hint.latency_ms,
-        "state": session.state,
-    }
+    return hint_response(hint, recorded, session)
+
+
+def _accept_and_issue_voice_hint(
+    context: AppContext, session: Session, composed: ComposedHint, started: float, requested_at: datetime, accepted_at: datetime
+) -> dict:
+    session, accepted = _apply(context, session, HintRequested("voice"), accepted_at)
+    pending = PendingHint(
+        problem_no=session.current_problem_no,
+        persona=session.settings.persona,
+        level=accepted.level,
+        trigger="voice",
+        ticket=accepted.ticket,
+        started=started,
+        requested_at=requested_at,
+    )
+    return _issue_hint(context, session.session_id, pending, composed, prefetched=False)
 
 
 async def _answer_utterance(context: AppContext, session: Session, utterance: str) -> dict | Response:
     started = time.monotonic()
     now = _now()
-    _, acceptable = step(session, HintRequested("voice"), now, context.thresholds)
-    if isinstance(acceptable, Rejected):
-        fail(409, f"今の状態（{session.state}）では受理できない")
+    if not _would_accept(context, session, HintRequested("voice"), now):
+        _state_conflict(session.state)
     if session.mode == "scripted":
         return Response(status_code=204)
     problem_no = session.current_problem_no
     problem = session.current_problem
     if asks_if_correct(utterance):
-        _, requested = _apply(context, session, HintRequested("voice"), now)
-        return _issue_hint(
-            context,
-            session.session_id,
-            problem_no=problem_no,
-            level=requested.level,
-            trigger="voice",
-            composed=check_reply(problem.leak_strings, session.settings.persona),
-            ticket=requested.ticket,
-            started=started,
-            requested_at=now,
-            prefetched=False,
+        return _accept_and_issue_voice_hint(
+            context, session, check_reply(problem.leak_strings, session.settings.persona), started, now, accepted_at=now
         )
     frame = _latest_frame(context, session.session_id)
     count_ai_call(context, session.session_id, frame, now)
     try:
-        composed = await answer(context, problem, frame, utterance, session.settings.persona)
+        composed = await answer_for(context, problem, frame, utterance, session.settings.persona)
     except AIUnavailable:
         logger.warning("answer session=%s ai_unavailable=True", session.session_id)
         composed = answer_fallback(problem.leak_strings, session.settings.persona) if asks_for_help(utterance) else None
@@ -393,19 +353,7 @@ async def _answer_utterance(context: AppContext, session: Session, utterance: st
     if composed is None or latest.current_problem_no != problem_no or latest.settings.persona != session.settings.persona:
         logger.info("answer session=%s answered=False", session.session_id)
         return Response(status_code=204)
-    latest, accepted = _apply(context, latest, HintRequested("voice"), _now())
-    return _issue_hint(
-        context,
-        session.session_id,
-        problem_no=problem_no,
-        level=accepted.level,
-        trigger="voice",
-        composed=composed,
-        ticket=accepted.ticket,
-        started=started,
-        requested_at=now,
-        prefetched=False,
-    )
+    return _accept_and_issue_voice_hint(context, latest, composed, started, now, accepted_at=_now())
 
 
 @router.post("/sessions/{session_id}/hints", response_model=None)
@@ -420,14 +368,20 @@ async def request_hint(
     started = time.monotonic()
     now = _now()
     session, accepted = _apply(context, session, HintRequested(body.trigger), now)
+    pending = PendingHint(
+        problem_no=session.current_problem_no,
+        persona=session.settings.persona,
+        level=accepted.level,
+        trigger=body.trigger,
+        ticket=accepted.ticket,
+        started=started,
+        requested_at=now,
+    )
     problem = session.current_problem
     composing = take_prefetch(context, session) if body.trigger == "auto" else None
     try:
         if session.mode == "scripted":
-            composed = fixed_hint(
-                FALLBACK_HINTS[accepted.level], "scripted", LeakCheck(ok=True, fallback=False), problem.leak_strings,
-                session.settings.persona,
-            )
+            composed = fixed_hint(FALLBACK_HINTS[pending.level], problem.leak_strings, pending.persona, source="scripted")
         elif composing:
             composed = await composing
         else:
@@ -436,26 +390,15 @@ async def request_hint(
                 count_ai_call(context, session_id, frame, now)
             elif not allow_background_call(context, session_id, frame, now):
                 frame = None
-            composed = await compose(context, problem, accepted.level, frame, session.settings.persona)
+            composed = await hint_for(context, problem, pending.level, frame, pending.persona)
     except Exception:
-        _abandon_hint(context, session_id, accepted.ticket)
+        _abandon_hint(context, session_id, pending.ticket)
         raise
     latest = _find_session(context, session_id)
-    if latest.current_problem_no != session.current_problem_no or latest.settings.persona != session.settings.persona:
-        _abandon_hint(context, session_id, accepted.ticket)
+    if latest.current_problem_no != pending.problem_no or latest.settings.persona != pending.persona:
+        _abandon_hint(context, session_id, pending.ticket)
         fail(409, "ヒント生成中に問題か人格が変わったため、もう一度お試しください")
-    return _issue_hint(
-        context,
-        session_id,
-        problem_no=session.current_problem_no,
-        level=accepted.level,
-        trigger=body.trigger,
-        composed=composed,
-        ticket=accepted.ticket,
-        started=started,
-        requested_at=now,
-        prefetched=composing is not None,
-    )
+    return _issue_hint(context, session_id, pending, composed, prefetched=composing is not None)
 
 
 @router.post("/sessions/{session_id}/check")
@@ -465,8 +408,8 @@ async def post_check(
     session = _find_session(context, session_id)
     require_device(request, context, session)
     now = _now()
-    if isinstance(step(session, CheckRequested(), now, context.thresholds)[1], Rejected):
-        _apply(context, session, CheckRequested(), now)
+    if not _would_accept(context, session, CheckRequested(), now):
+        _state_conflict(_tick(context, session, now).state)
     frame = _latest_frame(context, session_id)
     if session.mode != "scripted":
         count_ai_call(context, session_id, frame, now)
@@ -508,9 +451,7 @@ async def post_problem(
     session = _find_session(context, session_id)
     require_device(request, context, session)
     now = _now()
-    session, _ = _apply(context, session, Tick(), now)
-    if session.state == "ended":
-        fail(409, "終了したセッションでは読み取れない")
+    session = _tick_unless_ended(context, session, now, "終了したセッションでは読み取れない")
     problem_no = session.current_problem_no
     started = time.monotonic()
     with one_at_a_time(context, session_id, f"problem-{problem_no}"):
@@ -526,7 +467,7 @@ async def post_problem(
         context.store.put(session)
         context.store.save()
     logger.info(
-        "problem session=%s read=%s latency_ms=%s", session.session_id, problem_text is not None, int((time.monotonic() - started) * 1000)
+        "problem session=%s read=%s latency_ms=%s", session.session_id, problem_text is not None, elapsed_ms(started)
     )
     return {"problem_no": problem_no, "problem_text": session.problems[problem_no - 1].problem_text, "state": session.state}
 
@@ -536,7 +477,7 @@ async def post_tts(session_id: str, body: SpeechRequest, request: Request, conte
     session = _find_session(context, session_id)
     require_device(request, context, session)
     now = _now()
-    session, _ = _apply(context, session, Tick(), now)
+    session = _tick(context, session, now)
     if session.ended_at is not None and now - session.ended_at > timedelta(seconds=SPEECH_AFTER_END_SECONDS):
         fail(409, "終わったセッションの読み上げは受け付けない")
     count_call(context.speeches, session_id, SPEECHES_PER_MINUTE, now)
@@ -553,7 +494,7 @@ async def post_tts(session_id: str, body: SpeechRequest, request: Request, conte
         session.session_id,
         body.character,
         len(body.text),
-        int((time.monotonic() - started) * 1000),
+        elapsed_ms(started),
     )
     return Response(content=audio, media_type="audio/wav")
 

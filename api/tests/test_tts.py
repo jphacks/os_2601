@@ -1,25 +1,7 @@
 from datetime import timedelta
 
 import pytest
-from conftest import Device
-
-from app.voicevox import VoiceUnavailable
-
-WAV = b"RIFF\x00\x00\x00\x00WAVE"
-
-
-class FakeVoice:
-    def __init__(self) -> None:
-        self.fail = False
-        self.texts: list[str] = []
-        self.characters: list[str] = []
-
-    async def synthesize(self, text: str, character: str) -> bytes:
-        self.texts.append(text)
-        self.characters.append(character)
-        if self.fail:
-            raise VoiceUnavailable("timeout")
-        return WAV
+from conftest import WAV, Device, FakeVoice
 
 
 @pytest.fixture

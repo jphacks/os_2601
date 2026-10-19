@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.hints import ANSWER_FALLBACK, CHECK_REPLY, FALLBACK_HINTS, UNREADABLE_ANSWER, UNREADABLE_HINTS
+from app.fixed_texts import ANSWER_FALLBACK, CHECK_REPLY, FALLBACK_HINTS, UNREADABLE_ANSWER, UNREADABLE_HINTS
 from app.personas import PERSONAS, fallback_message, get_persona, persona_options
 
 

@@ -10,8 +10,8 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
 from app.context import AppContext
+from app.fixed_texts import FALLBACK_HINTS
 from app.gemini import Gemini
-from app.hints import FALLBACK_HINTS
 from app.limits import MAX_FRAME_BYTES
 from app.routes import router
 from app.state import SessionSettings, Thresholds

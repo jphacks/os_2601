@@ -184,7 +184,7 @@ class Accepted:
 
 @dataclass(frozen=True)
 class Rejected:
-    code: str = "STATE_CONFLICT"
+    pass
 
 
 Result = Accepted | Rejected
@@ -331,6 +331,28 @@ def _on_hint_requested(session: Session, request: HintRequested, now: datetime) 
     return Accepted(level=level, ticket=session.pending_until)
 
 
+def _on_hint_issued(session: Session, issued: HintIssued, now: datetime, thresholds: Thresholds) -> Result:
+    if session.pending_until != issued.ticket or session.state == "checking":
+        return Rejected()
+    session.pending_until = None
+    _enter_speaking(session, now, issued.speech_chars, thresholds)
+    return Accepted()
+
+
+def _on_hint_abandoned(session: Session, abandoned: HintAbandoned) -> Result:
+    if session.pending_until == abandoned.ticket and session.state != "checking":
+        session.pending_until = None
+    return Accepted()
+
+
+def _on_check_requested(session: Session, now: datetime) -> Result:
+    if session.state not in CHECKABLE_STATES:
+        return Rejected()
+    session.state = "checking"
+    session.pending_until = now + timedelta(seconds=PENDING_SECONDS)
+    return Accepted()
+
+
 def _on_check_done(session: Session, done: CheckDone, now: datetime, thresholds: Thresholds) -> Result:
     if session.state != "checking":
         return Rejected()
@@ -369,6 +391,11 @@ def _on_advance(session: Session, now: datetime) -> Result:
     return Accepted()
 
 
+def _on_end(session: Session, now: datetime) -> Result:
+    _end_session(session, now)
+    return Accepted()
+
+
 def _on_ended(event: Event) -> Result:
     if isinstance(event, Signal) and not event.force_stuck:
         return Accepted()
@@ -394,28 +421,17 @@ def step(session: Session, event: Event, now: datetime, thresholds: Thresholds) 
             return next_session, _on_change_settings(next_session, event)
         case HintRequested():
             return next_session, _on_hint_requested(next_session, event, now)
-        case HintIssued(speech_chars=chars, ticket=ticket):
-            if next_session.pending_until != ticket or next_session.state == "checking":
-                return next_session, Rejected()
-            next_session.pending_until = None
-            _enter_speaking(next_session, now, chars, thresholds)
-            return next_session, Accepted()
-        case HintAbandoned(ticket=ticket):
-            if next_session.pending_until == ticket and next_session.state != "checking":
-                next_session.pending_until = None
-            return next_session, Accepted()
+        case HintIssued():
+            return next_session, _on_hint_issued(next_session, event, now, thresholds)
+        case HintAbandoned():
+            return next_session, _on_hint_abandoned(next_session, event)
         case CheckRequested():
-            if next_session.state not in CHECKABLE_STATES:
-                return next_session, Rejected()
-            next_session.state = "checking"
-            next_session.pending_until = now + timedelta(seconds=PENDING_SECONDS)
-            return next_session, Accepted()
+            return next_session, _on_check_requested(next_session, now)
         case CheckDone():
             return next_session, _on_check_done(next_session, event, now, thresholds)
         case Advance():
             return next_session, _on_advance(next_session, now)
         case End():
-            _end_session(next_session, now)
-            return next_session, Accepted()
+            return next_session, _on_end(next_session, now)
         case Tick():
             return next_session, Accepted()

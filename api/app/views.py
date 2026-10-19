@@ -2,9 +2,7 @@ from dataclasses import asdict
 from datetime import datetime
 
 from app.personas import persona_options
-from app.state import Hint, Problem, Session, still_seconds
-
-WORKSHEET_TITLE = "自由な問題"
+from app.state import WORKSHEET_TITLE, Hint, Problem, Session, still_seconds
 
 
 def iso(value: datetime | None) -> str | None:

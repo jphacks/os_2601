@@ -29,6 +29,7 @@ from app.limits import (
 from app.prefetch import discard_prefetch, settle_prefetch, start_prefetch, take_prefetch
 from app.schemas import CheckRequest, HintRequest, ProblemRequest, SessionCreateRequest, SettingsPatch, SignalRequest, SpeechRequest
 from app.state import (
+    WORKSHEET_ID,
     Accepted,
     Advance,
     ChangeSettings,
@@ -66,7 +67,6 @@ OPEN_SESSION_KEPT_FOR = timedelta(hours=2)
 OPEN_SESSION_LABEL = "自分で始めた"
 SPEECH_AFTER_END_SECONDS = 60
 MODE_DEFAULT = "live"
-WORKSHEET_ID = "FREE"
 PROBLEM_SLOTS = 20
 
 

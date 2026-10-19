@@ -21,6 +21,8 @@ CHECKABLE_STATES: tuple[State, ...] = ("watching", "still", "cooldown", "stuck")
 ADVANCEABLE_STATES: tuple[State, ...] = ("watching", "still", "cooldown", "speaking", "stuck")
 TIMEOUT_STATES: tuple[State, ...] = ("watching", "still", "stuck")
 PENDING_SECONDS = 12
+WORKSHEET_ID = "FREE"
+WORKSHEET_TITLE = "自由な問題"
 
 
 @dataclass(frozen=True)

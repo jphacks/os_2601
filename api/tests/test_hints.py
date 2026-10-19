@@ -411,27 +411,43 @@ def test_a_known_problem_keeps_a_guarded_hint_even_if_this_reply_lost_the_text()
 
 
 def test_a_voice_answer_pointing_at_lines_without_paper_is_replaced() -> None:
-    reply = ai_answer("1行目の右辺の符号を見てみて")
+    reply = ai_answer("最後の式の x の係数で両辺を割ってみて")
     reply.update(paper_visible=False)
-    assert answer(FakeAI(reply)).source == "fallback"
+    replied = asyncio.run(compose_answer(FakeAI(reply), MODEL, FRAME, "次どうすればいい？", [], None, [], "teacher"))
+    assert replied.speech == "紙を枠の中に入れてみて"
 
 
 def test_a_voice_explanation_without_paper_is_kept() -> None:
-    reply = ai_answer("移項は、項を反対の辺に移すことだよ")
-    reply.update(paper_visible=False)
-    assert answer(FakeAI(reply)).source == "ai"
+    reply = ai_answer("移項は、項の符号を変えて左辺から右辺に移すことだよ")
+    reply.update(paper_visible=False, final_answer="x = 3", key_values=["3x = 9"])
+    kept = asyncio.run(compose_answer(FakeAI(reply), MODEL, FRAME, "移項って何？", [], "2x - 7 = 4x + 3", ["x=-5"], "teacher"))
+    assert (kept.source, kept.problem_text, kept.leak_strings) == ("ai", None, ["x=-5"])
 
 
 def test_a_voice_answer_without_paper_that_mentions_the_right_side_is_replaced() -> None:
     reply = ai_answer("右辺に移したときの符号、もう一回見てみて")
     reply.update(paper_visible=False)
-    assert answer(FakeAI(reply)).source == "fallback"
+    replied = asyncio.run(compose_answer(FakeAI(reply), MODEL, FRAME, "次どうすればいい？", [], None, [], "teacher"))
+    assert replied.source == "fallback"
+
+
+def test_a_voice_answer_with_nothing_on_paper_is_replaced_even_if_the_ai_says_there_is_paper() -> None:
+    reply = ai_answer("1行目の右辺の符号、もう一回見てみて")
+    reply.update(problem_text="", written_lines=[], final_answer="")
+    replied = asyncio.run(compose_answer(FakeAI(reply), MODEL, FRAME, "次どうすればいい？", [], None, [], "teacher"))
+    assert replied.speech == "紙を枠の中に入れてみて"
+
+
+def test_a_paperless_photo_with_an_other_reason_asks_for_the_paper() -> None:
+    reply = {**ai_hint("見てみて"), "paper_visible": False, "readable": False, "unreadable_reason": "other"}
+    assert compose(FakeAI(reply)).speech == "紙を枠の中に入れてみて"
 
 
 def test_a_voice_answer_without_paper_still_keeps_the_ai_answer_as_a_guard() -> None:
     reply = ai_answer("両辺を3で割ると5になるよ")
     reply.update(paper_visible=False, final_answer="x = 5", key_values=["3x = 15"])
-    assert answer(FakeAI(reply)).leak_check == LeakCheck(ok=False, fallback=True)
+    replied = asyncio.run(compose_answer(FakeAI(reply), MODEL, FRAME, "割るって何？", [], None, [], "teacher"))
+    assert replied.leak_check == LeakCheck(ok=False, fallback=True)
 
 
 def test_a_dark_paperless_photo_keeps_the_earlier_guard() -> None:

@@ -90,6 +90,7 @@ function Device() {
   const [personaUpdating, setPersonaUpdating, personaUpdatingRef] = useSyncedState(false);
   const [finishing, setFinishing, finishingRef] = useSyncedState(false);
   const [personaError, setPersonaError] = useState("");
+  const [dark, setDark] = useState(false);
   const [brightness, setBrightness] = useState<number | null>(null);
   const [stillSeconds, setStillSeconds] = useState(0);
   const [connected, setConnected] = useState(true);
@@ -327,7 +328,7 @@ function Device() {
           (signal.state !== "ended" && signal.current_problem_no < problemNoRef.current)
         ) return;
         applyState(signal.state, signal.current_problem_no);
-        setStillSeconds(signal.still_seconds);
+        if (debug) setStillSeconds(signal.still_seconds);
       },
       onHint: (hint) => {
         if (
@@ -337,7 +338,10 @@ function Device() {
         if (hint.speech !== null) setCaption(hint.display);
         setProblemText(hint.problem_text);
       },
-      onBrightness: setBrightness,
+      onBrightness: (value) => {
+        setDark(value < DARK_BRIGHTNESS);
+        if (debug) setBrightness(value);
+      },
       onConnection: (connected) => {
         setConnected(connected);
         if (connected) setNotice("");
@@ -518,7 +522,7 @@ function Device() {
             <div className="flex w-28 shrink-0 flex-col gap-3">
               <VideoFrame
                 videoRef={videoRef}
-                dark={brightness !== null && brightness < DARK_BRIGHTNESS}
+                dark={dark}
                 debugText={debug ? `輝度 ${brightness === null ? "-" : Math.round(brightness)} / 静止 ${stillSeconds} 秒 / 声 ${voiceStatus()}` : null}
               />
               {state === "ended" && (

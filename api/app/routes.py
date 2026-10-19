@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
 
 from app.auth import require_device, require_device_or_operator, require_operator, require_operator_only
 from app.check import CORRECT_TEXT, Judgement, judge
-from app.composer import answer, compose
+from app.composer import answer_for, hint_for
 from app.context import AppContext, get_context
 from app.errors import fail
 from app.gemini import AIUnavailable
@@ -376,7 +376,7 @@ async def _answer_utterance(context: AppContext, session: Session, utterance: st
     frame = _latest_frame(context, session.session_id)
     count_ai_call(context, session.session_id, frame, now)
     try:
-        composed = await answer(context, problem, frame, utterance, session.settings.persona)
+        composed = await answer_for(context, problem, frame, utterance, session.settings.persona)
     except AIUnavailable:
         logger.warning("answer session=%s ai_unavailable=True", session.session_id)
         composed = answer_fallback(problem.leak_strings, session.settings.persona) if asks_for_help(utterance) else None
@@ -424,7 +424,7 @@ async def request_hint(
                 count_ai_call(context, session_id, frame, now)
             elif not allow_background_call(context, session_id, frame, now):
                 frame = None
-            composed = await compose(context, problem, accepted.level, frame, session.settings.persona)
+            composed = await hint_for(context, problem, accepted.level, frame, session.settings.persona)
     except Exception:
         _abandon_hint(context, session_id, accepted.ticket)
         raise

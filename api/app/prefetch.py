@@ -3,7 +3,7 @@ import logging
 import time
 from datetime import datetime
 
-from app.composer import compose
+from app.composer import hint_for
 from app.context import AppContext, Prefetch
 from app.hints import ComposedHint
 from app.limits import allow_background_call
@@ -16,7 +16,7 @@ async def _compose_ahead(
     context: AppContext, session_id: str, problem: Problem, level: int, frame: bytes, persona: str
 ) -> ComposedHint:
     started = time.monotonic()
-    composed = await compose(context, problem, level, frame, persona)
+    composed = await hint_for(context, problem, level, frame, persona)
     logger.info(
         "prefetch session=%s level=%s source=%s ai_ms=%s",
         session_id,

@@ -1,7 +1,7 @@
 // 字幕は となり の吹き出しとして出す。文字は display をそのまま、24px 以上の等幅
 export function Caption({ text }: { text: string }) {
   return (
-    <p className="max-h-[40dvh] min-h-[3em] overflow-y-auto overscroll-contain rounded-3xl rounded-bl-md bg-white px-5 py-4 font-mono text-2xl leading-relaxed break-words text-slate-800 shadow-md">
+    <p key={text} className="max-h-[40dvh] min-h-[3em] overflow-y-auto overscroll-contain rounded-3xl rounded-bl-md bg-white px-5 py-4 font-mono text-2xl leading-relaxed break-words text-slate-800 shadow-md">
       {text}
     </p>
   );

@@ -1,5 +1,7 @@
 # となり（Tonari）
 
+[![check](https://github.com/jphacks/os_2601/actions/workflows/check.yml/badge.svg)](https://github.com/jphacks/os_2601/actions/workflows/check.yml)
+
 机の横で手元を見て、詰まったときだけ声をかける、答えを言わない AI 家庭教師。
 
 **https://tonari-nine.vercel.app**（スマホで開いて「はじめる」）

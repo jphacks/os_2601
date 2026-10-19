@@ -23,6 +23,7 @@
 | `utterances.py` | 聞こえた文が「合ってる？」か助けを求める文かの判定（後から `hints.py` を分けた） |
 | `prefetch.py` | 詰まりの 3 秒前の先読みを始める・受け取る・残すか捨てるかを決める |
 | `views.py` | 記録の応答の形 |
+| `timing.py` | かかった時間（ミリ秒）を測る `elapsed_ms()`。`routes` と `prefetch` が使う |
 | `routes.py` | ルートと、状態機械を当てて保存する処理 |
 
 ## 理由

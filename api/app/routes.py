@@ -51,6 +51,7 @@ from app.state import (
     step,
     still_seconds,
 )
+from app.timing import elapsed_ms
 from app.utterances import asks_for_help, asks_if_correct
 from app.views import iso, problem_record, stuck_points
 from app.voicevox import VoiceUnavailable
@@ -312,7 +313,7 @@ def _issue_hint(
         source=composed.source,
         leak_check=composed.leak_check,
         model=composed.model,
-        latency_ms=int((time.monotonic() - started) * 1000),
+        latency_ms=elapsed_ms(started),
         created_at=requested_at,
     )
     recorded = session.problems[problem_no - 1]
@@ -514,7 +515,7 @@ async def post_problem(
         context.store.put(session)
         context.store.save()
     logger.info(
-        "problem session=%s read=%s latency_ms=%s", session.session_id, problem_text is not None, int((time.monotonic() - started) * 1000)
+        "problem session=%s read=%s latency_ms=%s", session.session_id, problem_text is not None, elapsed_ms(started)
     )
     return {"problem_no": problem_no, "problem_text": session.problems[problem_no - 1].problem_text, "state": session.state}
 
@@ -541,7 +542,7 @@ async def post_tts(session_id: str, body: SpeechRequest, request: Request, conte
         session.session_id,
         body.character,
         len(body.text),
-        int((time.monotonic() - started) * 1000),
+        elapsed_ms(started),
     )
     return Response(content=audio, media_type="audio/wav")
 

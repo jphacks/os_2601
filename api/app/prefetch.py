@@ -8,6 +8,7 @@ from app.context import AppContext, Prefetch
 from app.hints import ComposedHint
 from app.limits import allow_background_call
 from app.state import Problem, Session, auto_hint_level
+from app.timing import elapsed_ms
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ async def _compose_ahead(
         session_id,
         level,
         composed.source,
-        int((time.monotonic() - started) * 1000),
+        elapsed_ms(started),
     )
     return composed
 

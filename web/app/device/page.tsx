@@ -41,6 +41,7 @@ const LOAD_FAILED_CAPTION = "つながらなかったよ。ページを開き直
 const PERSONA_FAILED = "切り替えられませんでした。もう一度試してね。";
 const RECORD_FAILED = "記録を読めませんでした";
 const OPEN_RETRY_MS = 20000;
+const OPEN_RETRY_LIMIT = 3;
 // 平均輝度がこれ未満なら「明るさが足りません」を重ねる（docs/tasks/b.md の B1-4）
 const DARK_BRIGHTNESS = 60;
 // 聞き取った文字を字幕の下に出しておく時間（docs/06 の「声のトリガー」）
@@ -137,7 +138,10 @@ function Device() {
           tell(NO_SESSION_CAPTION);
           return;
         }
-        tell(busy ? BUSY_CAPTION : OPEN_FAILED_CAPTION);
+        const willRetry = openAttempt < OPEN_RETRY_LIMIT;
+        if (busy) tell(BUSY_CAPTION);
+        else tell(willRetry ? OPEN_FAILED_CAPTION : LOAD_FAILED_CAPTION);
+        if (!willRetry) return;
         retry = setTimeout(() => {
           setCaption(OPENING_CAPTION);
           setOpenAttempt((attempt) => attempt + 1);

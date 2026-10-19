@@ -3,23 +3,15 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from conftest import OPERATOR_KEY, Device
+from conftest import OPERATOR_KEY, Device, ScriptedAI
 from fastapi.testclient import TestClient
 
 from app.main import create_app
 
 
-class JudgingAI:
-    def __init__(self) -> None:
-        self.verdict = "correct"
-
-    async def generate_json(self, model: str, system: str, text: str, image_jpeg: bytes, schema: dict) -> dict:
-        return {"readable": True, "final_answer_seen": "x = -5", "verdict": self.verdict}
-
-
 @pytest.fixture
-def ai() -> JudgingAI:
-    return JudgingAI()
+def ai() -> ScriptedAI:
+    return ScriptedAI({"readable": True, "final_answer_seen": "x = -5", "verdict": "correct"})
 
 
 def check(device: Device) -> dict:
@@ -38,8 +30,8 @@ def test_correct_moves_to_the_next_problem_and_records_the_check(device: Device)
     assert detail["current_problem_no"] == 2
 
 
-def test_incorrect_stays_on_the_problem(device: Device, ai: JudgingAI) -> None:
-    ai.verdict = "incorrect"
+def test_incorrect_stays_on_the_problem(device: Device, ai: ScriptedAI) -> None:
+    ai.reply["verdict"] = "incorrect"
     result = check(device)
     assert (result["speech"], result["next_problem_no"], result["state"]) == ("もう一回、途中の式を見てみて", 1, "speaking")
 

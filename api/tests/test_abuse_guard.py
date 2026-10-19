@@ -4,33 +4,17 @@ from pathlib import Path
 
 import httpx
 import pytest
-from conftest import Device
+from conftest import Device, FakeVoice, ScriptedAI
 from fastapi.testclient import TestClient
 
 from app import limits, main, routes
 from app.leak import leak_strings, normalize
 
-WAV = b"RIFF\x00\x00\x00\x00WAVE"
-
-
-class SlowAI:
-    def __init__(self) -> None:
-        self.calls = 0
-
-    async def generate_json(self, model: str, system: str, text: str, image_jpeg: bytes, schema: dict) -> dict:
-        self.calls += 1
-        await asyncio.sleep(0.05)
-        return {"problem_text": "2x = 4", "readable": True, "respond": False, "verdict": "correct", "final_answer_seen": ""}
-
-
-class FakeVoice:
-    async def synthesize(self, text: str, character: str) -> bytes:
-        return WAV
-
 
 @pytest.fixture
-def ai() -> SlowAI:
-    return SlowAI()
+def ai() -> ScriptedAI:
+    reply = {"problem_text": "2x = 4", "readable": True, "respond": False, "verdict": "correct", "final_answer_seen": ""}
+    return ScriptedAI(reply, delay=0.05)
 
 
 def opened(device: Device) -> tuple[str, dict[str, str]]:
@@ -47,7 +31,7 @@ def test_an_expired_open_session_cannot_read_problems_or_speak(device: Device) -
     assert device.client.post(f"/sessions/{session_id}/tts", json={"text": "見てみて"}, headers=headers).status_code == 409
 
 
-def test_parallel_problem_reads_call_the_ai_once(device: Device, ai: SlowAI) -> None:
+def test_parallel_problem_reads_call_the_ai_once(device: Device, ai: ScriptedAI) -> None:
     device.signal(0, 0.05)
     device.frame()
 
@@ -61,10 +45,10 @@ def test_parallel_problem_reads_call_the_ai_once(device: Device, ai: SlowAI) -> 
     statuses = asyncio.run(read_ten())
     assert statuses.count(200) == 1
     assert statuses.count(429) == 9
-    assert ai.calls == 1
+    assert len(ai.requests) == 1
 
 
-def test_a_session_can_call_the_ai_only_so_often_a_minute(device: Device, ai: SlowAI) -> None:
+def test_a_session_can_call_the_ai_only_so_often_a_minute(device: Device, ai: ScriptedAI) -> None:
     device.signal(0, 0.05)
     device.frame()
     path = f"/sessions/{device.session_id}/problem"
@@ -181,14 +165,14 @@ def test_an_unexpected_error_comes_back_in_the_error_shape(device: Device, monke
     assert response.headers.get("access-control-allow-origin") == "https://tonari-nine.vercel.app"
 
 
-def test_an_auto_hint_over_the_background_budget_uses_the_fixed_question(device: Device, ai: SlowAI) -> None:
+def test_an_auto_hint_over_the_background_budget_uses_the_fixed_question(device: Device, ai: ScriptedAI) -> None:
     context = device.client.app.state.context
     context.background_calls[device.session_id] = [device.now] * limits.BACKGROUND_CALLS_PER_MINUTE
     device.signal(0, 0.05)
     frame_id = device.frame()
     device.force_stuck(1)
     hint = device.hint(frame_id)
-    assert (hint["source"], ai.calls) == ("fallback", 0)
+    assert (hint["source"], len(ai.requests)) == ("fallback", 0)
 
 
 def test_check_counts_toward_the_ai_budget(device: Device) -> None:

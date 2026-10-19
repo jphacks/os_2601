@@ -2,7 +2,7 @@ import logging
 from dataclasses import dataclass
 
 from app.gemini import AIUnavailable, Gemini
-from app.hints import PAPER_RULE
+from app.paper import PAPER_RULE
 from app.state import Verdict
 
 logger = logging.getLogger(__name__)

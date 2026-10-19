@@ -12,8 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from photos import photo
 
 from app.check import judge
-from app.gemini import Gemini
-from app.hints import PAPER_POINTERS, compose_answer, compose_hint, read_problem
+from app.gemini import AIUnavailable, Gemini
+from app.hints import compose_answer, compose_hint, read_problem
 
 MODEL = os.environ.get("HINT_MODEL", "gemini-3.5-flash-lite")
 ROUNDS = int(os.environ.get("ROUNDS", "1"))
@@ -28,10 +28,7 @@ def jpeg(image: Image.Image) -> bytes:
 
 
 def noise() -> bytes:
-    generator = random.Random(1)
-    image = Image.new("RGB", SIZE)
-    image.putdata([tuple(generator.randrange(256) for _ in range(3)) for _ in range(SIZE[0] * SIZE[1])])
-    return jpeg(image)
+    return jpeg(Image.frombytes("RGB", SIZE, random.Random(1).randbytes(SIZE[0] * SIZE[1] * 3)))
 
 
 def keyboard() -> bytes:
@@ -73,46 +70,50 @@ PAPER = {
     "答案の途中": lambda: photo(["3x + 5 = 20", "3x = 15"]),
     "問題だけ": lambda: photo(["2x - 7 = 4x + 3"]),
     "誤りのある答案": lambda: photo(["4x + 5 = 1", "4x = 1 - 4", "4x = -4"]),
+    "正しい答案": lambda: photo(["3x + 5 = 20", "3x = 15", "x = 5"]),
 }
 
 
-async def run(ai: Gemini, name: str, image: bytes, with_voice: bool) -> tuple[bool, bool]:
+async def run(ai: Gemini, name: str, image: bytes) -> tuple[bool, bool, bool, str]:
     problem = await read_problem(ai, MODEL, image, None)
     await asyncio.sleep(PAUSE_SECONDS)
     hint = await compose_hint(ai, MODEL, image, 1, [], None, [], "teacher")
     await asyncio.sleep(PAUSE_SECONDS)
-    line = f"  {name}: 問題文={problem!r} ヒント={hint.source}「{hint.speech}」"
-    invented_voice = invented_check = False
-    if with_voice:
+    try:
         reply = await compose_answer(ai, MODEL, image, "次どうすればいい？", [], None, [], "teacher")
-        await asyncio.sleep(PAUSE_SECONDS)
-        verdict = (await judge(ai, MODEL, image, None)).verdict
-        await asyncio.sleep(PAUSE_SECONDS)
-        invented_voice = reply is not None and reply.source == "ai" and PAPER_POINTERS.search(reply.speech) is not None
-        invented_check = verdict != "unreadable"
-        line += f" 声={reply.source if reply else None}「{reply.speech if reply else ''}」 できた={verdict}"
-    print(line)
-    return problem is not None or invented_voice or invented_check, hint.source == "ai"
+    except AIUnavailable:
+        reply = None
+    await asyncio.sleep(PAUSE_SECONDS)
+    verdict = (await judge(ai, MODEL, image, None)).verdict
+    await asyncio.sleep(PAUSE_SECONDS)
+    voiced = reply is not None and reply.source == "ai"
+    print(f"  {name}: 問題文={problem!r} ヒント={hint.source}「{hint.speech}」 声={reply.source if reply else None}「{reply.speech if reply else ''}」 できた={verdict}")
+    return problem is not None, hint.source == "ai", voiced, verdict
 
 
 async def main() -> None:
     ai = Gemini(os.environ["GEMINI_API_KEY"])
-    invented = read_ok = hinted = no_paper_runs = paper_runs = 0
-    print("紙が無い写真（問題文・ヒント・紙を指す声の答え・できたの判定を作ったら誤り）")
+    invented = read_ok = hinted = voiced = correct_sheets = judged_correct = no_paper_runs = paper_runs = 0
+    print("紙が無い写真（問題文・ヒント・声の答え・できたの判定のどれかを作ったら誤り）")
     for _ in range(0 if os.environ.get("ONLY") == "paper" else ROUNDS):
         for name, make in NO_PAPER.items():
-            problem, hint = await run(ai, name, make(), True)
-            invented += problem or hint
+            problem, hint, voice, verdict = await run(ai, name, make())
+            invented += problem or hint or voice or verdict != "unreadable"
             no_paper_runs += 1
     print("紙の写真（問題文を読み、AI のヒントを出せば正しい）")
     for _ in range(0 if os.environ.get("ONLY") == "no_paper" else ROUNDS):
         for name, make in PAPER.items():
-            problem, hint = await run(ai, name, make(), False)
+            problem, hint, voice, verdict = await run(ai, name, make())
             read_ok += problem
             hinted += hint
+            voiced += voice
+            if name == "正しい答案":
+                correct_sheets += 1
+                judged_correct += verdict == "correct"
             paper_runs += 1
     print(f"紙が無い {no_paper_runs} 回のうち、作り話 {invented} 回")
-    print(f"紙の写真 {paper_runs} 回のうち、問題文を読めた {read_ok} 回、AI のヒント {hinted} 回")
+    print(f"紙の写真 {paper_runs} 回のうち、問題文を読めた {read_ok} 回、AI のヒント {hinted} 回、AI の声の答え {voiced} 回")
+    print(f"正しい答案 {correct_sheets} 回のうち、正解と判定 {judged_correct} 回")
 
 
 asyncio.run(main())

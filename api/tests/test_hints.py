@@ -378,7 +378,7 @@ def test_an_empty_problem_text_does_not_count_as_the_same_problem() -> None:
 
 def test_an_example_equation_in_an_unguarded_explanation_is_kept() -> None:
     reply = ai_answer("例えば x+2=5 なら、2 を右辺に移すと x=5-2 になるよ")
-    reply.update(problem_text="", final_answer="", key_values=[])
+    reply.update(problem_text="", final_answer="", key_values=[], written_lines=["2x = 4"])
     assert answer(FakeAI(reply)).source == "ai"
 
 
@@ -424,3 +424,21 @@ def test_a_voice_explanation_without_paper_is_kept() -> None:
     reply = ai_answer("移項は、項を反対の辺に移すことだよ")
     reply.update(paper_visible=False)
     assert answer(FakeAI(reply)).source == "ai"
+
+
+def test_a_voice_answer_without_paper_that_mentions_the_right_side_is_replaced() -> None:
+    reply = ai_answer("右辺に移したときの符号、もう一回見てみて")
+    reply.update(paper_visible=False)
+    assert answer(FakeAI(reply)).source == "fallback"
+
+
+def test_a_voice_answer_without_paper_still_keeps_the_ai_answer_as_a_guard() -> None:
+    reply = ai_answer("両辺を3で割ると5になるよ")
+    reply.update(paper_visible=False, final_answer="x = 5", key_values=["3x = 15"])
+    assert answer(FakeAI(reply)).leak_check == LeakCheck(ok=False, fallback=True)
+
+
+def test_a_dark_paperless_photo_keeps_the_earlier_guard() -> None:
+    reply = {**ai_hint("見てみて"), "paper_visible": False, "readable": False, "unreadable_reason": "dark", "problem_text": "x + 1 = 3", "final_answer": "x = 2"}
+    hint = asyncio.run(compose_hint(FakeAI(reply), MODEL, FRAME, 1, [], "2x - 7 = 4x + 3", ["x=-5"], "teacher"))
+    assert (hint.speech, hint.leak_strings) == ("もう少し明るいところで見せてみて", ["x=-5"])

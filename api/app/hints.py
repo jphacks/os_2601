@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from app.gemini import AIUnavailable, Gemini
 from app.leak import contains_leak, leak_strings, same_problem, states_an_answer, without_written
+from app.paper import PAPER_POINTERS, PAPER_RULE
 from app.personas import fallback_message, get_persona
 from app.reading import to_reading
 from app.state import HintSource, LeakCheck
@@ -45,12 +46,6 @@ PROBLEM_PICK_RULE = (
     "答案が無い問題を、答案が途中の問題より先に選んではいけない。"
     "前に読み取った問題文が渡されていて、その問題に答案が書かれていてまだ途中なら、それを選ぶ（答案が無ければ (a)(b) で選ぶ）。"
 )
-PAPER_RULE = (
-    "まず、写真に、問題か答案が書かれた紙（ノート・プリント・問題集）が写っているかを paper_visible に書いてください。"
-    "問題だけが書かれた紙や、白い紙に式が 1 行だけでも true。"
-    "机・キーボード・画面・顔・景色だけで、そうした紙が写っていなければ false にし、写っていない問題や答案を想像して書かないでください。"
-)
-PAPER_POINTERS = re.compile(r"行目|答案|書いた式|書いてある")
 POINTING_RULES = """- 誤りを示すときは、誤っている数字や記号そのものを、行と位置で指す（「3行目の左辺の 7」）。符号・数字・計算のどれが違うかを見分け、違う種類のことは言わない（数字の誤りに「符号を確認して」と言わない）。種類は言わなくてよく、その数字や記号を指す。正しい値は言わない。
 - 学習者が正しく書いた式や値は、読み上げずに行と位置で指す（「最後の行の左辺」）。"""
 
@@ -221,7 +216,7 @@ def _read_problem(out: dict, known_problem: str | None, known_leaks: list[str]) 
     return problem_text, without_written(sorted(guarded), written), answer_guarded
 
 
-def _no_paper(out: dict, known_problem: str | None) -> bool:
+def _no_paper_in_hint(out: dict, known_problem: str | None) -> bool:
     if out["readable"] is not True:
         return False
     return out.get("paper_visible") is False or not (out["problem_text"] or out.get("written_lines") or known_problem)
@@ -287,7 +282,9 @@ async def compose_hint(
     try:
         request = "\n".join([LEVEL_INSTRUCTIONS[level], *_context_lines(previous, known_problem)])
         out = await ai.generate_json(model, _persona_prompt(SYSTEM_PROMPT, persona), request, frame, HINT_SCHEMA)
-        if _no_paper(out, known_problem):
+        if out.get("paper_visible") is False and out["readable"] is not True:
+            return _unreadable(out, UNREADABLE_HINT, known_leaks, persona)
+        if _no_paper_in_hint(out, known_problem):
             return _unreadable({**out, "unreadable_reason": "out_of_frame"}, UNREADABLE_HINT, known_leaks, persona)
         problem_text, leaks, answer_guarded = _read_problem(out, known_problem, known_leaks)
         readable = out["readable"] is True
@@ -321,10 +318,10 @@ async def compose_answer(
             return None
         if out["readable"] is not True:
             return _unreadable(out, UNREADABLE_ANSWER, known_leaks, persona)
-        if _no_paper(out, known_problem):
+        if out.get("paper_visible") is False:
             if PAPER_POINTERS.search(f"{out['speech']} {out['display']}"):
                 return _unreadable({**out, "unreadable_reason": "out_of_frame"}, UNREADABLE_ANSWER, known_leaks, persona)
-            out = {**out, "problem_text": "", "final_answer": "", "key_values": [], "written_lines": []}
+            out = {**out, "problem_text": "", "written_lines": []}
         problem_text, leaks, answer_guarded = _read_problem(out, known_problem, known_leaks)
         if not answer_guarded and (problem_text or states_an_answer(f"{out['speech']} {out['display']}")):
             return _unchecked_fallback(known_leaks, ANSWER_FALLBACK, persona)

@@ -70,7 +70,6 @@ function Device() {
   const requestVersion = useRef(0);
   const endSpokenRef = useRef(false);
   const recordLoadingRef = useRef(false);
-  const hintWhileCheckingRef = useRef(false);
   const lastCheckRef = useRef<string | null>(null);
   const [session, setSession, sessionRef] = useSyncedState<SessionDetail | null>(null);
   const [record, setRecord] = useState<SessionDetail | null>(null);
@@ -326,10 +325,7 @@ function Device() {
           version !== requestVersion.current || stateRef.current === "ended" ||
           hint.problem_no !== problemNoRef.current
         ) return;
-        if (hint.speech !== null) {
-          if (stateRef.current === "checking") hintWhileCheckingRef.current = true;
-          setCaption(hint.display);
-        }
+        if (hint.speech !== null) setCaption(hint.display);
         setProblemText(hint.problem_text);
       },
       onBrightness: setBrightness,
@@ -382,7 +378,6 @@ function Device() {
     const before = { state, problemNo, caption };
     setBusy(true);
     applyState("checking", problemNo);
-    hintWhileCheckingRef.current = false;
     try {
       const check = await requestCheck();
       if (version !== requestVersion.current || checkedProblemNo !== problemNoRef.current) return;
@@ -402,13 +397,8 @@ function Device() {
         stateRef.current === "checking" && !finishingRef.current
       ) {
         setState(before.state);
-        if (hintWhileCheckingRef.current) {
-          if (message) announce(message);
-        } else if (message) {
-          tell(message);
-        } else {
-          setCaption(before.caption);
-        }
+        if (message) tell(message);
+        else setCaption(before.caption);
       }
     } finally {
       if (version === requestVersion.current) setBusy(false);

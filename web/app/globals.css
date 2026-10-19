@@ -7,7 +7,7 @@
 }
 
 :root {
-  --background: #ffffff;
+  --background: var(--color-sky-400);
   --foreground: #171717;
 }
 

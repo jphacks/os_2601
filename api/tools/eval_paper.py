@@ -17,7 +17,7 @@ from app.hints import compose_answer, compose_hint, read_problem
 
 MODEL = os.environ.get("HINT_MODEL", "gemini-3.5-flash-lite")
 ROUNDS = int(os.environ.get("ROUNDS", "1"))
-PAUSE_SECONDS = 6
+PAUSE_SECONDS = 12
 SIZE = (1024, 576)
 
 
@@ -93,6 +93,18 @@ async def run(ai: Gemini, name: str, image: bytes) -> tuple[bool, bool, bool, st
 
 async def main() -> None:
     ai = Gemini(os.environ["GEMINI_API_KEY"])
+    failures = 0
+    original = ai.generate_json
+
+    async def counted(*args, **kwargs):
+        nonlocal failures
+        try:
+            return await original(*args, **kwargs)
+        except AIUnavailable:
+            failures += 1
+            raise
+
+    ai.generate_json = counted
     invented = read_ok = hinted = voiced = correct_sheets = judged_correct = no_paper_runs = paper_runs = 0
     print("紙が無い写真（問題文・ヒント・声の答えのどれかを作ったら誤り。できたの判定は参考に出す）")
     for _ in range(0 if os.environ.get("ONLY") == "paper" else ROUNDS):
@@ -114,6 +126,7 @@ async def main() -> None:
     print(f"紙が無い {no_paper_runs} 回のうち、作り話 {invented} 回")
     print(f"紙の写真 {paper_runs} 回のうち、問題文を読めた {read_ok} 回、AI のヒント {hinted} 回、AI の声の答え {voiced} 回")
     print(f"正しい答案 {correct_sheets} 回のうち、正解と判定 {judged_correct} 回")
+    print(f"AI の呼び出しの失敗 {failures} 回" + ("（失敗があるので結果として使わない）" if failures else ""))
 
 
 asyncio.run(main())

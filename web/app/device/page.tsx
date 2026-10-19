@@ -511,13 +511,12 @@ function Device() {
 
   return (
     <>
-      <main inert={record !== null} className="relative isolate flex flex-1 flex-col overflow-clip bg-linear-to-b from-sky-400 via-sky-200 to-cyan-100 text-slate-800">
+      <main inert={record !== null} className="relative isolate flex flex-1 flex-col bg-linear-to-b from-sky-400 via-sky-200 to-cyan-100 text-slate-800">
         <p role="status" className="sr-only">{notice}</p>
         {/* 下の丘（飾り） */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -inset-x-1/2 -bottom-1/3 -z-10 h-1/2 rounded-[50%] bg-linear-to-b from-lime-300 to-green-600"
-        />
+        <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+          <div className="absolute -inset-x-1/2 -bottom-1/3 h-1/2 rounded-[50%] bg-linear-to-b from-lime-300 to-green-600" />
+        </div>
         <div className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-3 p-4 wide:grid wide:max-w-5xl wide:grid-cols-2 wide:grid-rows-[auto_auto_1fr_auto] wide:gap-x-6">
           <div className="flex items-start gap-3 wide:contents">
             <div className="flex min-w-0 flex-1 flex-col items-center gap-2 wide:col-start-1 wide:row-start-1">

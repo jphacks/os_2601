@@ -5,7 +5,7 @@ from datetime import timedelta
 
 import httpx
 import pytest
-from conftest import OPERATOR_KEY, Device
+from conftest import OPERATOR_KEY, Device, ScriptedAI
 
 from app.gemini import Gemini
 from app.personas import PERSONAS, get_persona
@@ -20,33 +20,15 @@ def analysis(speech="右辺に移したときの符号を見てみて", display=
     }
 
 
-class ImageAI:
-    def __init__(self):
-        self.calls = []
-        self.reply = analysis()
-        self.on_call = lambda: None
-
-    async def generate_json(self, model, system, text, image_jpeg, schema):
-        self.calls.append((system, text, image_jpeg, schema))
-        self.on_call()
-        return self.reply
-
-
 @pytest.fixture
 def ai():
-    return ImageAI()
+    return ScriptedAI(analysis())
 
 
 def select(device, persona):
     return device.client.patch(
         f"/sessions/{device.session_id}/settings", json={"persona": persona}, headers=device.headers
     )
-
-
-def start(device):
-    device.signal(0, 0.05)
-    device.signal(1, 0.05)
-    return device.frame()
 
 
 @pytest.mark.parametrize("persona", ["teacher", "ikemen"])
@@ -57,13 +39,13 @@ def test_selected_persona_uses_the_camera_and_keeps_answers_private(device: Devi
     speech = "右辺に移したときの符号を見てみましょう。" if persona == "teacher" else "右辺に移したときの符号を見てごらん。"
     display = "右辺に移した項の符号を確認してみましょう。" if persona == "teacher" else "右辺に移した項の符号を確認してみようか。"
     ai.reply = analysis(speech, display)
-    result = device.hint(start(device), "manual")
+    result = device.hint(device.start_watching(), "manual")
     assert result["source"] == "ai"
     assert result["problem_text"] == "2x - 7 = 4x + 3"
     assert (result["speech"], result["display"]) == (speech, display)
     assert len(result["speech"]) <= 60 and len(result["display"]) <= 80
-    assert len(ai.calls) == 1 and ai.calls[0][2] == b"\xff\xd8jpeg"
-    assert get_persona(persona).style_instruction in ai.calls[0][0]
+    assert len(ai.requests) == 1 and ai.frames[0] == b"\xff\xd8jpeg"
+    assert get_persona(persona).style_instruction in ai.systems[0]
     detail = device.client.get(f"/sessions/{device.session_id}", headers=device.headers).json()
     assert detail["problems"][0]["problem_text"] == result["problem_text"]
     assert {option["id"] for option in detail["persona_options"]} == {"teacher", "ikemen"}
@@ -76,14 +58,14 @@ def test_selected_persona_uses_the_camera_and_keeps_answers_private(device: Devi
 @pytest.mark.parametrize("persona", ["teacher", "ikemen"])
 def test_startup_read_remains_separate_from_the_persona_hint_and_keeps_analysis_private(device: Device, ai, persona):
     assert select(device, persona).status_code == 200
-    frame_id = start(device)
+    frame_id = device.start_watching()
     read = device.client.post(
         f"/sessions/{device.session_id}/problem", headers=device.headers, json={"frame_id": frame_id}
     )
     assert read.status_code == 200
     assert read.json() == {"problem_no": 1, "problem_text": "2x - 7 = 4x + 3", "state": "watching"}
-    assert len(ai.calls) == 1 and ai.calls[0][2] == b"\xff\xd8jpeg"
-    assert set(ai.calls[0][3]["properties"]) == {"paper_visible", "problem_text", "readable"}
+    assert len(ai.requests) == 1 and ai.frames[0] == b"\xff\xd8jpeg"
+    assert set(ai.schemas[0]["properties"]) == {"paper_visible", "problem_text", "readable"}
     initial = device.client.get(f"/sessions/{device.session_id}", headers=device.headers).json()
     assert initial["problems"][0]["hints"] == []
     assert initial["problems"][0]["stuck_count"] == 0
@@ -92,10 +74,10 @@ def test_startup_read_remains_separate_from_the_persona_hint_and_keeps_analysis_
     hint = device.hint(frame_id, "manual")
     assert hint["source"] == "ai"
     assert (hint["speech"], hint["display"]) == (ai.reply["speech"], ai.reply["display"])
-    assert len(ai.calls) == 2
-    assert "前に読み取った問題文：2x - 7 = 4x + 3" in ai.calls[1][1]
-    assert {"speech", "display"} <= set(ai.calls[1][3]["required"])
-    assert get_persona(persona).style_instruction in ai.calls[1][0]
+    assert len(ai.requests) == 2
+    assert "前に読み取った問題文：2x - 7 = 4x + 3" in ai.requests[1]
+    assert {"speech", "display"} <= set(ai.schemas[1]["required"])
+    assert get_persona(persona).style_instruction in ai.systems[1]
     detail = device.client.get(f"/sessions/{device.session_id}", headers=device.headers).json()
     assert detail["stuck_points"] == [{"label": "移項の符号", "count": 1}]
     encoded = json.dumps([read.json(), initial, hint, detail], ensure_ascii=False)
@@ -106,7 +88,7 @@ def test_startup_read_remains_separate_from_the_persona_hint_and_keeps_analysis_
 @pytest.mark.parametrize("persona", ["teacher", "ikemen"])
 def test_only_generated_hints_add_labels_when_persona_fallbacks_are_recorded(device: Device, ai, persona):
     assert select(device, persona).status_code == 200
-    frame_id = start(device)
+    frame_id = device.start_watching()
     assert device.hint(frame_id, "manual")["source"] == "ai"
     device.signal(20, 0.05)
     ai.reply = {**analysis(), "readable": False, "unreadable_reason": "dark"}
@@ -116,7 +98,7 @@ def test_only_generated_hints_add_labels_when_persona_fallbacks_are_recorded(dev
     device.signal(40, 0.05)
     check = device.hint(frame_id, "voice", "これで合ってる？")
     assert check["source"] == "fallback" and check["stuck_point"] == "答えの確認"
-    assert len(ai.calls) == 2
+    assert len(ai.requests) == 2
     for response in (unreadable, check):
         assert response["speech"] == response["display"] and len(response["speech"]) <= 60
     detail = device.client.get(f"/sessions/{device.session_id}", headers=device.headers).json()
@@ -125,7 +107,7 @@ def test_only_generated_hints_add_labels_when_persona_fallbacks_are_recorded(dev
 
 
 def test_read_problem_survives_a_fallback_but_does_not_leak_into_the_next_problem(device: Device, ai):
-    frame_id = start(device)
+    frame_id = device.start_watching()
     assert device.hint(frame_id, "manual")["problem_text"] == "2x - 7 = 4x + 3"
     device.signal(20, 0.05)
     ai.reply = {**analysis(), "readable": False, "unreadable_reason": "dark"}
@@ -150,7 +132,7 @@ def test_friend_is_rejected_by_both_create_and_patch(device: Device):
 
 
 def test_switch_is_rejected_while_normal_hint_is_pending(device: Device):
-    start(device)
+    device.start_watching()
     store = device.client.app.state.context.store
     session = store.get(device.session_id)
     store.put(replace(session, pending_until=device.now + timedelta(seconds=12)))
@@ -159,7 +141,7 @@ def test_switch_is_rejected_while_normal_hint_is_pending(device: Device):
 
 
 def test_stale_voice_result_cannot_use_an_earlier_persona(device: Device, ai):
-    frame = start(device)
+    frame = device.start_watching()
     ai.reply = {**analysis(), "respond": True, "speech": "反対の辺に移すときは、符号を確かめましょう。", "display": "反対の辺に移すときは、符号を確かめましょう。"}
     store = device.client.app.state.context.store
 
@@ -187,7 +169,7 @@ def test_gemini_wire_format_sends_one_jpeg_and_structured_result_reaches_respons
     gemini._client = httpx.AsyncClient(transport=httpx.MockTransport(transport))
     device.client.app.state.context.ai = gemini
     select(device, "ikemen")
-    result = device.hint(start(device), "manual")
+    result = device.hint(device.start_watching(), "manual")
     assert len(sent) == 1 and result["source"] == "ai"
     assert result["problem_text"] == "2x - 7 = 4x + 3"
     assert result["speech"] == analysis()["speech"]
@@ -203,7 +185,7 @@ def test_gemini_wire_format_sends_one_jpeg_and_structured_result_reaches_respons
 def test_failed_reading_prompts_retake_without_inventing_an_error(device: Device, ai):
     ai.reply = {**analysis(), "readable": False, "unreadable_reason": "dark"}
     select(device, "ikemen")
-    result = device.hint(start(device), "manual")
+    result = device.hint(device.start_watching(), "manual")
     assert result["source"] == "fallback"
     assert result["speech"] == result["display"] and len(result["speech"]) <= 60
     assert "明る" in result["display"] and "符号" not in result["display"]

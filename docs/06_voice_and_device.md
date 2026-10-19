@@ -138,7 +138,7 @@ PC（横持ち）では映像を左、字幕とボタンを右に置く。部品
 
 | 関数 | 引数 | 戻り値 | 何をするか |
 |---|---|---|---|
-| `unlockSpeech()` | なし | `void` | 「はじめる」のクリックの中で呼ぶ。無音の読み上げで以後の自動読み上げを許可する |
+| `unlockSpeech()` | なし | `void` | 「はじめる」（とカメラの取り直し）のクリックの中で呼ぶ。無音の読み上げで以後の自動読み上げを許可する。VOICEVOX の声を再生している間は何もしない（同じ Audio を使うので、無音に差し替えると読み上げが途中で切れる） |
 | `speak(text)` | `string` | `Promise<void>` | 読み上げ。読み上げ中なら止めてから読む。B は普段呼ばない（`loop.ts` が呼ぶ） |
 | `startListening(onHeard)` / `stopListening()` | `(text: string) => void` | `() => void` / `void` | 学習者の発話の聞き取り（ブラウザの音声認識）。B は呼ばない（`loop.ts` が呼ぶ） |
 | `startCamera(video)` | `HTMLVideoElement` | `Promise<void>` | カメラを `video` に流す。許可が出なければ `Error`（`name` が `CameraDenied`）を throw |

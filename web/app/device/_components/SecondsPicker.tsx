@@ -32,8 +32,8 @@ export function SecondsPicker({ value, onChange }: Props) {
             type="button"
             onClick={() => onChange(seconds)}
             aria-pressed={value === seconds}
-            className={`min-h-10 rounded-full px-3 text-sm font-bold shadow-sm transition active:scale-95 ${
-              value === seconds ? "bg-sky-500 text-white" : "bg-white text-slate-600"
+            className={`min-h-11 rounded-full px-3 text-sm font-bold shadow-sm transition active:scale-95 ${
+              value === seconds ? "bg-sky-700 text-white" : "bg-white text-slate-600"
             }`}
           >
             {label}

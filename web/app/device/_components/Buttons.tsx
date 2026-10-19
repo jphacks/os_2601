@@ -21,11 +21,11 @@ type Props = {
 };
 
 const PRIMARY =
-  "min-h-14 flex-1 rounded-full bg-sky-500 px-6 text-lg font-bold text-white shadow-md transition active:scale-95 disabled:opacity-40 disabled:shadow-none";
+  "min-h-14 flex-1 rounded-full bg-sky-700 px-6 text-lg font-bold text-white shadow-md transition active:scale-95 disabled:opacity-40 disabled:shadow-none";
 const SECONDARY =
   "min-h-11 flex-1 rounded-full bg-white px-4 text-base font-bold text-slate-600 shadow-sm transition active:scale-95 disabled:opacity-40";
 const CONFIRMING =
-  "min-h-11 flex-1 rounded-full bg-rose-500 px-4 text-base font-bold text-white shadow-sm transition active:scale-95 disabled:opacity-40";
+  "min-h-11 flex-1 rounded-full bg-rose-700 px-4 text-base font-bold text-white shadow-sm transition active:scale-95 disabled:opacity-40";
 
 export function Buttons({ state, cameraStopped, busy, onStart, onHint, onCheck, onNext, onEnd, onRestart }: Props) {
   const [confirmingEnd, setConfirmingEnd] = useState(false);

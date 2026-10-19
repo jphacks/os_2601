@@ -526,7 +526,7 @@ function Device() {
                   type="button"
                   onClick={handleShowRecord}
                   disabled={recordStatus === "loading"}
-                  className="rounded-full bg-white px-3 py-2.5 text-sm font-bold text-sky-700 shadow-md ring-2 ring-sky-300 disabled:opacity-60"
+                  className="min-h-11 rounded-full bg-white px-3 py-2.5 text-sm font-bold text-sky-700 shadow-md ring-2 ring-sky-300 disabled:opacity-60"
                 >
                   {recordStatus === "loading" ? "読み込み中…" : "記録を見る"}
                 </button>

@@ -166,7 +166,7 @@ PC（横持ち）では映像を左、字幕とボタンを右に置く。部品
 - 最初に `state` が `watching` になったとき「見守りを始めるよ」を 1 回読み上げる（B は書かない）。
 - `brightness` を `handlers.onBrightness(b)` に渡す（B が 60 未満で「明るさが足りません」を重ねる）。
 - `postSignal` が連続 3 回失敗したら `handlers.onConnection(false)`、成功したら `true`（B が「つながりにくいみたい」を出す）。
-- カメラの映像のトラックが止まったら（`ended`・`mute`。通話や、ほかのアプリがカメラを取ったとき）`handlers.onCamera(false)`、戻ったら（`unmute`）`onCamera(true)`。ループは止めない（止まっている間は `camera_ok: false` を送るので、詰まりとは数えない）。
+- カメラの映像のトラックが止まったら（`ended`・`mute`。通話や、ほかのアプリがカメラを取ったとき）`handlers.onCamera(false)`、戻ったら（`unmute`）`onCamera(true)`。ループは止めない（止まっている間は `camera_ok: false` を送るので、詰まりとは数えない。`mute` のトラックは `readyState` が `live` のままなので、`motion.ts` は `muted` も見る）。
 - **声のトリガー**：`watching`・`still`・`cooldown` の間は `startListening` で聞き取り、確定した文（3 文字以上、200 文字で切る）が来たら、フレームを送ってから `answerUtterance` で送る。答えがあれば `onHint` と `speak`、204 なら何もしない。送っている間に来た文は最後の 1 つだけ覚えて、終わったら送る（ADR 0032）。`speaking`・`checking` の間は `stopListening`（自分の読み上げを拾わないため）。聞き取った文字は `handlers.onHeard(text)` に渡す（B は字幕の上に小さく「聞こえた：わからない」と 3 秒だけ重ねて出す。出し入れで字幕の位置を動かさない）。非対応ブラウザでは何もしない。
 - `signals`・`hints`・`check`・`advance` のどの応答でも `state` が `ended` になったらループを止める。戻り値の止める関数でも止まる。
 - `requestManualHint()` と `requestCheck()` は同じファイルにあり、動いているセッションの id と token を使う。応答を返し、`speech` があれば `speak` する。

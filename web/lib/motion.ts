@@ -11,7 +11,7 @@ function isCameraLive(video: HTMLVideoElement): boolean {
   return (
     video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
     source instanceof MediaStream &&
-    source.getVideoTracks().some((track) => track.readyState === "live")
+    source.getVideoTracks().some((track) => track.readyState === "live" && !track.muted)
   );
 }
 

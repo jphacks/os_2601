@@ -30,8 +30,8 @@ const CONFIRMING =
 export function Buttons({ state, cameraStopped, busy, onStart, onHint, onCheck, onNext, onEnd, onRestart }: Props) {
   const [confirmingEnd, setConfirmingEnd] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const lastFocusedRef = useRef<Element | null>(null);
   const showsStart = state === "created" || cameraStopped;
-  const shownStartRef = useRef(showsStart);
 
   useEffect(() => {
     if (!confirmingEnd) return;
@@ -40,9 +40,9 @@ export function Buttons({ state, cameraStopped, busy, onStart, onHint, onCheck, 
   }, [confirmingEnd]);
 
   useEffect(() => {
-    if (shownStartRef.current === showsStart) return;
-    shownStartRef.current = showsStart;
-    if (state === "ended") return;
+    const lastFocused = lastFocusedRef.current;
+    const lost = lastFocused !== null && !lastFocused.isConnected && document.activeElement === document.body;
+    if (!lost || state === "ended") return;
     const root = rootRef.current;
     (root?.querySelector<HTMLButtonElement>("button:not(:disabled)") ?? root)?.focus();
   }, [showsStart, state]);
@@ -78,28 +78,28 @@ export function Buttons({ state, cameraStopped, busy, onStart, onHint, onCheck, 
     );
   } else if (state === "created") {
     content = startButton;
-  } else if (cameraStopped) {
-    content = (
-      <>
-        {startButton}
-        {endButton}
-      </>
-    );
   } else {
     content = (
       <>
         <div className="flex gap-3">
-          <button type="button" onClick={onHint} disabled={busy || !HINT_STATES.includes(state)} className={PRIMARY}>
-            ヒント
-          </button>
-          <button type="button" onClick={onCheck} disabled={busy || !CHECK_STATES.includes(state)} className={PRIMARY}>
-            できた
-          </button>
+          {cameraStopped && startButton}
+          {!cameraStopped && (
+            <>
+              <button type="button" onClick={onHint} disabled={busy || !HINT_STATES.includes(state)} className={PRIMARY}>
+                ヒント
+              </button>
+              <button type="button" onClick={onCheck} disabled={busy || !CHECK_STATES.includes(state)} className={PRIMARY}>
+                できた
+              </button>
+            </>
+          )}
         </div>
         <div className="flex gap-3">
-          <button type="button" onClick={onNext} disabled={busy || !NEXT_STATES.includes(state)} className={SECONDARY}>
-            次へ
-          </button>
+          {!cameraStopped && (
+            <button type="button" onClick={onNext} disabled={busy || !NEXT_STATES.includes(state)} className={SECONDARY}>
+              次へ
+            </button>
+          )}
           {endButton}
         </div>
       </>
@@ -107,7 +107,14 @@ export function Buttons({ state, cameraStopped, busy, onStart, onHint, onCheck, 
   }
 
   return (
-    <div ref={rootRef} tabIndex={-1} className="flex flex-col gap-3 outline-none">
+    <div
+      ref={rootRef}
+      tabIndex={-1}
+      onFocus={(event) => {
+        lastFocusedRef.current = event.target;
+      }}
+      className="flex flex-col gap-3 outline-none"
+    >
       {content}
     </div>
   );

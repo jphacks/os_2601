@@ -16,8 +16,10 @@ import signalsSpeakingMock from "@/mocks/signals_speaking.json";
 import signalsStillMock from "@/mocks/signals_still.json";
 import signalsStuckMock from "@/mocks/signals_stuck.json";
 import signalsWatchingMock from "@/mocks/signals_watching.json";
+import { ApiError } from "./apiError";
 import { personaOptions, type Persona, type PersonaOption, type VoiceCharacter } from "./personas";
 
+export { ApiError, type ApiErrorBody, type ErrorCode } from "./apiError";
 export type { Persona, PersonaOption, VoiceCharacter } from "./personas";
 
 export type State = "created" | "watching" | "still" | "stuck" | "speaking" | "cooldown" | "checking" | "ended";
@@ -156,32 +158,7 @@ export type EndResponse = { state: "ended"; ended_at: string };
 
 export type DemoReset = { ok: true; removed_sessions: number };
 
-export type ErrorCode =
-  | "BAD_REQUEST"
-  | "UNAUTHORIZED"
-  | "FORBIDDEN"
-  | "NOT_FOUND"
-  | "STATE_CONFLICT"
-  | "FRAME_TOO_LARGE"
-  | "VALIDATION_ERROR"
-  | "RATE_LIMITED"
-  | "INTERNAL"
-  | "HINT_UNAVAILABLE";
-
-export type ApiErrorBody = { error: { code: ErrorCode; message: string } };
-
 export type Auth = { token: string } | { operatorKey: string };
-
-export class ApiError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: ErrorCode | "UNKNOWN",
-    detail = "",
-  ) {
-    super(detail ? `API ${status} ${code}: ${detail}` : `API ${status} ${code}`);
-    this.name = "ApiError";
-  }
-}
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 const USE_MOCK = process.env.NEXT_PUBLIC_MOCK === "1";
@@ -237,10 +214,7 @@ function jsonInit(method: string, auth: Auth, body?: unknown): RequestInit {
 async function send(path: string, init: RequestInit): Promise<Response> {
   if (!API_BASE) throw new Error("NEXT_PUBLIC_API_BASE が無い。web/.env.local か Vercel の環境変数に入れる");
   const response = await fetch(`${API_BASE}${path}`, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS), ...init });
-  if (!response.ok) {
-    const body: ApiErrorBody | null = await response.json().catch(() => null);
-    throw new ApiError(response.status, body?.error?.code ?? "UNKNOWN", body?.error?.message);
-  }
+  if (!response.ok) throw await ApiError.fromResponse(response);
   return response;
 }
 

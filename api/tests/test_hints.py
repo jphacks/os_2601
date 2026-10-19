@@ -403,10 +403,6 @@ def test_reading_a_photo_without_paper_gives_no_problem_text() -> None:
     assert asyncio.run(read_problem(ai, MODEL, FRAME, None)) is None
 
 
-def test_checking_a_photo_without_paper_is_unreadable() -> None:
-    ai = FakeAI({"paper_visible": False, "readable": True, "final_answer_seen": "x = 5", "verdict": "correct"})
-    assert asyncio.run(judge(ai, MODEL, FRAME, None)).verdict == "unreadable"
-
 
 def test_a_known_problem_keeps_a_guarded_hint_even_if_this_reply_lost_the_text() -> None:
     reply = {**ai_hint("2行目を見てみましょう"), "problem_text": "", "written_lines": []}

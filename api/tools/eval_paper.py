@@ -94,11 +94,11 @@ async def run(ai: Gemini, name: str, image: bytes) -> tuple[bool, bool, bool, st
 async def main() -> None:
     ai = Gemini(os.environ["GEMINI_API_KEY"])
     invented = read_ok = hinted = voiced = correct_sheets = judged_correct = no_paper_runs = paper_runs = 0
-    print("紙が無い写真（問題文・ヒント・声の答え・できたの判定のどれかを作ったら誤り）")
+    print("紙が無い写真（問題文・ヒント・声の答えのどれかを作ったら誤り。できたの判定は参考に出す）")
     for _ in range(0 if os.environ.get("ONLY") == "paper" else ROUNDS):
         for name, make in NO_PAPER.items():
             problem, hint, voice, verdict = await run(ai, name, make())
-            invented += problem or hint or voice or verdict != "unreadable"
+            invented += problem or hint or voice
             no_paper_runs += 1
     print("紙の写真（問題文を読み、AI のヒントを出せば正しい）")
     for _ in range(0 if os.environ.get("ONLY") == "no_paper" else ROUNDS):

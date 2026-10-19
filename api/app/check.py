@@ -2,7 +2,6 @@ import logging
 from dataclasses import dataclass
 
 from app.gemini import AIUnavailable, Gemini
-from app.paper import PAPER_RULE
 from app.state import Verdict
 
 logger = logging.getLogger(__name__)
@@ -14,7 +13,6 @@ FAILED_TEXT = "うまく読めなかった。もう一回、できたを押し�
 REQUEST_TEXT = "写真の問題を自分で解き、学習者の最終の答えと比べてください。"
 
 SYSTEM_PROMPT = """画像は、学習者が紙で問題を解いた答案の写真です。
-""" + PAPER_RULE + """紙が無ければ verdict は unreadable にしてください。
 写っている問題を自分で解き、学習者が書いた最終の答えと比べてください。
 紙に問題が複数あるときは、答案が最後の行まで書かれている問題を見てください。問題文が渡されていて、その問題に答案が書かれていれば、それを見てください（答案が無ければ渡された問題文は無視する）。
 正しければ correct、間違っていれば incorrect、答案の最終行が読めなければ unreadable を verdict に入れてください。
@@ -22,14 +20,12 @@ SYSTEM_PROMPT = """画像は、学習者が紙で問題を解いた答案の写�
 
 CHECK_SCHEMA = {
     "type": "OBJECT",
-    "propertyOrdering": ["paper_visible", "readable", "final_answer_seen", "verdict"],
     "properties": {
-        "paper_visible": {"type": "BOOLEAN"},
         "readable": {"type": "BOOLEAN"},
         "final_answer_seen": {"type": "STRING"},
         "verdict": {"type": "STRING", "enum": ["correct", "incorrect", "unreadable"]},
     },
-    "required": ["paper_visible", "readable", "final_answer_seen", "verdict"],
+    "required": ["readable", "final_answer_seen", "verdict"],
 }
 
 SPEECH_BY_VERDICT: dict[str, str] = {"correct": CORRECT_TEXT, "incorrect": INCORRECT_TEXT, "unreadable": UNREADABLE_TEXT}
@@ -47,7 +43,7 @@ async def judge(ai: Gemini | None, model: str, frame: bytes | None, known_proble
     request = REQUEST_TEXT if known_problem is None else f"{REQUEST_TEXT}\n見る問題：{known_problem}"
     try:
         out = await ai.generate_json(model, SYSTEM_PROMPT, request, frame, CHECK_SCHEMA)
-        verdict = "unreadable" if out.get("paper_visible") is False else out["verdict"]
+        verdict = out["verdict"]
         return Judgement(verdict, SPEECH_BY_VERDICT[verdict])
     except (AIUnavailable, KeyError, TypeError) as error:
         logger.warning("check failed: %r", error)

@@ -147,7 +147,7 @@ function Device() {
       cancelled = true;
       clearTimeout(retry);
     };
-  }, [sessionId, token, router, openAttempt, tell]);
+  }, [sessionId, token, router, openAttempt, tell, setCaption]);
 
   useEffect(() => {
     if (!sessionId || !token) return;
@@ -201,7 +201,7 @@ function Device() {
       stopCamera();
       stopSpeaking();
     };
-  }, [sessionId, token, router, tell, setSession, setState, setProblemNo, setPersonaUpdating, setFinishing]);
+  }, [sessionId, token, router, tell, setCaption, setSession, setState, setProblemNo, setPersonaUpdating, setFinishing]);
 
   useEffect(() => {
     if (!heard) return;

@@ -1,17 +1,19 @@
 import { synthesizeSpeech, type VoiceCharacter } from "./api";
+import { SILENT_WAV } from "./silentWav";
 
 const LANG = "ja-JP";
 const VOICES_WAIT_MS = 1000;
+const PLAYBACK_LIMIT_MS = 30000;
 const CANCELLED_ERRORS = new Set(["interrupted", "canceled"]);
-const SILENT_WAV = "data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YSADAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==";
+
+type SpeechSession = { id: string; token: string };
 
 let japaneseVoiceLookup: Promise<SpeechSynthesisVoice | undefined> | null = null;
-let speaker: { id: string; token: string } | null = null;
+let speaker: SpeechSession | null = null;
 let character: VoiceCharacter = "handsome";
 let player: HTMLAudioElement | null = null;
 let speechTurn = 0;
 let abandonSynthesis: (() => void) | null = null;
-const PLAYBACK_LIMIT_MS = 30000;
 
 function isSupported(): boolean {
   return typeof window !== "undefined" && "speechSynthesis" in window;
@@ -80,33 +82,31 @@ function playAudio(audioPlayer: HTMLAudioElement, audio: Blob): Promise<void> {
   });
 }
 
-export async function speak(text: string): Promise<void> {
-  stopSpeaking();
-  const turn = speechTurn;
-  if (speaker && player) {
-    try {
-      const audio = await Promise.race([
-        synthesizeSpeech(speaker.id, speaker.token, text, character),
-        new Promise<null>((resolve) => {
-          abandonSynthesis = () => resolve(null);
-        }),
-      ]);
-      if (turn !== speechTurn || !audio) return;
-      await playAudio(player, audio);
-      return;
-    } catch (error) {
-      if (turn !== speechTurn) return;
-      console.warn("[speech] VOICEVOX の声が使えないので、ブラウザの声で読む", error);
-    }
-  }
+async function speakWithVoicevox(
+  text: string,
+  turn: number,
+  session: SpeechSession,
+  audioPlayer: HTMLAudioElement,
+): Promise<void> {
+  const audio = await Promise.race([
+    synthesizeSpeech(session.id, session.token, text, character),
+    new Promise<null>((resolve) => {
+      abandonSynthesis = () => resolve(null);
+    }),
+  ]);
+  if (turn !== speechTurn || !audio) return;
+  await playAudio(audioPlayer, audio);
+}
+
+async function speakWithBrowserVoice(text: string, turn: number): Promise<void> {
   if (!isSupported()) throw new Error("このブラウザは読み上げに対応していない");
   const voice = await loadJapaneseVoice();
+  if (turn !== speechTurn) return;
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = LANG;
   utterance.rate = 1;
   utterance.pitch = 1;
   if (voice) utterance.voice = voice;
-  if (turn !== speechTurn) return;
   let limit: ReturnType<typeof setTimeout> | undefined;
   await new Promise<void>((resolve, reject) => {
     utterance.onend = () => resolve();
@@ -118,4 +118,19 @@ export async function speak(text: string): Promise<void> {
     }, PLAYBACK_LIMIT_MS);
     speechSynthesis.speak(utterance);
   }).finally(() => clearTimeout(limit));
+}
+
+export async function speak(text: string): Promise<void> {
+  stopSpeaking();
+  const turn = speechTurn;
+  if (speaker && player) {
+    try {
+      await speakWithVoicevox(text, turn, speaker, player);
+      return;
+    } catch (error) {
+      if (turn !== speechTurn) return;
+      console.warn("[speech] VOICEVOX の声が使えないので、ブラウザの声で読む", error);
+    }
+  }
+  await speakWithBrowserVoice(text, turn);
 }

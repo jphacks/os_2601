@@ -14,13 +14,13 @@ from app.hints import (
     SPEECH_MAX_CHARS,
     UNREADABLE_ANSWER,
     UNREADABLE_HINT,
-    asks_if_correct,
     compose_answer,
     compose_hint,
     read_problem,
 )
 from app.personas import PERSONAS, fallback_message, get_persona
 from app.state import LeakCheck
+from app.utterances import asks_if_correct
 
 FRAME = b"\xff\xd8jpeg"
 MODEL = "gemini-test"

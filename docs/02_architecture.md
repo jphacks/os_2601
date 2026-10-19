@@ -89,11 +89,15 @@ os_2601/
 │   │   ├── views.py       # 記録の応答の形（問題・ヒント・詰まりの集計）
 │   │   ├── state.py       # 状態機械（純粋関数 step()＋表駆動テスト）
 │   │   ├── store.py       # JSON ファイル 1 つに保存・読込
-│   │   ├── hints.py       # プロンプト、構造化出力、答え漏れで差し替え、固定の問い返し、scripted
+│   │   ├── hints.py       # AI のヒント・声の答え・問題文の読み取り、答え漏れで差し替え、固定の問い返し、scripted
+│   │   ├── prompts.py     # AI への指示文と構造化出力の型（ヒント・声の答え・問題文の読み取り）
+│   │   ├── utterances.py  # 聞こえた文が「合ってる？」か助けを求める文かの判定
+│   │   ├── paper.py       # 紙が写っているかを先に答えさせる指示と、紙を指す言葉（ADR 0044）
 │   │   ├── check.py       # 正誤チェック
 │   │   ├── gemini.py      # Gemini API の呼び出し（タイムアウト 8 秒、リトライなし）
 │   │   ├── leak.py        # 答え漏れ検査（正規化と照合）
 │   │   ├── reading.py     # 読み上げの文の記号を言葉に（= → イコール）
+│   │   ├── numerals.py    # 漢数字を算用数字に（leak.py と reading.py が使う）
 │   │   ├── personas.py    # 人格（先生・イケメン）の口調と固定文
 │   │   └── voicevox.py    # VOICEVOX の声（ADR 0035）
 │   ├── tools/             # create_session.py、eval_leak.py（答え漏れの評価セット）、check_*.py（本物の AI での確認）

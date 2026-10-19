@@ -12,16 +12,7 @@ from app.composer import answer, compose
 from app.context import AppContext, get_context
 from app.errors import fail
 from app.gemini import AIUnavailable
-from app.hints import (
-    FALLBACK_HINTS,
-    ComposedHint,
-    answer_fallback,
-    asks_for_help,
-    asks_if_correct,
-    check_reply,
-    fixed_hint,
-    read_problem,
-)
+from app.hints import FALLBACK_HINTS, ComposedHint, answer_fallback, check_reply, fixed_hint, read_problem
 from app.leak import same_problem
 from app.limits import (
     MAX_FRAME_BYTES,
@@ -61,6 +52,7 @@ from app.state import (
     step,
     still_seconds,
 )
+from app.utterances import asks_for_help, asks_if_correct
 from app.views import iso, problem_record, stuck_points
 from app.voicevox import VoiceUnavailable
 

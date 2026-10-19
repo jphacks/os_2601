@@ -345,6 +345,11 @@ export function startSession(
   return session.stop;
 }
 
+export function resumeListening(): void {
+  const session = activeSession;
+  if (session) updateState(session, session.state, session.problemNo);
+}
+
 export async function requestManualHint(): Promise<HintResponse> {
   const session = requireSession();
   session.requestsInFlight += 1;

@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ApiError, getSession, openSession, patchSettings, type SessionDetail, type State } from "@/lib/api";
 import { startCamera, stopCamera } from "@/lib/camera";
-import { advance, end, GREETING, requestCheck, requestManualHint, startSession } from "@/lib/loop";
+import { advance, end, GREETING, requestCheck, requestManualHint, resumeListening, startSession } from "@/lib/loop";
 import { endMessage, personaOf, voiceOf, type Persona } from "@/lib/personas";
 import { setSpeechCharacter, speak, stopSpeaking, unlockSpeech } from "@/lib/speech";
 import { primeListening, stopListening, voiceStatus } from "@/lib/voice";
@@ -383,7 +383,7 @@ function Device() {
     startingRef.current = true;
     setBusy(true);
     unlockSpeech();
-    primeListening();
+    resumeListening();
     try {
       await startCamera(video);
       if (outdated()) {

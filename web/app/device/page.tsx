@@ -27,6 +27,7 @@ const FIXED_CAPTIONS: Partial<Record<State, string>> = {
 const CAMERA_DENIED_CAPTION = "設定からカメラを許可してね。LINE などの中のブラウザなら Safari か Chrome で開いてね";
 const CAMERA_FAILED_CAPTION = "カメラを使えなかったよ。ほかのアプリでカメラを使っていたら閉じて、もう一度はじめてね";
 const CAMERA_STOPPED_CAPTION = "カメラが止まったよ。もう一度はじめてね";
+const CAMERA_CAPTIONS = [CAMERA_STOPPED_CAPTION, CAMERA_DENIED_CAPTION, CAMERA_FAILED_CAPTION];
 const NEXT_CAPTION = "次の問題も、見てるよ";
 const NO_SESSION_CAPTION = "セッションの URL から開いてね";
 const OPENING_CAPTION = "準備しているよ…";
@@ -84,7 +85,7 @@ function Device() {
   const [state, setState, stateRef] = useSyncedState<State>("created");
   const [problemNo, setProblemNo, problemNoRef] = useSyncedState(1);
   const [problemText, setProblemText] = useState<string | null>(null);
-  const [caption, setCaption] = useState(sessionId && token ? FIXED_CAPTIONS.created ?? "" : OPENING_CAPTION);
+  const [caption, setCaption, captionRef] = useSyncedState(sessionId && token ? FIXED_CAPTIONS.created ?? "" : OPENING_CAPTION);
   const [stuckSeconds, setStuckSeconds] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [personaUpdating, setPersonaUpdating, personaUpdatingRef] = useSyncedState(false);
@@ -106,7 +107,7 @@ function Device() {
   const tell = useCallback((text: string) => {
     setCaption(text);
     announce(text);
-  }, [announce]);
+  }, [announce, setCaption]);
   const recordButtonRef = useRef<HTMLButtonElement>(null);
   const closeRecord = useCallback(() => {
     setRecord(null);
@@ -353,12 +354,21 @@ function Device() {
       },
       onCamera: (live) => {
         if (version !== requestVersion.current || stateRef.current === "ended") return;
-        setCameraStopped(!live);
-        tell(live ? GREETING : CAMERA_STOPPED_CAPTION);
+        if (live) {
+          showCameraBack();
+          return;
+        }
+        setCameraStopped(true);
+        tell(CAMERA_STOPPED_CAPTION);
       },
     });
     setBusy(false);
     startingRef.current = false;
+  }
+
+  function showCameraBack() {
+    setCameraStopped(false);
+    if (CAMERA_CAPTIONS.includes(captionRef.current)) tell(GREETING);
   }
 
   async function handleResumeCamera() {
@@ -374,8 +384,7 @@ function Device() {
         stopCamera();
         return;
       }
-      setCameraStopped(false);
-      tell(GREETING);
+      showCameraBack();
     } catch (error) {
       console.warn("[device] カメラを取り直せなかった", error);
       if (!outdated()) tell(cameraFailureCaption(error));

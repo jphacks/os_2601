@@ -49,11 +49,37 @@ export function Buttons({ state, cameraStopped, busy, onStart, onHint, onCheck, 
       </button>
     );
   }
-  if (showsStart) {
+
+  const startButton = (
+    <button type="button" onClick={onStart} disabled={busy} className={PRIMARY}>
+      はじめる
+    </button>
+  );
+  if (state === "created") return startButton;
+
+  const endButton = (
+    <button
+      type="button"
+      onClick={() => {
+        if (!confirmingEnd) {
+          setConfirmingEnd(true);
+          return;
+        }
+        setConfirmingEnd(false);
+        onEnd();
+      }}
+      disabled={busy}
+      className={confirmingEnd ? CONFIRMING : SECONDARY}
+    >
+      {confirmingEnd ? "本当におわる？" : "おわる"}
+    </button>
+  );
+  if (cameraStopped) {
     return (
-      <button type="button" onClick={onStart} disabled={busy} className={PRIMARY}>
-        はじめる
-      </button>
+      <div className="flex flex-col gap-3">
+        {startButton}
+        {endButton}
+      </div>
     );
   }
 
@@ -71,21 +97,7 @@ export function Buttons({ state, cameraStopped, busy, onStart, onHint, onCheck, 
         <button type="button" onClick={onNext} disabled={busy || !NEXT_STATES.includes(state)} className={SECONDARY}>
           次へ
         </button>
-        <button
-          type="button"
-          onClick={() => {
-            if (!confirmingEnd) {
-              setConfirmingEnd(true);
-              return;
-            }
-            setConfirmingEnd(false);
-            onEnd();
-          }}
-          disabled={busy}
-          className={confirmingEnd ? CONFIRMING : SECONDARY}
-        >
-          {confirmingEnd ? "本当におわる？" : "おわる"}
-        </button>
+        {endButton}
       </div>
     </div>
   );

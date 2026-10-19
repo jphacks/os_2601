@@ -31,6 +31,7 @@ const NEXT_CAPTION = "次の問題も、見てるよ";
 const NO_SESSION_CAPTION = "セッションの URL から開いてね";
 const OPENING_CAPTION = "準備しているよ…";
 const BUSY_CAPTION = "少し待ってから、もう一度開いてね";
+const OPEN_FAILED_CAPTION = "つながらなかったよ。少ししたら、もう一度つないでみるね";
 const FAILED_CAPTION = "うまくいかなかったよ。もう一度押してみてね";
 const RATE_LIMITED_CAPTION = "少し待ってから、もう一度押してね";
 const SETTINGS_FAILED_CAPTION = "秒数を変えられなかったよ。前の秒数のまま見守るね";
@@ -129,15 +130,16 @@ function Device() {
         openingRef.current = null;
         if (cancelled) return;
         console.warn("[device] openSession に失敗", error);
-        if (error instanceof ApiError && error.status === 429) {
-          tell(BUSY_CAPTION);
-          retry = setTimeout(() => {
-            setCaption(OPENING_CAPTION);
-            setOpenAttempt((attempt) => attempt + 1);
-          }, OPEN_RETRY_MS);
+        const busy = error instanceof ApiError && error.status === 429;
+        if (error instanceof ApiError && error.status < 500 && !busy) {
+          tell(NO_SESSION_CAPTION);
           return;
         }
-        tell(NO_SESSION_CAPTION);
+        tell(busy ? BUSY_CAPTION : OPEN_FAILED_CAPTION);
+        retry = setTimeout(() => {
+          setCaption(OPENING_CAPTION);
+          setOpenAttempt((attempt) => attempt + 1);
+        }, OPEN_RETRY_MS);
       });
     return () => {
       cancelled = true;

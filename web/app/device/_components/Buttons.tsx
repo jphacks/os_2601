@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { State } from "@/lib/api";
 
 const HINT_STATES: State[] = ["watching", "still", "cooldown"];
@@ -29,8 +29,9 @@ const CONFIRMING =
 
 export function Buttons({ state, cameraStopped, busy, onStart, onHint, onCheck, onNext, onEnd, onRestart }: Props) {
   const [confirmingEnd, setConfirmingEnd] = useState(false);
-  const hintRef = useRef<HTMLButtonElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const showsStart = state === "created" || cameraStopped;
+  const shownStartRef = useRef(showsStart);
 
   useEffect(() => {
     if (!confirmingEnd) return;
@@ -39,24 +40,16 @@ export function Buttons({ state, cameraStopped, busy, onStart, onHint, onCheck, 
   }, [confirmingEnd]);
 
   useEffect(() => {
-    if (!showsStart) hintRef.current?.focus();
-  }, [showsStart]);
-
-  if (state === "ended") {
-    return (
-      <button type="button" onClick={onRestart} className={PRIMARY}>
-        もう一度はじめる
-      </button>
-    );
-  }
+    if (shownStartRef.current === showsStart) return;
+    shownStartRef.current = showsStart;
+    if (state !== "ended") rootRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+  }, [showsStart, state]);
 
   const startButton = (
     <button type="button" onClick={onStart} disabled={busy} className={PRIMARY}>
       はじめる
     </button>
   );
-  if (state === "created") return startButton;
-
   const endButton = (
     <button
       type="button"
@@ -74,31 +67,46 @@ export function Buttons({ state, cameraStopped, busy, onStart, onHint, onCheck, 
       {confirmingEnd ? "本当におわる？" : "おわる"}
     </button>
   );
-  if (cameraStopped) {
-    return (
-      <div className="flex flex-col gap-3">
+  let content: ReactNode;
+  if (state === "ended") {
+    content = (
+      <button type="button" onClick={onRestart} className={PRIMARY}>
+        もう一度はじめる
+      </button>
+    );
+  } else if (state === "created") {
+    content = startButton;
+  } else if (cameraStopped) {
+    content = (
+      <>
         {startButton}
         {endButton}
-      </div>
+      </>
+    );
+  } else {
+    content = (
+      <>
+        <div className="flex gap-3">
+          <button type="button" onClick={onHint} disabled={busy || !HINT_STATES.includes(state)} className={PRIMARY}>
+            ヒント
+          </button>
+          <button type="button" onClick={onCheck} disabled={busy || !CHECK_STATES.includes(state)} className={PRIMARY}>
+            できた
+          </button>
+        </div>
+        <div className="flex gap-3">
+          <button type="button" onClick={onNext} disabled={busy || !NEXT_STATES.includes(state)} className={SECONDARY}>
+            次へ
+          </button>
+          {endButton}
+        </div>
+      </>
     );
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex gap-3">
-        <button ref={hintRef} type="button" onClick={onHint} disabled={busy || !HINT_STATES.includes(state)} className={PRIMARY}>
-          ヒント
-        </button>
-        <button type="button" onClick={onCheck} disabled={busy || !CHECK_STATES.includes(state)} className={PRIMARY}>
-          できた
-        </button>
-      </div>
-      <div className="flex gap-3">
-        <button type="button" onClick={onNext} disabled={busy || !NEXT_STATES.includes(state)} className={SECONDARY}>
-          次へ
-        </button>
-        {endButton}
-      </div>
+    <div ref={rootRef} className="flex flex-col gap-3">
+      {content}
     </div>
   );
 }

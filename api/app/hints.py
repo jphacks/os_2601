@@ -4,7 +4,6 @@ from dataclasses import dataclass, replace
 
 from app.gemini import AIUnavailable, Gemini
 from app.leak import contains_leak, leak_strings, same_problem, states_an_answer, without_written
-from app.paper import MEANING_QUESTION, PAPER_RULE
 from app.personas import fallback_message, get_persona
 from app.reading import to_reading
 from app.state import HintSource, LeakCheck
@@ -39,6 +38,11 @@ FALLBACK_HINTS = {1: "今、何を求めようとしてる？", 2: UNREADABLE_HI
 FALLBACK_STUCK_POINT = "読み取れず"
 logger = logging.getLogger(__name__)
 
+PAPER_RULE = (
+    "まず、写真に、問題か答案が書かれた紙（ノート・プリント・問題集）が写っているかを paper_visible に書いてください。"
+    "問題だけが書かれた紙や、白い紙に式が 1 行だけでも true。"
+    "机・キーボード・画面・顔・景色だけで、そうした紙が写っていなければ false にし、写っていない問題や答案を想像して書かないでください。"
+)
 PROBLEM_PICK_RULE = (
     "紙に問題が複数あるときは、次の順で 1 つ選ぶ。"
     "(a) 答案が書かれていて、最後の行がまだ答え（x = 数 の形）になっていない問題。複数あれば、答案を最後に書いた問題。"
@@ -88,6 +92,9 @@ CHECK_QUESTION = re.compile(
     r"(正解|正しい)(ですか|でしょう|だよね|よね|かな|か?[？?]|か?$|か(どうか)?(わからない|わかんない|分からない|教えて|おしえて))"
 )
 ASKS_WHAT = re.compile(r"何が|何を|なにが|なにを|どこ|どうすれば|どうやって|どうしたら")
+MEANING_QUESTION = re.compile(r"(?<=[一-龥ァ-ヶーA-Za-z0-9])とは|って(?:何|なに|なあに|なん)(?![回個度人]|で(?!す))|の意味|ってどういう")
+POINTING_WORDS = re.compile(r"これ|それ|あれ|どれ|この|その|あの|ここ|そこ")
+SHEET_POINTERS = re.compile(r"行目|最後の行|[0-9０-９一二三四五]行|答案|書いた|書いてある|書かれて|この式|その式")
 HELP_WORDS = (
     "わからない",
     "わかんない",
@@ -220,6 +227,11 @@ def _paper_missing(out: dict, known_problem: str | None) -> bool:
     return out.get("paper_visible") is False or not (out["problem_text"] or out.get("written_lines") or known_problem)
 
 
+def _answers_without_paper(utterance: str, out: dict) -> bool:
+    asks_meaning = MEANING_QUESTION.search(utterance) is not None and POINTING_WORDS.search(utterance) is None
+    return asks_meaning and SHEET_POINTERS.search(f"{out['speech']} {out['display']}") is None
+
+
 def _paperless_reason(out: dict) -> dict:
     reason = out.get("unreadable_reason")
     return out if out["readable"] is not True and reason in ("dark", "blurry") else {**out, "unreadable_reason": "out_of_frame"}
@@ -321,7 +333,7 @@ async def compose_answer(
             unreadable = _paperless_reason(out) if out.get("paper_visible") is False else out
             return _unreadable(unreadable, UNREADABLE_ANSWER, known_leaks, persona)
         paperless = _paper_missing(out, known_problem)
-        if paperless and not MEANING_QUESTION.search(utterance):
+        if paperless and not _answers_without_paper(utterance, out):
             return _unreadable(_paperless_reason(out), UNREADABLE_ANSWER, known_leaks, persona)
         if paperless:
             out = {**out, "problem_text": "", "written_lines": []}

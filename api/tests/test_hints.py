@@ -410,11 +410,22 @@ def test_a_known_problem_keeps_a_guarded_hint_even_if_this_reply_lost_the_text()
     assert hint.source == "ai"
 
 
-def test_a_voice_answer_pointing_at_lines_without_paper_is_replaced() -> None:
+@pytest.mark.parametrize(
+    "utterance", ["次どうすればいい？", "あとはどうすればいい？", "とはいえ、わからない", "これってなんで？", "この式って何？", "って何回やればいいの"]
+)
+def test_a_voice_question_that_is_not_about_a_meaning_without_paper_asks_for_the_paper(utterance: str) -> None:
     reply = ai_answer("最後の式の x の係数で両辺を割ってみて")
     reply.update(paper_visible=False)
-    replied = asyncio.run(compose_answer(FakeAI(reply), MODEL, FRAME, "次どうすればいい？", [], None, [], "teacher"))
+    replied = asyncio.run(compose_answer(FakeAI(reply), MODEL, FRAME, utterance, [], None, [], "teacher"))
     assert replied.speech == "紙を枠の中に入れてみて"
+
+
+@pytest.mark.parametrize("utterance", ["移項とは？", "移項ってなんですか", "係数の意味がわからない", "同類項ってどういうこと？"])
+def test_a_meaning_question_without_paper_is_answered(utterance: str) -> None:
+    reply = ai_answer("移項は、項の符号を変えて反対の辺に移すことだよ")
+    reply.update(paper_visible=False)
+    replied = asyncio.run(compose_answer(FakeAI(reply), MODEL, FRAME, utterance, [], None, [], "teacher"))
+    assert replied.source == "ai"
 
 
 def test_a_voice_explanation_without_paper_is_kept() -> None:
@@ -424,11 +435,17 @@ def test_a_voice_explanation_without_paper_is_kept() -> None:
     assert (kept.source, kept.problem_text, kept.leak_strings) == ("ai", None, ["x=-5"])
 
 
-def test_a_voice_answer_without_paper_that_mentions_the_right_side_is_replaced() -> None:
-    reply = ai_answer("右辺に移したときの符号、もう一回見てみて")
+def test_a_meaning_answer_without_paper_that_points_at_a_line_asks_for_the_paper() -> None:
+    reply = ai_answer("1行目の4xを左辺に移すことだよ")
     reply.update(paper_visible=False)
-    replied = asyncio.run(compose_answer(FakeAI(reply), MODEL, FRAME, "次どうすればいい？", [], None, [], "teacher"))
-    assert replied.source == "fallback"
+    assert answer(FakeAI(reply), "移項って何？").speech == "紙を枠の中に入れてみて"
+
+
+def test_a_meaning_answer_without_paper_still_guards_the_earlier_answer() -> None:
+    reply = ai_answer("答えは x=-5 になるよ")
+    reply.update(paper_visible=False, final_answer="", key_values=[])
+    replied = asyncio.run(compose_answer(FakeAI(reply), MODEL, FRAME, "移項って何？", [], "2x - 7 = 4x + 3", ["x=-5"], "teacher"))
+    assert replied.leak_check == LeakCheck(ok=False, fallback=True)
 
 
 def test_a_voice_answer_with_nothing_on_paper_is_replaced_even_if_the_ai_says_there_is_paper() -> None:

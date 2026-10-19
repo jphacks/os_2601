@@ -10,6 +10,7 @@ const END_CONFIRM_MS = 4000;
 
 type Props = {
   state: State;
+  cameraStopped: boolean;
   busy: boolean;
   onStart: () => void;
   onHint: () => void;
@@ -26,7 +27,7 @@ const SECONDARY =
 const CONFIRMING =
   "min-h-11 flex-1 rounded-full bg-rose-500 px-4 text-base font-bold text-white shadow-sm transition active:scale-95 disabled:opacity-40";
 
-export function Buttons({ state, busy, onStart, onHint, onCheck, onNext, onEnd, onRestart }: Props) {
+export function Buttons({ state, cameraStopped, busy, onStart, onHint, onCheck, onNext, onEnd, onRestart }: Props) {
   const [confirmingEnd, setConfirmingEnd] = useState(false);
 
   useEffect(() => {
@@ -42,7 +43,7 @@ export function Buttons({ state, busy, onStart, onHint, onCheck, onNext, onEnd, 
       </button>
     );
   }
-  if (state === "created") {
+  if (state === "created" || cameraStopped) {
     return (
       <button type="button" onClick={onStart} disabled={busy} className={PRIMARY}>
         はじめる

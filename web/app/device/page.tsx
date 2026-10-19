@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ApiError, getSession, openSession, patchSettings, type SessionDetail, type State } from "@/lib/api";
 import { startCamera, stopCamera } from "@/lib/camera";
-import { advance, end, requestCheck, requestManualHint, startSession } from "@/lib/loop";
+import { advance, end, GREETING, requestCheck, requestManualHint, startSession } from "@/lib/loop";
 import { endMessage, personaOf, voiceOf, type Persona } from "@/lib/personas";
 import { setSpeechCharacter, speak, stopSpeaking, unlockSpeech } from "@/lib/speech";
 import { primeListening, stopListening, voiceStatus } from "@/lib/voice";
@@ -26,6 +26,7 @@ const FIXED_CAPTIONS: Partial<Record<State, string>> = {
 };
 const CAMERA_DENIED_CAPTION = "設定からカメラを許可してね。LINE などの中のブラウザなら Safari か Chrome で開いてね";
 const CAMERA_FAILED_CAPTION = "カメラを使えなかったよ。ほかのアプリでカメラを使っていたら閉じて、もう一度はじめてね";
+const CAMERA_STOPPED_CAPTION = "カメラが止まったよ。もう一度はじめてね";
 const NEXT_CAPTION = "次の問題も、見てるよ";
 const NO_SESSION_CAPTION = "セッションの URL から開いてね";
 const OPENING_CAPTION = "準備しているよ…";
@@ -49,6 +50,11 @@ function pageWithoutSession(): string {
   query.delete("t");
   const rest = query.toString();
   return rest ? `/device?${rest}` : "/device";
+}
+
+function cameraFailureCaption(error: unknown): string {
+  const denied = error instanceof TypeError || (error instanceof Error && error.name === "CameraDenied");
+  return denied ? CAMERA_DENIED_CAPTION : CAMERA_FAILED_CAPTION;
 }
 
 function failureCaption(error: unknown): string | null {
@@ -86,6 +92,7 @@ function Device() {
   const [brightness, setBrightness] = useState<number | null>(null);
   const [stillSeconds, setStillSeconds] = useState(0);
   const [connected, setConnected] = useState(true);
+  const [cameraStopped, setCameraStopped] = useState(false);
   // 同じ文字が続けて来ても 3 秒を数え直すように、受け取るたびに新しいオブジェクトにする
   const [heard, setHeard] = useState<{ text: string } | null>(null);
   const [openAttempt, setOpenAttempt] = useState(0);
@@ -154,6 +161,7 @@ function Device() {
         setFinishing(false);
         setSession(detail);
         setConnected(true);
+        setCameraStopped(false);
         setNotice("");
         setRecord(null);
         setRecordStatus("idle");
@@ -293,8 +301,7 @@ function Device() {
       if (version !== requestVersion.current) return;
       console.warn("[device] startCamera に失敗", error);
       stopListening();
-      const denied = error instanceof TypeError || (error instanceof Error && error.name === "CameraDenied");
-      tell(denied ? CAMERA_DENIED_CAPTION : CAMERA_FAILED_CAPTION);
+      tell(cameraFailureCaption(error));
       setBusy(false);
       startingRef.current = false;
       return;
@@ -342,9 +349,39 @@ function Device() {
       onProblem: (text) => {
         if (version === requestVersion.current && stateRef.current !== "ended") setProblemText(text);
       },
+      onCamera: (live) => {
+        if (version !== requestVersion.current || stateRef.current === "ended") return;
+        setCameraStopped(!live);
+        tell(live ? GREETING : CAMERA_STOPPED_CAPTION);
+      },
     });
     setBusy(false);
     startingRef.current = false;
+  }
+
+  async function handleResumeCamera() {
+    const video = videoRef.current;
+    if (!video || startingRef.current) return;
+    const version = requestVersion.current;
+    startingRef.current = true;
+    setBusy(true);
+    try {
+      await startCamera(video);
+      if (version !== requestVersion.current || stateRef.current === "ended") {
+        stopCamera();
+        return;
+      }
+      setCameraStopped(false);
+      tell(GREETING);
+    } catch (error) {
+      console.warn("[device] カメラを取り直せなかった", error);
+      if (version === requestVersion.current) tell(cameraFailureCaption(error));
+    } finally {
+      if (version === requestVersion.current) {
+        setBusy(false);
+        startingRef.current = false;
+      }
+    }
   }
 
   function showFailure(version: number, error: unknown) {
@@ -519,8 +556,9 @@ function Device() {
             )}
             <Buttons
               state={state}
+              cameraStopped={cameraStopped}
               busy={busy || personaUpdating || finishing || !session}
-              onStart={handleStart}
+              onStart={cameraStopped ? handleResumeCamera : handleStart}
               onHint={handleHint}
               onCheck={handleCheck}
               onNext={handleNext}

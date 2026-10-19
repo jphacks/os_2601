@@ -15,7 +15,7 @@ import {
   type State,
   type Trigger,
 } from "./api";
-import { captureFrame, stopCamera } from "./camera";
+import { captureFrame, stopCamera, watchCamera } from "./camera";
 import { startMotionLoop } from "./motion";
 import { keepScreenOn } from "./screen";
 import { setSpeechSession, speak, stopSpeaking } from "./speech";
@@ -29,6 +29,7 @@ export type SessionHandlers = {
   onHeard: (text: string) => void;
   onProblem: (text: string | null) => void;
   onFinishing: () => void;
+  onCamera: (live: boolean) => void;
 };
 
 type Session = {
@@ -61,7 +62,7 @@ type Session = {
 
 const SIGNAL_INTERVAL_MS = 1000;
 const MAX_FAILED_SIGNALS = 3;
-const GREETING = "見守りを始めるよ";
+export const GREETING = "見守りを始めるよ";
 const FIRST_PROBLEM_READ_MS = 3000;
 const NEXT_PROBLEM_READ_MS = 1000;
 const PROBLEM_READ_RETRY_MS = 3000;
@@ -329,9 +330,11 @@ export function startSession(
   const timer = setInterval(() => void sendSignal(session), SIGNAL_INTERVAL_MS);
 
   const releaseScreen = keepScreenOn();
+  const unwatchCamera = watchCamera(handlers.onCamera);
   session.stop = () => {
     session.running = false;
     releaseScreen();
+    unwatchCamera();
     clearInterval(timer);
     clearTimeout(session.problemReadTimer);
     stopMotion();

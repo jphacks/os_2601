@@ -105,7 +105,7 @@ PC（横持ち）では映像を左、字幕とボタンを右に置く。部品
 
 | ボタン | いつ押せるか | 何が起きるか |
 |---|---|---|
-| はじめる | `created` | 音声アンロック、カメラ開始、`startSession` でループ開始 |
+| はじめる | `created`。見守りの途中でカメラが止まったときも（ほかのボタンの代わりに出る） | 音声アンロック、カメラ開始、`startSession` でループ開始。カメラが止まったときは `startCamera` だけ |
 | ヒント | `watching` `still` `cooldown` のときだけ | `requestManualHint()`（フレームを送ってから `POST /hints {trigger: "manual"}`）。段階は現在の段階 |
 | できた | `watching` `still` `cooldown` `stuck` のときだけ | `requestCheck()`（フレームを送ってから `POST /check`）。結果を読み上げ。`correct` なら問題番号が進む |
 | もう一度はじめる | `ended` のときだけ（ほかのボタンの代わりに出る） | `s=`・`t=` を外した `/device` を開き直し、新しいセッションを作る（ADR 0036） |
@@ -138,9 +138,10 @@ PC（横持ち）では映像を左、字幕とボタンを右に置く。部品
 | `startListening(onHeard)` / `stopListening()` | `(text: string) => void` | `() => void` / `void` | 学習者の発話の聞き取り（ブラウザの音声認識）。B は呼ばない（`loop.ts` が呼ぶ） |
 | `startCamera(video)` | `HTMLVideoElement` | `Promise<void>` | カメラを `video` に流す。許可が出なければ `Error`（`name` が `CameraDenied`）を throw |
 | `stopCamera()` | なし | `void` | カメラを止める |
+| `watchCamera(listener)` | `(live: boolean) => void` | `() => void`（見るのをやめる関数） | 映像のトラックが止まった（`ended`・`mute`）・戻った（`unmute`）を知らせる。B は呼ばない（`loop.ts` が呼ぶ） |
 | `captureFrame()` | なし | `Promise<Blob>` | 最新フレームの JPEG。B は呼ばない（`loop.ts` が呼ぶ） |
 | `startMotionLoop(video, onScore)` | `(score: number \| null, brightness: number, cameraOk: boolean) => void`（`null` はウォームアップ中） | `() => void`（止める関数） | 1 秒ごとの動きスコア。B は呼ばない（`loop.ts` が呼ぶ） |
-| `startSession(video, sessionId, token, handlers)` | `handlers = {onState, onHint, onBrightness, onConnection, onHeard, onProblem, onFinishing}` | `() => void`（止める関数） | 下の「ループ」 |
+| `startSession(video, sessionId, token, handlers)` | `handlers = {onState, onHint, onBrightness, onConnection, onHeard, onProblem, onFinishing, onCamera}` | `() => void`（止める関数） | 下の「ループ」 |
 | `requestManualHint()` | なし | `Promise<HintResponse>` | 「ヒント」ボタン。フレームを送ってから `hints` を `manual` で呼び、`speech` を読み上げる |
 | `requestCheck()` | なし | `Promise<CheckResponse>` | 「できた」ボタン。フレームを送ってから `check` を呼び、`speech` を読み上げる |
 | `advance()` | なし | `Promise<AdvanceResponse>` | 「次へ」ボタン。`POST /advance`。`ended` ならループを止める |
@@ -160,6 +161,7 @@ PC（横持ち）では映像を左、字幕とボタンを右に置く。部品
 - 最初に `state` が `watching` になったとき「見守りを始めるよ」を 1 回読み上げる（B は書かない）。
 - `brightness` を `handlers.onBrightness(b)` に渡す（B が 60 未満で「明るさが足りません」を重ねる）。
 - `postSignal` が連続 3 回失敗したら `handlers.onConnection(false)`、成功したら `true`（B が「つながりにくいみたい」を出す）。
+- カメラの映像のトラックが止まったら（`ended`・`mute`。通話や、ほかのアプリがカメラを取ったとき）`handlers.onCamera(false)`、戻ったら（`unmute`）`onCamera(true)`。ループは止めない（止まっている間は `camera_ok: false` を送るので、詰まりとは数えない）。
 - **声のトリガー**：`watching`・`still`・`cooldown` の間は `startListening` で聞き取り、確定した文（3 文字以上、200 文字で切る）が来たら、フレームを送ってから `answerUtterance` で送る。答えがあれば `onHint` と `speak`、204 なら何もしない。送っている間に来た文は最後の 1 つだけ覚えて、終わったら送る（ADR 0032）。`speaking`・`checking` の間は `stopListening`（自分の読み上げを拾わないため）。聞き取った文字は `handlers.onHeard(text)` に渡す（B は字幕の下に小さく「聞こえた：わからない」と 3 秒だけ出す）。非対応ブラウザでは何もしない。
 - `signals`・`hints`・`check`・`advance` のどの応答でも `state` が `ended` になったらループを止める。戻り値の止める関数でも止まる。
 - `requestManualHint()` と `requestCheck()` は同じファイルにあり、動いているセッションの id と token を使う。応答を返し、`speech` があれば `speak` する。
@@ -214,6 +216,7 @@ PC（横持ち）では映像を左、字幕とボタンを右に置く。部品
 - 読み込み（`getSession`）が 404 以外で失敗したら「つながらなかったよ。ページを開き直してね」
 - 「はじめる」の前に選んだ秒数を保存できなかったら「秒数を変えられなかったよ。前の秒数のまま見守るね」
 - 「おわる」をサーバに伝えられなかったら、端末は止めたうえで「つながりにくくて、終わったことを伝えられなかったよ」
+- 見守りの途中でカメラが止まったら（`onCamera(false)`。通話、ほかのアプリがカメラを使った）、字幕に「カメラが止まったよ。もう一度はじめてね」を出し、ボタンを「はじめる」だけにする。押すとカメラだけを取り直し（ループと問題番号はそのまま）、字幕を「見守りを始めるよ」にする。カメラが自分で戻ったとき（`onCamera(true)`）も同じ。取り直せなければ、最初の「はじめる」と同じカメラの字幕を出す
 - タップ（タッチは `pointerup`、マウスは `pointerdown`。ブラウザが操作の直後と数えるもの）で始め直しても 2 回続けてマイクを許可されなかったら、そのページではもう聞かない（タップのたびに許可を求めない）
 - 途中の聞き取りの文が 2 秒変わらず確定が来ないとき（同じ文が届き続けても数え直さない）、または確定が来ないまま聞き取りが終わったときは、途中の文を確定として送る（iOS で確定が来ない対策。Issue #40）
 - 声で読まない知らせ（失敗の字幕、「つながりにくいみたい」、人格の切り替えと記録の読み込みの失敗）は、画面に見えない `role="status"` の枠にも出して読み上げソフトに伝える。ヒントと判定の字幕は同じ文を声で読むので渡さない。「明るさが足りません」は 14px（50 cm 離れて読める大きさ）

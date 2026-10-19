@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { listSessions } from "@/lib/api";
 import { useOperatorPolling } from "@/app/_components/operator/useOperatorPolling";
+import { ScriptedBadge } from "@/app/_components/record/ScriptedBadge";
 import { dateTime, sessionStatus } from "@/lib/recordFormat";
 
 export default function LogListPage() {
@@ -24,7 +25,7 @@ export default function LogListPage() {
               <span className="font-bold">{session.learner_label}</span>
               <span className="text-gray-500">{dateTime(session.created_at)}</span>
               <span className="text-gray-500">{sessionStatus(session.state)}</span>
-              {session.mode === "scripted" && <span className="rounded bg-gray-200 px-2 text-sm">台本</span>}
+              {session.mode === "scripted" && <ScriptedBadge />}
               <span className="ml-auto">
                 できた {session.problem_done} 問・詰まった {session.stuck_total} 回
               </span>

@@ -581,7 +581,13 @@ function Device() {
 
 export default function DevicePage() {
   return (
-    <Suspense>
+    <Suspense
+      fallback={
+        <main className="flex flex-1 items-center justify-center bg-linear-to-b from-sky-400 via-sky-200 to-cyan-100 p-4 text-2xl font-bold text-slate-800">
+          <p role="status">{OPENING_CAPTION}</p>
+        </main>
+      }
+    >
       <Device />
     </Suspense>
   );

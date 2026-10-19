@@ -382,6 +382,8 @@ function Device() {
     const outdated = () => version !== requestVersion.current || finishingRef.current || stateRef.current === "ended";
     startingRef.current = true;
     setBusy(true);
+    unlockSpeech();
+    primeListening();
     try {
       await startCamera(video);
       if (outdated()) {

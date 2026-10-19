@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { State } from "@/lib/api";
 
 const HINT_STATES: State[] = ["watching", "still", "cooldown"];
@@ -29,12 +29,18 @@ const CONFIRMING =
 
 export function Buttons({ state, cameraStopped, busy, onStart, onHint, onCheck, onNext, onEnd, onRestart }: Props) {
   const [confirmingEnd, setConfirmingEnd] = useState(false);
+  const hintRef = useRef<HTMLButtonElement>(null);
+  const showsStart = state === "created" || cameraStopped;
 
   useEffect(() => {
     if (!confirmingEnd) return;
     const timer = setTimeout(() => setConfirmingEnd(false), END_CONFIRM_MS);
     return () => clearTimeout(timer);
   }, [confirmingEnd]);
+
+  useEffect(() => {
+    if (!showsStart) hintRef.current?.focus();
+  }, [showsStart]);
 
   if (state === "ended") {
     return (
@@ -43,7 +49,7 @@ export function Buttons({ state, cameraStopped, busy, onStart, onHint, onCheck, 
       </button>
     );
   }
-  if (state === "created" || cameraStopped) {
+  if (showsStart) {
     return (
       <button type="button" onClick={onStart} disabled={busy} className={PRIMARY}>
         はじめる
@@ -54,7 +60,7 @@ export function Buttons({ state, cameraStopped, busy, onStart, onHint, onCheck, 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex gap-3">
-        <button type="button" onClick={onHint} disabled={busy || !HINT_STATES.includes(state)} className={PRIMARY}>
+        <button ref={hintRef} type="button" onClick={onHint} disabled={busy || !HINT_STATES.includes(state)} className={PRIMARY}>
           ヒント
         </button>
         <button type="button" onClick={onCheck} disabled={busy || !CHECK_STATES.includes(state)} className={PRIMARY}>

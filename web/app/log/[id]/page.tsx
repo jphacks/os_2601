@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback } from "react";
 import { useParams } from "next/navigation";
 import { getSession } from "@/lib/api";
-import { dateTime, sessionStatus } from "@/app/_components/record/format";
+import { dateTime, sessionStatus } from "@/lib/recordFormat";
 import { SessionRecord } from "@/app/_components/record/SessionRecord";
 import { useOperatorPolling } from "@/app/_components/operator/useOperatorPolling";
 

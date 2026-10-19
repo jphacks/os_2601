@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { listSessions } from "@/lib/api";
 import { useOperatorPolling } from "@/app/_components/operator/useOperatorPolling";
-import { dateTime, sessionStatus } from "@/app/_components/record/format";
+import { dateTime, sessionStatus } from "@/lib/recordFormat";
 
 export default function LogListPage() {
   const { data, error } = useOperatorPolling(listSessions);

@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Callable, Iterator
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -55,7 +56,7 @@ class ScriptedAI:
                 raise
         if self.error:
             raise self.error
-        return self.reply
+        return deepcopy(self.reply)
 
 
 class FakeVoice:

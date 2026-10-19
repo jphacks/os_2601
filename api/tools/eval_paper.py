@@ -11,8 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from photos import photo
 
+from app.check import judge
 from app.gemini import Gemini
-from app.hints import compose_hint, read_problem
+from app.hints import PAPER_POINTERS, compose_answer, compose_hint, read_problem
 
 MODEL = os.environ.get("HINT_MODEL", "gemini-3.5-flash-lite")
 ROUNDS = int(os.environ.get("ROUNDS", "1"))
@@ -24,10 +25,6 @@ def jpeg(image: Image.Image) -> bytes:
     buffer = io.BytesIO()
     image.save(buffer, "JPEG", quality=70)
     return buffer.getvalue()
-
-
-def desk() -> bytes:
-    return jpeg(Image.new("RGB", SIZE, (120, 86, 60)))
 
 
 def noise() -> bytes:
@@ -49,11 +46,7 @@ def keyboard() -> bytes:
     return jpeg(image)
 
 
-def english() -> bytes:
-    return photo(["The quick brown fox", "jumps over the lazy dog.", "Please read chapter 3."])
-
-
-def screen() -> bytes:
+def pacman() -> bytes:
     image = Image.new("RGB", SIZE, (30, 160, 60))
     ImageDraw.Draw(image).pieslice((380, 160, 640, 420), start=30, end=330, fill=(250, 220, 40))
     return jpeg(image)
@@ -69,7 +62,13 @@ def face() -> bytes:
     return jpeg(image)
 
 
-NO_PAPER = {"机": desk, "ノイズ": noise, "キーボード": keyboard, "英文": english, "画面": screen, "顔": face}
+NO_PAPER = {
+    "机": lambda: jpeg(Image.new("RGB", SIZE, (120, 86, 60))),
+    "ノイズ": noise,
+    "キーボード": keyboard,
+    "画面": pacman,
+    "顔": face,
+}
 PAPER = {
     "答案の途中": lambda: photo(["3x + 5 = 20", "3x = 15"]),
     "問題だけ": lambda: photo(["2x - 7 = 4x + 3"]),
@@ -77,28 +76,38 @@ PAPER = {
 }
 
 
-async def run(ai: Gemini, name: str, image: bytes) -> tuple[bool, bool]:
+async def run(ai: Gemini, name: str, image: bytes, with_voice: bool) -> tuple[bool, bool]:
     problem = await read_problem(ai, MODEL, image, None)
     await asyncio.sleep(PAUSE_SECONDS)
     hint = await compose_hint(ai, MODEL, image, 1, [], None, [], "teacher")
     await asyncio.sleep(PAUSE_SECONDS)
-    print(f"  {name}: 問題文={problem!r} ヒント={hint.source}「{hint.speech}」")
-    return problem is not None, hint.source == "ai"
+    line = f"  {name}: 問題文={problem!r} ヒント={hint.source}「{hint.speech}」"
+    invented_voice = invented_check = False
+    if with_voice:
+        reply = await compose_answer(ai, MODEL, image, "次どうすればいい？", [], None, [], "teacher")
+        await asyncio.sleep(PAUSE_SECONDS)
+        verdict = (await judge(ai, MODEL, image, None)).verdict
+        await asyncio.sleep(PAUSE_SECONDS)
+        invented_voice = reply is not None and reply.source == "ai" and PAPER_POINTERS.search(reply.speech) is not None
+        invented_check = verdict != "unreadable"
+        line += f" 声={reply.source if reply else None}「{reply.speech if reply else ''}」 できた={verdict}"
+    print(line)
+    return problem is not None or invented_voice or invented_check, hint.source == "ai"
 
 
 async def main() -> None:
     ai = Gemini(os.environ["GEMINI_API_KEY"])
     invented = read_ok = hinted = no_paper_runs = paper_runs = 0
-    print("紙が無い写真（問題文やヒントを作ったら誤り）")
+    print("紙が無い写真（問題文・ヒント・紙を指す声の答え・できたの判定を作ったら誤り）")
     for _ in range(0 if os.environ.get("ONLY") == "paper" else ROUNDS):
         for name, make in NO_PAPER.items():
-            problem, hint = await run(ai, name, make())
+            problem, hint = await run(ai, name, make(), True)
             invented += problem or hint
             no_paper_runs += 1
     print("紙の写真（問題文を読み、AI のヒントを出せば正しい）")
     for _ in range(0 if os.environ.get("ONLY") == "no_paper" else ROUNDS):
         for name, make in PAPER.items():
-            problem, hint = await run(ai, name, make())
+            problem, hint = await run(ai, name, make(), False)
             read_ok += problem
             hinted += hint
             paper_runs += 1

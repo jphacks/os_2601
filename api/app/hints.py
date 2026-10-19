@@ -46,17 +46,19 @@ PROBLEM_PICK_RULE = (
     "前に読み取った問題文が渡されていて、その問題に答案が書かれていてまだ途中なら、それを選ぶ（答案が無ければ (a)(b) で選ぶ）。"
 )
 PAPER_RULE = (
-    "0. まず、写真に、問題か答案が書かれた紙（ノート・プリント・問題集）が写っているかを paper_visible に書いてください。"
+    "まず、写真に、問題か答案が書かれた紙（ノート・プリント・問題集）が写っているかを paper_visible に書いてください。"
     "問題だけが書かれた紙や、白い紙に式が 1 行だけでも true。"
-    "机・キーボード・画面・顔・景色だけで、そうした紙が写っていなければ false にし、写っていない問題や答案を想像して書かないでください。\n"
+    "机・キーボード・画面・顔・景色だけで、そうした紙が写っていなければ false にし、写っていない問題や答案を想像して書かないでください。"
 )
+PAPER_POINTERS = re.compile(r"行目|答案|書いた式|書いてある")
 POINTING_RULES = """- 誤りを示すときは、誤っている数字や記号そのものを、行と位置で指す（「3行目の左辺の 7」）。符号・数字・計算のどれが違うかを見分け、違う種類のことは言わない（数字の誤りに「符号を確認して」と言わない）。種類は言わなくてよく、その数字や記号を指す。正しい値は言わない。
 - 学習者が正しく書いた式や値は、読み上げずに行と位置で指す（「最後の行の左辺」）。"""
 
 SYSTEM_PROMPT = """あなたは中学生の隣に座っている家庭教師です。画像は、学習者が紙で問題を解いている手元の写真です。
 あなたの役目は、答えを言わずに、学習者が自分の手で最後の答えまで書き切れるよう、次に考える所を 1 つだけ示すことです。
 
-""" + PAPER_RULE + """1. 写真から、学習者がいま解いている問題の文を読み取り、problem_text に書いてください。""" + PROBLEM_PICK_RULE + """
+0. """ + PAPER_RULE + """
+1. 写真から、学習者がいま解いている問題の文を読み取り、problem_text に書いてください。""" + PROBLEM_PICK_RULE + """
 2. その問題を自分で解き、最終の答えを final_answer に、途中の決定的な値や式（移項した後の式、約分した値など）を key_values に書いてください。これらは学習者には見せません。
 3. 学習者の答案を 1 行目から順に、自分の解き方と比べて、ヒントで示す所を 1 つ決めてください。
    - 誤りのある行があれば、いちばん最初の誤りの行を示す。その後の行が正しく見えても、最初の誤りを先に示す。
@@ -112,7 +114,8 @@ ANSWER_PROMPT = """あなたは中学生の隣に座っている家庭教師で�
 最初に、その発話が、あなた（家庭教師）への問いか、勉強で助けを求める発話かを決めて respond に書いてください。独り言、問題文や式の読み上げ、周りの人との会話、勉強と関係ない話なら false にし、ほかの項目はすべて空にしてください。
 
 respond が true なら：
-""" + PAPER_RULE + """1. 写真から、学習者がいま解いている問題の文を読み取り、problem_text に書いてください。読み取れなければ空にする。""" + PROBLEM_PICK_RULE + """
+0. """ + PAPER_RULE + """
+1. 写真から、学習者がいま解いている問題の文を読み取り、problem_text に書いてください。読み取れなければ空にする。""" + PROBLEM_PICK_RULE + """
 2. その問題を自分で解き、最終の答えを final_answer に、途中の決定的な値や式を key_values に必ず書いてください。これらは学習者には見せません。
 3. 答案を見ないと答えられない問いなのに、写真が暗い・ぼやけている・紙が枠の外・手で隠れていて答案が読めないときは、readable を false にし、理由を unreadable_reason に書く（dark・blurry・out_of_frame・hidden・other）。推測で答えない。言葉の意味のように答案が要らない問いは、読めなくても readable を true にして答える。
 4. 問いに答えてください。
@@ -218,10 +221,10 @@ def _read_problem(out: dict, known_problem: str | None, known_leaks: list[str]) 
     return problem_text, without_written(sorted(guarded), written), answer_guarded
 
 
-def _no_paper(out: dict) -> bool:
-    if out.get("paper_visible") is False:
-        return True
-    return out["readable"] is True and not (out["problem_text"] or out.get("written_lines"))
+def _no_paper(out: dict, known_problem: str | None) -> bool:
+    if out["readable"] is not True:
+        return False
+    return out.get("paper_visible") is False or not (out["problem_text"] or out.get("written_lines") or known_problem)
 
 
 def _unreadable(out: dict, fallback: str, leaks: list[str], persona: str = "teacher") -> ComposedHint:
@@ -284,7 +287,7 @@ async def compose_hint(
     try:
         request = "\n".join([LEVEL_INSTRUCTIONS[level], *_context_lines(previous, known_problem)])
         out = await ai.generate_json(model, _persona_prompt(SYSTEM_PROMPT, persona), request, frame, HINT_SCHEMA)
-        if _no_paper(out):
+        if _no_paper(out, known_problem):
             return _unreadable({**out, "unreadable_reason": "out_of_frame"}, UNREADABLE_HINT, known_leaks, persona)
         problem_text, leaks, answer_guarded = _read_problem(out, known_problem, known_leaks)
         readable = out["readable"] is True
@@ -318,7 +321,9 @@ async def compose_answer(
             return None
         if out["readable"] is not True:
             return _unreadable(out, UNREADABLE_ANSWER, known_leaks, persona)
-        if _no_paper(out):
+        if _no_paper(out, known_problem):
+            if PAPER_POINTERS.search(f"{out['speech']} {out['display']}"):
+                return _unreadable({**out, "unreadable_reason": "out_of_frame"}, UNREADABLE_ANSWER, known_leaks, persona)
             out = {**out, "problem_text": "", "final_answer": "", "key_values": [], "written_lines": []}
         problem_text, leaks, answer_guarded = _read_problem(out, known_problem, known_leaks)
         if not answer_guarded and (problem_text or states_an_answer(f"{out['speech']} {out['display']}")):
@@ -331,9 +336,8 @@ async def compose_answer(
 
 
 READ_PROMPT = (
-    "画像は、学習者が紙で問題を解こうとしている手元の写真です。"
-    "問題か答案が書かれた紙が写っていなければ paper_visible を false にし、problem_text は空にする（写っていない問題を想像しない）。"
-    "写っていれば、学習者がいま解いている（これから解く）問題の文を読み取り、"
+    "画像は、学習者が紙で問題を解こうとしている手元の写真です。" + PAPER_RULE + "紙が無ければ problem_text は空にする。"
+    "紙があれば、学習者がいま解いている（これから解く）問題の文を読み取り、"
     "problem_text に書いてください。式だけなら式を書く。(1) のような問題番号は付けない。読み取れなければ readable を false にし、problem_text は空にする。"
     "問題を解かない。" + PROBLEM_PICK_RULE
 )

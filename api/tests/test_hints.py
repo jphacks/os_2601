@@ -320,7 +320,7 @@ def test_asking_if_the_answer_is_right_is_still_recognized() -> None:
 
 
 def test_a_hint_without_any_problem_text_or_answer_still_falls_back() -> None:
-    reply = {**ai_hint("エックスは2だよ"), "problem_text": "", "final_answer": "", "key_values": []}
+    reply = {**ai_hint("エックスは2だよ"), "problem_text": "", "final_answer": "", "key_values": [], "written_lines": ["2x = 4"]}
     assert asyncio.run(compose_hint(FakeAI(reply), MODEL, FRAME, 1, [], None, [], "teacher")).source == "fallback"
 
 
@@ -371,9 +371,9 @@ def test_an_unguarded_fallback_keeps_the_earlier_problem_and_guard() -> None:
 
 
 def test_an_empty_problem_text_does_not_count_as_the_same_problem() -> None:
-    reply = {**ai_hint("エックスは3だよ"), "problem_text": "", "final_answer": "", "key_values": []}
+    reply = {**ai_hint("エックスは3だよ"), "problem_text": "", "final_answer": "", "key_values": [], "written_lines": ["3x = 9"]}
     hint = asyncio.run(compose_hint(FakeAI(reply), MODEL, FRAME, 1, [], "2x - 7 = 4x + 3", ["x=-5"], "teacher"))
-    assert hint.source == "fallback"
+    assert (hint.source, hint.speech) == ("fallback", FALLBACK_HINTS[1])
 
 
 def test_an_example_equation_in_an_unguarded_explanation_is_kept() -> None:
@@ -390,11 +390,11 @@ def test_a_photo_without_paper_gets_the_out_of_frame_reply() -> None:
 
 def test_a_readable_photo_with_no_problem_and_no_writing_is_treated_as_no_paper() -> None:
     reply = {**ai_hint("1行目を見てみましょう"), "problem_text": "", "written_lines": []}
-    assert compose(FakeAI(reply)).speech == "紙を枠の中に入れてみて"
+    assert asyncio.run(compose_hint(FakeAI(reply), MODEL, FRAME, 1, [], None, [], "teacher")).speech == "紙を枠の中に入れてみて"
 
 
 def test_a_dark_photo_keeps_its_own_reason() -> None:
-    reply = {**ai_hint("見てみて"), "readable": False, "unreadable_reason": "dark", "problem_text": "", "written_lines": []}
+    reply = {**ai_hint("見てみて"), "paper_visible": False, "readable": False, "unreadable_reason": "dark", "problem_text": "", "written_lines": []}
     assert compose(FakeAI(reply)).speech == "もう少し明るいところで見せてみて"
 
 
@@ -406,3 +406,21 @@ def test_reading_a_photo_without_paper_gives_no_problem_text() -> None:
 def test_checking_a_photo_without_paper_is_unreadable() -> None:
     ai = FakeAI({"paper_visible": False, "readable": True, "final_answer_seen": "x = 5", "verdict": "correct"})
     assert asyncio.run(judge(ai, MODEL, FRAME, None)).verdict == "unreadable"
+
+
+def test_a_known_problem_keeps_a_guarded_hint_even_if_this_reply_lost_the_text() -> None:
+    reply = {**ai_hint("2行目を見てみましょう"), "problem_text": "", "written_lines": []}
+    hint = asyncio.run(compose_hint(FakeAI(reply), MODEL, FRAME, 1, [], "2x - 7 = 4x + 3", [], "teacher"))
+    assert hint.source == "ai"
+
+
+def test_a_voice_answer_pointing_at_lines_without_paper_is_replaced() -> None:
+    reply = ai_answer("1行目の右辺の符号を見てみて")
+    reply.update(paper_visible=False)
+    assert answer(FakeAI(reply)).source == "fallback"
+
+
+def test_a_voice_explanation_without_paper_is_kept() -> None:
+    reply = ai_answer("移項は、項を反対の辺に移すことだよ")
+    reply.update(paper_visible=False)
+    assert answer(FakeAI(reply)).source == "ai"

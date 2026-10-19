@@ -1,4 +1,3 @@
-from app.paper import PAPER_RULE
 from app.personas import get_persona
 
 STUCK_POINTS = (
@@ -17,6 +16,11 @@ STUCK_POINTS = (
 )
 UNREADABLE_REASONS = ("none", "dark", "blurry", "out_of_frame", "hidden", "other")
 
+PAPER_RULE = (
+    "まず、写真に、問題か答案が書かれた紙（ノート・プリント・問題集）が写っているかを paper_visible に書いてください。"
+    "問題だけが書かれた紙や、白い紙に式が 1 行だけでも true。"
+    "机・キーボード・画面・顔・景色だけで、そうした紙が写っていなければ false にし、写っていない問題や答案を想像して書かないでください。"
+)
 PROBLEM_PICK_RULE = (
     "紙に問題が複数あるときは、次の順で 1 つ選ぶ。"
     "(a) 答案が書かれていて、最後の行がまだ答え（x = 数 の形）になっていない問題。複数あれば、答案を最後に書いた問題。"

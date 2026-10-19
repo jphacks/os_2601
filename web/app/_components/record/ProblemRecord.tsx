@@ -1,5 +1,5 @@
 import type { HintSource, ProblemStatus, SessionDetail, Trigger, Verdict } from "@/lib/api";
-import { dateTime } from "./format";
+import { dateTime, duration } from "@/lib/recordFormat";
 
 type Problem = SessionDetail["problems"][number];
 type Hint = Problem["hints"][number];
@@ -13,10 +13,6 @@ const STATUS_LABELS: Record<ProblemStatus, string> = {
 const TRIGGER_LABELS: Record<Trigger, string> = { auto: "手が止まって", manual: "ヒントボタン", voice: "声で呼んだ" };
 const SOURCE_LABELS: Record<HintSource, string> = { ai: "AI", fallback: "固定の問い返し", scripted: "台本" };
 const VERDICT_LABELS: Record<Verdict, string> = { correct: "正解", incorrect: "不正解", unreadable: "読めなかった" };
-
-function duration(seconds: number): string {
-  return seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
-}
 
 function HintRow({ hint }: { hint: Hint }) {
   const byAi = hint.source === "ai";

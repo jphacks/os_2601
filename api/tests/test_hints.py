@@ -160,7 +160,7 @@ def test_answer_about_an_unreadable_paper_tells_the_reason_instead_of_guessing()
 
 def test_question_that_needs_no_paper_is_answered_even_without_anything_to_guard() -> None:
     reply = ai_answer("移項は、項を反対の辺に移すことだよ")
-    reply.update(problem_text="", final_answer="", key_values=[])
+    reply.update(problem_text="", final_answer="", key_values=[], written_lines=["2x = 4x + 10"])
     assert answer(ScriptedAI(reply)).source == "ai"
 
 
@@ -380,28 +380,39 @@ def test_a_known_problem_keeps_a_guarded_hint_even_if_this_reply_lost_the_text()
     assert hint.source == "ai"
 
 
-def test_a_voice_answer_pointing_at_lines_without_paper_is_replaced() -> None:
-    reply = ai_answer("1行目の右辺の符号を見てみて")
+@pytest.mark.parametrize("utterance", ["次どうすればいい？", "移項って何？", "あのー、係数の意味がわからない"])
+def test_a_voice_question_without_paper_asks_for_the_paper_even_when_it_is_about_a_word(utterance: str) -> None:
+    reply = ai_answer("移項は、項の符号を変えて反対の辺に移すことだよ")
     reply.update(paper_visible=False)
-    assert answer(ScriptedAI(reply)).source == "fallback"
+    replied = asyncio.run(compose_answer(ScriptedAI(reply), MODEL, FRAME, utterance, [], "2x - 7 = 4x + 3", ["x=-5"], "teacher"))
+    assert (replied.speech, replied.source, replied.problem_text, replied.leak_strings) == (
+        "紙を枠の中に入れてみて",
+        "fallback",
+        None,
+        ["x=-5"],
+    )
 
 
-def test_a_voice_explanation_without_paper_is_kept() -> None:
-    reply = ai_answer("移項は、項を反対の辺に移すことだよ")
-    reply.update(paper_visible=False)
-    assert answer(ScriptedAI(reply)).source == "ai"
+def test_a_voice_answer_with_nothing_on_paper_is_replaced_even_if_the_ai_says_there_is_paper() -> None:
+    reply = ai_answer("1行目の右辺の符号、もう一回見てみて")
+    reply.update(problem_text="", written_lines=[], final_answer="")
+    replied = asyncio.run(compose_answer(ScriptedAI(reply), MODEL, FRAME, "次どうすればいい？", [], None, [], "teacher"))
+    assert replied.speech == "紙を枠の中に入れてみて"
 
 
-def test_a_voice_answer_without_paper_that_mentions_the_right_side_is_replaced() -> None:
-    reply = ai_answer("右辺に移したときの符号、もう一回見てみて")
-    reply.update(paper_visible=False)
-    assert answer(ScriptedAI(reply)).source == "fallback"
+def test_a_paperless_photo_with_an_other_reason_asks_for_the_paper() -> None:
+    reply = {**ai_hint("見てみて"), "paper_visible": False, "readable": False, "unreadable_reason": "other"}
+    assert compose(ScriptedAI(reply)).speech == "紙を枠の中に入れてみて"
 
 
-def test_a_voice_answer_without_paper_still_keeps_the_ai_answer_as_a_guard() -> None:
-    reply = ai_answer("両辺を3で割ると5になるよ")
-    reply.update(paper_visible=False, final_answer="x = 5", key_values=["3x = 15"])
-    assert answer(ScriptedAI(reply)).leak_check == LeakCheck(ok=False, fallback=True)
+def test_a_voice_answer_on_a_paperless_photo_said_to_be_hidden_asks_for_the_paper() -> None:
+    reply = {**ai_answer("見てみて"), "paper_visible": False, "readable": False, "unreadable_reason": "hidden"}
+    assert answer(ScriptedAI(reply)).speech == "紙を枠の中に入れてみて"
+
+
+def test_a_voice_answer_on_a_dark_paperless_photo_tells_the_reason() -> None:
+    reply = {**ai_answer("見てみて"), "paper_visible": False, "readable": False, "unreadable_reason": "dark"}
+    assert answer(ScriptedAI(reply)).speech == "もう少し明るいところで見せてみて"
 
 
 def test_a_dark_paperless_photo_keeps_the_earlier_guard() -> None:

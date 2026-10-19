@@ -1,23 +1,10 @@
-import advanceMock from "@/mocks/advance.json";
-import advanceEndedMock from "@/mocks/advance_ended.json";
-import checkCorrectMock from "@/mocks/check_correct.json";
-import demoResetMock from "@/mocks/demo_reset.json";
-import endMock from "@/mocks/end.json";
-import frameReceivedMock from "@/mocks/frame_received.json";
-import hintLevel1Mock from "@/mocks/hint_level1.json";
-import hintLevel2Mock from "@/mocks/hint_level2.json";
-import sessionActiveMock from "@/mocks/session_active.json";
-import sessionCreatedMock from "@/mocks/session_created.json";
-import sessionEndedMock from "@/mocks/session_ended.json";
-import sessionsListMock from "@/mocks/sessions_list.json";
-import signalsCooldownMock from "@/mocks/signals_cooldown.json";
-import signalsEndedMock from "@/mocks/signals_ended.json";
-import signalsSpeakingMock from "@/mocks/signals_speaking.json";
-import signalsStillMock from "@/mocks/signals_still.json";
-import signalsStuckMock from "@/mocks/signals_stuck.json";
-import signalsWatchingMock from "@/mocks/signals_watching.json";
+import { mockApi } from "./api.mock";
+import { ApiError } from "./apiError";
 import { personaOptions, type Persona, type PersonaOption, type VoiceCharacter } from "./personas";
+import { requestSignal } from "./requestSignal";
+import { normalizedSettings } from "./settings";
 
+export { ApiError, type ApiErrorBody, type ErrorCode } from "./apiError";
 export type { Persona, PersonaOption, VoiceCharacter } from "./personas";
 
 export type State = "created" | "watching" | "still" | "stuck" | "speaking" | "cooldown" | "checking" | "ended";
@@ -104,6 +91,8 @@ export type SessionDetail = {
 
 export type SettingsPatch = Partial<Pick<Settings, "stuck_seconds" | "cooldown_seconds" | "persona">>;
 
+export type SettingsResponse = { settings: Settings; state: State };
+
 export type SignalRequest =
   | { motion?: number; camera_ok: boolean; force_stuck?: false }
   | { motion?: number; camera_ok?: boolean; force_stuck: true };
@@ -156,67 +145,15 @@ export type EndResponse = { state: "ended"; ended_at: string };
 
 export type DemoReset = { ok: true; removed_sessions: number };
 
-export type ErrorCode =
-  | "BAD_REQUEST"
-  | "UNAUTHORIZED"
-  | "FORBIDDEN"
-  | "NOT_FOUND"
-  | "STATE_CONFLICT"
-  | "FRAME_TOO_LARGE"
-  | "VALIDATION_ERROR"
-  | "RATE_LIMITED"
-  | "INTERNAL"
-  | "HINT_UNAVAILABLE";
-
-export type ApiErrorBody = { error: { code: ErrorCode; message: string } };
-
 export type Auth = { token: string } | { operatorKey: string };
-
-export class ApiError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: ErrorCode | "UNKNOWN",
-    detail = "",
-  ) {
-    super(detail ? `API ${status} ${code}: ${detail}` : `API ${status} ${code}`);
-    this.name = "ApiError";
-  }
-}
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 const USE_MOCK = process.env.NEXT_PUBLIC_MOCK === "1";
 
+const REQUEST_TIMEOUT_MS = 15000;
 const SIGNAL_TIMEOUT_MS = 3000;
 const FRAME_TIMEOUT_MS = 5000;
-const REQUEST_TIMEOUT_MS = 15000;
 const SPEECH_TIMEOUT_MS = 9000;
-const SIGNALS_PER_STATE = 5;
-const SIGNAL_CYCLE = [
-  signalsWatchingMock,
-  signalsStillMock,
-  signalsStuckMock,
-  signalsSpeakingMock,
-  signalsCooldownMock,
-] as SignalResponse[];
-const MOCK_PROBLEM_COUNT = (sessionActiveMock as SessionDetail).problem_count;
-
-let mockSignalCount = 0;
-let mockHintCount = 0;
-let mockAdvanceCount = 0;
-let mockEnded = false;
-let mockSettings: Settings | null = null;
-
-function normalizedSettings(settings: Settings): Settings {
-  return { ...settings, persona: settings.persona ?? "teacher" };
-}
-
-function resetMockState(): void {
-  mockSignalCount = 0;
-  mockHintCount = 0;
-  mockAdvanceCount = 0;
-  mockEnded = false;
-  mockSettings = null;
-}
 
 function sessionPath(id: string, action = ""): string {
   return `/sessions/${encodeURIComponent(id)}${action}`;
@@ -234,158 +171,115 @@ function jsonInit(method: string, auth: Auth, body?: unknown): RequestInit {
   };
 }
 
-async function send(path: string, init: RequestInit): Promise<Response> {
+async function send(path: string, init: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Response> {
   if (!API_BASE) throw new Error("NEXT_PUBLIC_API_BASE が無い。web/.env.local か Vercel の環境変数に入れる");
-  const response = await fetch(`${API_BASE}${path}`, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS), ...init });
-  if (!response.ok) {
-    const body: ApiErrorBody | null = await response.json().catch(() => null);
-    throw new ApiError(response.status, body?.error?.code ?? "UNKNOWN", body?.error?.message);
-  }
+  const response = await fetch(`${API_BASE}${path}`, { ...init, signal: requestSignal(timeoutMs, init.signal) });
+  if (!response.ok) throw await ApiError.fromResponse(response);
   return response;
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  return (await send(path, init)).json() as Promise<T>;
+async function request<T>(path: string, init: RequestInit, timeoutMs?: number): Promise<T> {
+  return (await send(path, init, timeoutMs)).json() as Promise<T>;
 }
 
-export async function createSession(body: SessionCreateRequest, operatorKey: string): Promise<SessionCreated> {
-  if (USE_MOCK) {
-    resetMockState();
-    mockSettings = normalizedSettings({ ...sessionCreatedMock.settings, ...body.settings } as Settings);
-    return { ...sessionCreatedMock, settings: mockSettings } as SessionCreated;
-  }
-  return request("/sessions", jsonInit("POST", { operatorKey }, body));
-}
+const httpApi = {
+  async createSession(body: SessionCreateRequest, operatorKey: string): Promise<SessionCreated> {
+    return request("/sessions", jsonInit("POST", { operatorKey }, body));
+  },
 
-export async function openSession(): Promise<SessionCreated> {
-  if (USE_MOCK) {
-    resetMockState();
-    return sessionCreatedMock as SessionCreated;
-  }
-  return request("/sessions/open", { method: "POST" });
-}
+  async openSession(): Promise<SessionCreated> {
+    return request("/sessions/open", { method: "POST" });
+  },
 
-export async function listSessions(operatorKey: string): Promise<SessionList> {
-  if (USE_MOCK) return sessionsListMock as SessionList;
-  return request("/sessions", { headers: authHeaders({ operatorKey }) });
-}
+  async listSessions(operatorKey: string): Promise<SessionList> {
+    return request("/sessions", { headers: authHeaders({ operatorKey }) });
+  },
 
-export async function getSession(id: string, auth: Auth): Promise<SessionDetail> {
-  const detail = USE_MOCK
-    ? ((id === "ses_mock_ended" ? sessionEndedMock : sessionActiveMock) as SessionDetail)
-    : await request<SessionDetail>(sessionPath(id), { headers: authHeaders(auth) });
-  return {
-    ...detail,
-    settings: normalizedSettings(USE_MOCK && mockSettings ? mockSettings : detail.settings),
-    persona_options: personaOptions(detail.persona_options),
-  };
-}
+  async getSession(id: string, auth: Auth): Promise<SessionDetail> {
+    const detail = await request<SessionDetail>(sessionPath(id), { headers: authHeaders(auth) });
+    return {
+      ...detail,
+      settings: normalizedSettings(detail.settings),
+      persona_options: personaOptions(detail.persona_options),
+    };
+  },
 
-export async function patchSettings(
-  id: string,
-  token: string,
-  body: SettingsPatch,
-): Promise<{ settings: Settings; state: State }> {
-  if (USE_MOCK) {
-    mockSettings = normalizedSettings({ ...(mockSettings ?? sessionCreatedMock.settings), ...body } as Settings);
-    return { settings: mockSettings, state: "created" };
-  }
-  const response = await request<{ settings: Settings; state: State }>(
-    sessionPath(id, "/settings"),
-    jsonInit("PATCH", { token }, body),
-  );
-  return { ...response, settings: normalizedSettings(response.settings) };
-}
+  async patchSettings(id: string, token: string, body: SettingsPatch): Promise<SettingsResponse> {
+    const response = await request<SettingsResponse>(sessionPath(id, "/settings"), jsonInit("PATCH", { token }, body));
+    return { ...response, settings: normalizedSettings(response.settings) };
+  },
 
-export async function postSignal(id: string, auth: Auth, body: SignalRequest, debugNote?: string): Promise<SignalResponse> {
-  if (USE_MOCK) {
-    if (mockEnded) return signalsEndedMock as SignalResponse;
-    if (body.force_stuck) return signalsStuckMock as SignalResponse;
-    const signal = SIGNAL_CYCLE[Math.floor(mockSignalCount / SIGNALS_PER_STATE) % SIGNAL_CYCLE.length];
-    mockSignalCount += 1;
-    return signal;
-  }
-  const timeout = new AbortController();
-  setTimeout(() => timeout.abort(), SIGNAL_TIMEOUT_MS);
-  const query = debugNote ? `?note=${encodeURIComponent(debugNote)}` : "";
-  return request(sessionPath(id, `/signals${query}`), { ...jsonInit("POST", auth, body), signal: timeout.signal });
-}
+  async postSignal(id: string, auth: Auth, body: SignalRequest, debugNote?: string): Promise<SignalResponse> {
+    const query = debugNote ? `?note=${encodeURIComponent(debugNote)}` : "";
+    return request(sessionPath(id, `/signals${query}`), jsonInit("POST", auth, body), SIGNAL_TIMEOUT_MS);
+  },
 
-export async function postFrame(id: string, token: string, blob: Blob): Promise<FrameReceived> {
-  if (USE_MOCK) return frameReceivedMock;
-  const form = new FormData();
-  form.append("frame", blob, "frame.jpg");
-  const timeout = new AbortController();
-  setTimeout(() => timeout.abort(), FRAME_TIMEOUT_MS);
-  return request(sessionPath(id, "/frames"), {
-    method: "POST",
-    headers: authHeaders({ token }),
-    body: form,
-    signal: timeout.signal,
-  });
-}
+  async postFrame(id: string, token: string, blob: Blob): Promise<FrameReceived> {
+    const form = new FormData();
+    form.append("frame", blob, "frame.jpg");
+    return request(
+      sessionPath(id, "/frames"),
+      { method: "POST", headers: authHeaders({ token }), body: form },
+      FRAME_TIMEOUT_MS,
+    );
+  },
 
-export async function requestHint(id: string, token: string, body: HintRequest): Promise<HintResponse> {
-  if (USE_MOCK) {
-    mockHintCount += 1;
-    return (mockHintCount === 1 ? hintLevel1Mock : hintLevel2Mock) as HintResponse;
-  }
-  return request(sessionPath(id, "/hints"), jsonInit("POST", { token }, body));
-}
+  async requestHint(id: string, token: string, body: HintRequest): Promise<HintResponse> {
+    return request(sessionPath(id, "/hints"), jsonInit("POST", { token }, body));
+  },
 
-export async function answerUtterance(
-  id: string,
-  token: string,
-  body: { frame_id: string; utterance: string },
-): Promise<HintResponse | null> {
-  if (USE_MOCK) return null;
-  const response = await send(sessionPath(id, "/hints"), jsonInit("POST", { token }, { trigger: "voice", ...body }));
-  return response.status === 204 ? null : (response.json() as Promise<HintResponse>);
-}
+  async answerUtterance(
+    id: string,
+    token: string,
+    body: { frame_id: string; utterance: string },
+  ): Promise<HintResponse | null> {
+    const response = await send(sessionPath(id, "/hints"), jsonInit("POST", { token }, { trigger: "voice", ...body }));
+    return response.status === 204 ? null : (response.json() as Promise<HintResponse>);
+  },
 
-export async function postCheck(id: string, token: string, body: CheckRequest): Promise<CheckResponse> {
-  if (USE_MOCK) return checkCorrectMock as CheckResponse;
-  return request(sessionPath(id, "/check"), jsonInit("POST", { token }, body));
-}
+  async postCheck(id: string, token: string, body: CheckRequest): Promise<CheckResponse> {
+    return request(sessionPath(id, "/check"), jsonInit("POST", { token }, body));
+  },
 
-export async function readProblem(id: string, token: string, body: { frame_id: string }): Promise<ProblemResponse> {
-  if (USE_MOCK) return { problem_no: mockAdvanceCount + 1, problem_text: "2x - 7 = 4x + 3", state: "watching" };
-  return request(sessionPath(id, "/problem"), jsonInit("POST", { token }, body));
-}
+  async readProblem(id: string, token: string, body: { frame_id: string }): Promise<ProblemResponse> {
+    return request(sessionPath(id, "/problem"), jsonInit("POST", { token }, body));
+  },
 
-export async function synthesizeSpeech(id: string, token: string, text: string, character: VoiceCharacter): Promise<Blob> {
-  if (USE_MOCK) throw new ApiError(503, "HINT_UNAVAILABLE", "モックでは VOICEVOX を使わない");
-  const timeout = new AbortController();
-  setTimeout(() => timeout.abort(), SPEECH_TIMEOUT_MS);
-  const response = await send(sessionPath(id, "/tts"), { ...jsonInit("POST", { token }, { text, character }), signal: timeout.signal });
-  return response.blob();
-}
+  async synthesizeSpeech(id: string, token: string, text: string, character: VoiceCharacter): Promise<Blob> {
+    const response = await send(sessionPath(id, "/tts"), jsonInit("POST", { token }, { text, character }), SPEECH_TIMEOUT_MS);
+    return response.blob();
+  },
 
-export async function postAdvance(id: string, token: string): Promise<AdvanceResponse> {
-  if (USE_MOCK) {
-    mockAdvanceCount += 1;
-    if (mockAdvanceCount >= MOCK_PROBLEM_COUNT) {
-      mockEnded = true;
-      return advanceEndedMock as AdvanceResponse;
-    }
-    return { ...(advanceMock as AdvanceResponse), current_problem_no: mockAdvanceCount + 1 };
-  }
-  return request(sessionPath(id, "/advance"), jsonInit("POST", { token }));
-}
+  async postAdvance(id: string, token: string): Promise<AdvanceResponse> {
+    return request(sessionPath(id, "/advance"), jsonInit("POST", { token }));
+  },
 
-export async function postEnd(id: string, token: string): Promise<EndResponse> {
-  if (USE_MOCK) {
-    mockEnded = true;
-    return endMock as EndResponse;
-  }
-  return request(sessionPath(id, "/end"), { method: "POST", headers: authHeaders({ token }) });
-}
+  async postEnd(id: string, token: string): Promise<EndResponse> {
+    return request(sessionPath(id, "/end"), { method: "POST", headers: authHeaders({ token }) });
+  },
 
+  async demoReset(operatorKey: string): Promise<DemoReset> {
+    return request("/demo/reset", { method: "POST", headers: authHeaders({ operatorKey }) });
+  },
+};
 
-export async function demoReset(operatorKey: string): Promise<DemoReset> {
-  if (USE_MOCK) {
-    resetMockState();
-    return demoResetMock as DemoReset;
-  }
-  return request("/demo/reset", { method: "POST", headers: authHeaders({ operatorKey }) });
-}
+export type Api = typeof httpApi;
+
+export const {
+  createSession,
+  openSession,
+  listSessions,
+  getSession,
+  patchSettings,
+  postSignal,
+  postFrame,
+  requestHint,
+  answerUtterance,
+  postCheck,
+  readProblem,
+  synthesizeSpeech,
+  postAdvance,
+  postEnd,
+  demoReset,
+} = USE_MOCK ? mockApi : httpApi;
+

@@ -31,6 +31,7 @@ import type {
 } from "./api";
 import { ApiError } from "./apiError";
 import { personaOptions } from "./personas";
+import { normalizedSettings } from "./settings";
 
 const SIGNALS_PER_STATE = 5;
 const SIGNAL_CYCLE = [
@@ -41,7 +42,7 @@ const SIGNAL_CYCLE = [
   signalsCooldownMock,
 ] as SignalResponse[];
 const PROBLEM_COUNT = (sessionActiveMock as SessionDetail).problem_count;
-const INITIAL_SETTINGS: Settings = { ...sessionCreatedMock.settings, persona: "teacher" };
+const INITIAL_SETTINGS = normalizedSettings(sessionCreatedMock.settings as Settings);
 
 let signalCount = 0;
 let hintCount = 0;
@@ -60,7 +61,7 @@ function reset(): void {
 export const mockApi: Api = {
   async createSession(body) {
     reset();
-    settings = { ...INITIAL_SETTINGS, ...body.settings };
+    settings = normalizedSettings({ ...INITIAL_SETTINGS, ...body.settings });
     return { ...sessionCreatedMock, settings } as SessionCreated;
   },
 
@@ -79,7 +80,7 @@ export const mockApi: Api = {
   },
 
   async patchSettings(_id, _token, body) {
-    settings = { ...settings, ...body };
+    settings = normalizedSettings({ ...settings, ...body });
     return { settings, state: "created" };
   },
 

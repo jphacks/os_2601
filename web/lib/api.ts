@@ -2,6 +2,7 @@ import { mockApi } from "./api.mock";
 import { ApiError } from "./apiError";
 import { personaOptions, type Persona, type PersonaOption, type VoiceCharacter } from "./personas";
 import { requestSignal } from "./requestSignal";
+import { normalizedSettings } from "./settings";
 
 export { ApiError, type ApiErrorBody, type ErrorCode } from "./apiError";
 export type { Persona, PersonaOption, VoiceCharacter } from "./personas";
@@ -153,10 +154,6 @@ const REQUEST_TIMEOUT_MS = 15000;
 const SIGNAL_TIMEOUT_MS = 3000;
 const FRAME_TIMEOUT_MS = 5000;
 const SPEECH_TIMEOUT_MS = 9000;
-
-function normalizedSettings(settings: Settings): Settings {
-  return { ...settings, persona: settings.persona ?? "teacher" };
-}
 
 function sessionPath(id: string, action = ""): string {
   return `/sessions/${encodeURIComponent(id)}${action}`;

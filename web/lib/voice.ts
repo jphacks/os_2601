@@ -176,7 +176,7 @@ function begin(): void {
   }
 }
 
-export function startListening(handler: (text: string) => void): () => void {
+function listen(handler: (text: string) => void, byGesture: boolean): () => void {
   onHeard = handler;
   if (typeof window === "undefined" || blocked) return stopListening;
   if (new URLSearchParams(window.location.search).get("voice") === "0") {
@@ -185,13 +185,17 @@ export function startListening(handler: (text: string) => void): () => void {
   }
   recognizer ??= createRecognizer();
   wanted = true;
-  if (!running) startedByTap = false;
+  if (!running) startedByTap = byGesture;
   begin();
   return stopListening;
 }
 
+export function startListening(handler: (text: string) => void): () => void {
+  return listen(handler, false);
+}
+
 export function primeListening(): void {
-  startListening(() => {});
+  listen(() => {}, true);
 }
 
 export function voiceStatus(): string {

@@ -68,10 +68,19 @@ export function watchCamera(listener: (live: boolean) => void): () => void {
   };
 }
 
+export function isCameraLive(video: HTMLVideoElement): boolean {
+  const source = video.srcObject;
+  return (
+    video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+    source instanceof MediaStream &&
+    source.getVideoTracks().some((track) => track.readyState === "live" && !track.muted)
+  );
+}
+
 export function captureFrame(): Promise<Blob> {
   const video = currentVideo;
-  if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-    return Promise.reject(new Error("カメラの映像がまだ無い"));
+  if (!video || !isCameraLive(video)) {
+    return Promise.reject(new Error("カメラの映像が無いか、止まっている"));
   }
   const scale = Math.min(1, FRAME_LONG_SIDE / Math.max(video.videoWidth, video.videoHeight));
   const canvas = document.createElement("canvas");

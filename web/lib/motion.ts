@@ -1,3 +1,5 @@
+import { isCameraLive } from "./camera.ts";
+
 const INTERVAL_MS = 1000;
 const SAMPLE_LONG_SIDE = 64;
 const SAMPLE_SHORT_SIDE = 36;
@@ -5,15 +7,6 @@ const MEDIAN_WINDOW = 3;
 const MAX_LUMA = 255;
 
 export type MotionScoreHandler = (score: number | null, brightness: number, cameraOk: boolean) => void;
-
-function isCameraLive(video: HTMLVideoElement): boolean {
-  const source = video.srcObject;
-  return (
-    video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
-    source instanceof MediaStream &&
-    source.getVideoTracks().some((track) => track.readyState === "live" && !track.muted)
-  );
-}
 
 function toGrayscale(rgba: Uint8ClampedArray): Float32Array {
   const gray = new Float32Array(rgba.length / 4);

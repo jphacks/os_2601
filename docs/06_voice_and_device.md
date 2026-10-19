@@ -133,6 +133,7 @@ PC（横持ち）では映像を左、字幕とボタンを右に置く。部品
 - 送るタイミング：`signals` の応答に `next_action` が来たら即 1 枚（`send_frame_and_request_hint` のときは、`send_frame` で先に送っていなければ）、「ヒント」「できた」を押した直後に 1 枚。定期的には送らない。
 - 送った `frame_id` を保持し、直後の `hints` / `check` に渡す。
 - 回線が落ちているときは送らない（キューに溜めない。古いフレームに意味はない）。
+- 映像のトラックが止まっている（`ended`、または `mute`。iOS の通話中は `readyState` が `live` のまま最後の 1 枚で固まる）ときも送らない。止まっているかどうかは `camera.ts` の `isCameraLive` 1 か所で決め、`captureFrame` と `motion.ts`（`camera_ok`）の両方がそれを使う。
 
 ## `web/lib` の関数（固定。B はこれを呼ぶだけ）
 

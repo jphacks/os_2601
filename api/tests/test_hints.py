@@ -17,6 +17,7 @@ from app.hints import (
     asks_if_correct,
     compose_answer,
     compose_hint,
+    read_problem,
 )
 from app.personas import PERSONAS, fallback_message, get_persona
 from app.state import LeakCheck
@@ -189,7 +190,7 @@ def test_answer_about_an_unreadable_paper_tells_the_reason_instead_of_guessing()
 
 def test_question_that_needs_no_paper_is_answered_even_without_anything_to_guard() -> None:
     reply = ai_answer("移項は、項を反対の辺に移すことだよ")
-    reply.update(problem_text="", final_answer="", key_values=[])
+    reply.update(problem_text="", final_answer="", key_values=[], written_lines=["2x = 4x + 10"])
     assert answer(FakeAI(reply)).source == "ai"
 
 
@@ -319,7 +320,7 @@ def test_asking_if_the_answer_is_right_is_still_recognized() -> None:
 
 
 def test_a_hint_without_any_problem_text_or_answer_still_falls_back() -> None:
-    reply = {**ai_hint("エックスは2だよ"), "problem_text": "", "final_answer": "", "key_values": []}
+    reply = {**ai_hint("エックスは2だよ"), "problem_text": "", "final_answer": "", "key_values": [], "written_lines": ["2x = 4"]}
     assert asyncio.run(compose_hint(FakeAI(reply), MODEL, FRAME, 1, [], None, [], "teacher")).source == "fallback"
 
 
@@ -370,12 +371,81 @@ def test_an_unguarded_fallback_keeps_the_earlier_problem_and_guard() -> None:
 
 
 def test_an_empty_problem_text_does_not_count_as_the_same_problem() -> None:
-    reply = {**ai_hint("エックスは3だよ"), "problem_text": "", "final_answer": "", "key_values": []}
+    reply = {**ai_hint("エックスは3だよ"), "problem_text": "", "final_answer": "", "key_values": [], "written_lines": ["3x = 9"]}
     hint = asyncio.run(compose_hint(FakeAI(reply), MODEL, FRAME, 1, [], "2x - 7 = 4x + 3", ["x=-5"], "teacher"))
-    assert hint.source == "fallback"
+    assert (hint.source, hint.speech) == ("fallback", FALLBACK_HINTS[1])
 
 
 def test_an_example_equation_in_an_unguarded_explanation_is_kept() -> None:
     reply = ai_answer("例えば x+2=5 なら、2 を右辺に移すと x=5-2 になるよ")
-    reply.update(problem_text="", final_answer="", key_values=[])
+    reply.update(problem_text="", final_answer="", key_values=[], written_lines=["2x = 4"])
     assert answer(FakeAI(reply)).source == "ai"
+
+
+def test_a_photo_without_paper_gets_the_out_of_frame_reply() -> None:
+    reply = {**ai_hint("1行目の右辺の計算を見てみましょう"), "paper_visible": False}
+    hint = compose(FakeAI(reply))
+    assert (hint.speech, hint.source, hint.problem_text) == ("紙を枠の中に入れてみて", "fallback", None)
+
+
+def test_a_readable_photo_with_no_problem_and_no_writing_is_treated_as_no_paper() -> None:
+    reply = {**ai_hint("1行目を見てみましょう"), "problem_text": "", "written_lines": []}
+    assert asyncio.run(compose_hint(FakeAI(reply), MODEL, FRAME, 1, [], None, [], "teacher")).speech == "紙を枠の中に入れてみて"
+
+
+def test_a_dark_photo_keeps_its_own_reason() -> None:
+    reply = {**ai_hint("見てみて"), "paper_visible": False, "readable": False, "unreadable_reason": "dark", "problem_text": "", "written_lines": []}
+    assert compose(FakeAI(reply)).speech == "もう少し明るいところで見せてみて"
+
+
+def test_reading_a_photo_without_paper_gives_no_problem_text() -> None:
+    ai = FakeAI({"paper_visible": False, "problem_text": "3x + 5 = 20", "readable": True})
+    assert asyncio.run(read_problem(ai, MODEL, FRAME, None)) is None
+
+
+
+def test_a_known_problem_keeps_a_guarded_hint_even_if_this_reply_lost_the_text() -> None:
+    reply = {**ai_hint("2行目を見てみましょう"), "problem_text": "", "written_lines": []}
+    hint = asyncio.run(compose_hint(FakeAI(reply), MODEL, FRAME, 1, [], "2x - 7 = 4x + 3", [], "teacher"))
+    assert hint.source == "ai"
+
+
+@pytest.mark.parametrize("utterance", ["次どうすればいい？", "移項って何？", "あのー、係数の意味がわからない"])
+def test_a_voice_question_without_paper_asks_for_the_paper_even_when_it_is_about_a_word(utterance: str) -> None:
+    reply = ai_answer("移項は、項の符号を変えて反対の辺に移すことだよ")
+    reply.update(paper_visible=False)
+    replied = asyncio.run(compose_answer(FakeAI(reply), MODEL, FRAME, utterance, [], "2x - 7 = 4x + 3", ["x=-5"], "teacher"))
+    assert (replied.speech, replied.source, replied.problem_text, replied.leak_strings) == (
+        "紙を枠の中に入れてみて",
+        "fallback",
+        None,
+        ["x=-5"],
+    )
+
+
+def test_a_voice_answer_with_nothing_on_paper_is_replaced_even_if_the_ai_says_there_is_paper() -> None:
+    reply = ai_answer("1行目の右辺の符号、もう一回見てみて")
+    reply.update(problem_text="", written_lines=[], final_answer="")
+    replied = asyncio.run(compose_answer(FakeAI(reply), MODEL, FRAME, "次どうすればいい？", [], None, [], "teacher"))
+    assert replied.speech == "紙を枠の中に入れてみて"
+
+
+def test_a_paperless_photo_with_an_other_reason_asks_for_the_paper() -> None:
+    reply = {**ai_hint("見てみて"), "paper_visible": False, "readable": False, "unreadable_reason": "other"}
+    assert compose(FakeAI(reply)).speech == "紙を枠の中に入れてみて"
+
+
+def test_a_voice_answer_on_a_paperless_photo_said_to_be_hidden_asks_for_the_paper() -> None:
+    reply = {**ai_answer("見てみて"), "paper_visible": False, "readable": False, "unreadable_reason": "hidden"}
+    assert answer(FakeAI(reply)).speech == "紙を枠の中に入れてみて"
+
+
+def test_a_voice_answer_on_a_dark_paperless_photo_tells_the_reason() -> None:
+    reply = {**ai_answer("見てみて"), "paper_visible": False, "readable": False, "unreadable_reason": "dark"}
+    assert answer(FakeAI(reply)).speech == "もう少し明るいところで見せてみて"
+
+
+def test_a_dark_paperless_photo_keeps_the_earlier_guard() -> None:
+    reply = {**ai_hint("見てみて"), "paper_visible": False, "readable": False, "unreadable_reason": "dark", "problem_text": "x + 1 = 3", "final_answer": "x = 2"}
+    hint = asyncio.run(compose_hint(FakeAI(reply), MODEL, FRAME, 1, [], "2x - 7 = 4x + 3", ["x=-5"], "teacher"))
+    assert (hint.speech, hint.leak_strings) == ("もう少し明るいところで見せてみて", ["x=-5"])

@@ -405,7 +405,7 @@ async def post_check(
     require_device(request, context, session)
     now = _now()
     if not _would_accept(context, session, CheckRequested(), now):
-        _apply(context, session, CheckRequested(), now)
+        _state_conflict(_tick(context, session, now).state)
     frame = _latest_frame(context, session_id)
     if session.mode != "scripted":
         count_ai_call(context, session_id, frame, now)

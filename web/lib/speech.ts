@@ -48,7 +48,7 @@ export function setSpeechCharacter(next: VoiceCharacter): void {
 }
 
 export function unlockSpeech(): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined" || (player && !player.paused)) return;
   player ??= new Audio();
   player.src = SILENT_WAV;
   player.play().catch((error) => console.warn("[speech] 無音の再生に失敗", error));

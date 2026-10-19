@@ -8,7 +8,7 @@ const STEPS = [
   "手が止まったら、となりが声をかける。答えは言わない",
 ];
 
-const LINK = "underline decoration-white/60 underline-offset-4 hover:decoration-white";
+const LINK = "inline-block py-3 underline decoration-slate-400 underline-offset-4 hover:decoration-slate-800";
 
 export default function Home() {
   return (
@@ -43,7 +43,7 @@ export default function Home() {
 
         <Link
           href="/device"
-          className="w-full max-w-sm rounded-full bg-sky-500 px-6 py-4 text-xl font-bold text-white shadow-lg transition active:scale-95"
+          className="w-full max-w-sm rounded-full bg-sky-700 px-6 py-4 text-xl font-bold text-white shadow-lg transition active:scale-95"
         >
           はじめる
         </Link>
@@ -51,7 +51,7 @@ export default function Home() {
         <ol className="flex w-full max-w-sm flex-col gap-2 rounded-3xl bg-white/80 p-5 text-left shadow-md backdrop-blur">
           {STEPS.map((step, index) => (
             <li key={step} className="flex gap-3">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sky-500 text-sm font-bold text-white">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sky-700 text-sm font-bold text-white">
                 {index + 1}
               </span>
               <span className="leading-7">{step}</span>
@@ -67,8 +67,8 @@ export default function Home() {
           カメラとマイクを使います。写真は、はじめたとき・次の問題に進んだとき・手が止まりかけたとき・ボタンや声で呼んだときだけ Google の Gemini API に送ります（声で呼んだときは聞き取った文も）。無料枠なので、Google のサービス改善に使われることがあります。声の聞き取りはブラウザの機能で、Google や Apple のサーバで文字になります。映像と声は残しません。
         </p>
 
-        <footer className="mt-auto flex flex-col items-center gap-2 text-sm text-white drop-shadow">
-          <nav className="flex flex-wrap justify-center gap-x-4 gap-y-1">
+        <footer className="mt-auto flex w-full max-w-sm flex-col items-center rounded-3xl bg-white/80 px-4 pb-3 text-sm text-slate-800 shadow-md backdrop-blur">
+          <nav className="flex flex-wrap justify-center gap-x-4">
             <a href="https://github.com/jphacks/os_2601" className={LINK}>
               仕組みと既知の制約
             </a>

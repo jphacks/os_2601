@@ -22,9 +22,11 @@ export default function OpsPage() {
   const [created, setCreated] = useState<{ session: SessionCreated; link: string } | null>(null);
   const [stuckTarget, setStuckTarget] = useState("");
   const [message, setMessage] = useState("");
+  const [creating, setCreating] = useState(false);
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setCreating(true);
     setMessage("");
     try {
       const session = await createSession(
@@ -36,6 +38,8 @@ export default function OpsPage() {
       setStuckTarget(session.session_id);
     } catch (error) {
       setMessage(`作成に失敗: ${errorText(error)}`);
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -98,7 +102,7 @@ export default function OpsPage() {
               className={`${INPUT} w-24`}
             />
           </label>
-          <button type="submit" disabled={!operatorKey} className={BUTTON}>
+          <button type="submit" disabled={!operatorKey || creating} className={BUTTON}>
             作成
           </button>
         </form>

@@ -18,8 +18,8 @@ export function CharacterPicker({ value, onChange, disabled = false }: Props) {
             disabled={disabled}
             onClick={() => onChange(id)}
             aria-pressed={value === id}
-            className={`min-h-10 rounded-full px-3 text-sm font-bold shadow-sm transition active:scale-95 ${
-              value === id ? "bg-sky-500 text-white" : "bg-white text-slate-600"
+            className={`min-h-11 rounded-full px-3 text-sm font-bold shadow-sm transition active:scale-95 ${
+              value === id ? "bg-sky-700 text-white" : "bg-white text-slate-600"
             }`}
           >
             {label}

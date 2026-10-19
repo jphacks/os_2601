@@ -15,7 +15,7 @@ import {
   type State,
   type Trigger,
 } from "./api";
-import { captureFrame, stopCamera } from "./camera";
+import { captureFrame, stopCamera, watchCamera } from "./camera";
 import { startMotionLoop } from "./motion";
 import { keepScreenOn } from "./screen";
 import { setSpeechSession, speak, stopSpeaking } from "./speech";
@@ -29,6 +29,7 @@ export type SessionHandlers = {
   onHeard: (text: string) => void;
   onProblem: (text: string | null) => void;
   onFinishing: () => void;
+  onCamera: (live: boolean) => void;
 };
 
 type Session = {
@@ -44,9 +45,10 @@ type Session = {
   failedSignals: number;
   connected: boolean | null;
   greeted: boolean;
-  requestInFlight: boolean;
+  requestsInFlight: number;
   checking: boolean;
   answeredAt: number;
+  checkStartedAt: number;
   finishing: boolean;
   voiceInFlight: boolean;
   pendingUtterance: string | null;
@@ -60,14 +62,14 @@ type Session = {
 
 const SIGNAL_INTERVAL_MS = 1000;
 const MAX_FAILED_SIGNALS = 3;
-const GREETING = "見守りを始めるよ";
+export const GREETING = "見守りを始めるよ";
 const FIRST_PROBLEM_READ_MS = 3000;
 const NEXT_PROBLEM_READ_MS = 1000;
 const PROBLEM_READ_RETRY_MS = 3000;
 const MIN_UTTERANCE_CHARS = 3;
 const MAX_UTTERANCE_CHARS = 200;
 const LISTEN_STATES: State[] = ["watching", "still", "cooldown"];
-const LAST_WORDS_LIMIT_MS = 12000;
+const LAST_WORDS_LIMIT_MS = 20000;
 
 let activeSession: Session | null = null;
 
@@ -170,25 +172,26 @@ async function fetchHint(
   return requestHint(session.id, session.token, { trigger, frame_id: frameId });
 }
 
-function deliverHint(session: Session, hint: HintResponse): void {
+function deliverHint(session: Session, hint: HintResponse, requestedAt: number): void {
   session.answeredAt = performance.now();
-  if (!session.running || hint.problem_no !== session.problemNo) return;
+  if (!session.running || requestedAt < session.checkStartedAt || hint.problem_no !== session.problemNo) return;
   session.handlers.onHint(hint);
   applyResponse(session, hint.speech, hint.state, hint.problem_no);
 }
 
 async function requestAutoHint(session: Session): Promise<void> {
-  session.requestInFlight = true;
+  session.requestsInFlight += 1;
+  const requestedAt = performance.now();
   const prefetchedFrame = session.prefetchedFrame;
   session.prefetchedFrame = null;
   try {
     const hint = await fetchHint(session, "auto", prefetchedFrame);
     session.autoHintDone = true;
-    deliverHint(session, hint);
+    deliverHint(session, hint, requestedAt);
   } catch (error) {
     console.warn("[loop] 自動ヒントに失敗。次の秒に再試行", error);
   } finally {
-    session.requestInFlight = false;
+    session.requestsInFlight -= 1;
   }
 }
 
@@ -204,15 +207,16 @@ async function onHeard(session: Session, text: string): Promise<void> {
 }
 
 async function answerHeard(session: Session, text: string): Promise<void> {
-  if (!session.running || !LISTEN_STATES.includes(session.state) || session.requestInFlight) return;
+  if (!session.running || !LISTEN_STATES.includes(session.state) || session.requestsInFlight > 0) return;
   session.voiceInFlight = true;
+  const requestedAt = performance.now();
   try {
     const frameId = await sendFrame(session);
     const answer = await answerUtterance(session.id, session.token, {
       frame_id: frameId,
       utterance: text.slice(0, MAX_UTTERANCE_CHARS),
     });
-    if (answer) deliverHint(session, answer);
+    if (answer) deliverHint(session, answer, requestedAt);
   } catch (error) {
     console.warn("[loop] 声への答えに失敗", error);
   } finally {
@@ -246,7 +250,7 @@ function handleSignal(session: Session, signal: SignalResponse, sentAt: number):
       return null;
     });
   }
-  if (signal.next_action === "send_frame_and_request_hint" && !session.autoHintDone && !session.requestInFlight) {
+  if (signal.next_action === "send_frame_and_request_hint" && !session.autoHintDone && session.requestsInFlight === 0) {
     void requestAutoHint(session);
   }
 }
@@ -303,9 +307,10 @@ export function startSession(
     failedSignals: 0,
     connected: null,
     greeted: false,
-    requestInFlight: false,
+    requestsInFlight: 0,
     checking: false,
     answeredAt: 0,
+    checkStartedAt: 0,
     finishing: false,
     voiceInFlight: false,
     pendingUtterance: null,
@@ -325,9 +330,11 @@ export function startSession(
   const timer = setInterval(() => void sendSignal(session), SIGNAL_INTERVAL_MS);
 
   const releaseScreen = keepScreenOn();
+  const unwatchCamera = watchCamera(handlers.onCamera);
   session.stop = () => {
     session.running = false;
     releaseScreen();
+    unwatchCamera();
     clearInterval(timer);
     clearTimeout(session.problemReadTimer);
     stopMotion();
@@ -338,23 +345,29 @@ export function startSession(
   return session.stop;
 }
 
+export function resumeListening(): void {
+  const session = activeSession;
+  if (session) updateState(session, session.state, session.problemNo);
+}
+
 export async function requestManualHint(): Promise<HintResponse> {
   const session = requireSession();
-  session.requestInFlight = true;
+  session.requestsInFlight += 1;
   try {
     const hint = await fetchHint(session, "manual");
     session.answeredAt = performance.now();
     if (hint.state === "ended" || hint.problem_no === session.problemNo) applyResponse(session, hint.speech, hint.state, hint.problem_no);
     return hint;
   } finally {
-    session.requestInFlight = false;
+    session.requestsInFlight -= 1;
   }
 }
 
 export async function requestCheck(): Promise<CheckResponse> {
   const session = requireSession();
-  session.requestInFlight = true;
+  session.requestsInFlight += 1;
   session.checking = true;
+  session.checkStartedAt = performance.now();
   updateState(session, "checking", session.problemNo);
   try {
     const frameId = await sendFrame(session);
@@ -364,7 +377,7 @@ export async function requestCheck(): Promise<CheckResponse> {
   } finally {
     session.checking = false;
     session.answeredAt = performance.now();
-    session.requestInFlight = false;
+    session.requestsInFlight -= 1;
   }
 }
 

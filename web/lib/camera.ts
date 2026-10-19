@@ -5,6 +5,7 @@ const JPEG_QUALITY = 0.7;
 
 let stream: MediaStream | null = null;
 let currentVideo: HTMLVideoElement | null = null;
+let cameraListener: ((live: boolean) => void) | null = null;
 
 async function openStream(video: MediaTrackConstraints): Promise<MediaStream> {
   try {
@@ -49,12 +50,37 @@ export async function startCamera(video: HTMLVideoElement): Promise<void> {
     throw error;
   }
   currentVideo = video;
+  const opened = stream;
+  for (const track of opened.getVideoTracks()) {
+    const report = (live: boolean) => {
+      if (stream === opened) cameraListener?.(live);
+    };
+    track.addEventListener("ended", () => report(false));
+    track.addEventListener("mute", () => report(false));
+    track.addEventListener("unmute", () => report(true));
+  }
+}
+
+export function watchCamera(listener: (live: boolean) => void): () => void {
+  cameraListener = listener;
+  return () => {
+    if (cameraListener === listener) cameraListener = null;
+  };
+}
+
+export function isCameraLive(video: HTMLVideoElement): boolean {
+  const source = video.srcObject;
+  return (
+    video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+    source instanceof MediaStream &&
+    source.getVideoTracks().some((track) => track.readyState === "live" && !track.muted)
+  );
 }
 
 export function captureFrame(): Promise<Blob> {
   const video = currentVideo;
-  if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-    return Promise.reject(new Error("カメラの映像がまだ無い"));
+  if (!video || !isCameraLive(video)) {
+    return Promise.reject(new Error("カメラの映像が無いか、止まっている"));
   }
   const scale = Math.min(1, FRAME_LONG_SIDE / Math.max(video.videoWidth, video.videoHeight));
   const canvas = document.createElement("canvas");

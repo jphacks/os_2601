@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ApiError, getSession, openSession, patchSettings, type SessionDetail, type State } from "@/lib/api";
 import { startCamera, stopCamera } from "@/lib/camera";
-import { advance, end, requestCheck, requestManualHint, startSession } from "@/lib/loop";
+import { advance, end, GREETING, requestCheck, requestManualHint, resumeListening, startSession } from "@/lib/loop";
 import { endMessage, personaOf, voiceOf, type Persona } from "@/lib/personas";
 import { setSpeechCharacter, speak, stopSpeaking, unlockSpeech } from "@/lib/speech";
 import { primeListening, stopListening, voiceStatus } from "@/lib/voice";
@@ -26,10 +26,13 @@ const FIXED_CAPTIONS: Partial<Record<State, string>> = {
 };
 const CAMERA_DENIED_CAPTION = "設定からカメラを許可してね。LINE などの中のブラウザなら Safari か Chrome で開いてね";
 const CAMERA_FAILED_CAPTION = "カメラを使えなかったよ。ほかのアプリでカメラを使っていたら閉じて、もう一度はじめてね";
+const CAMERA_STOPPED_CAPTION = "カメラが止まったよ。もう一度はじめてね";
+const CAMERA_CAPTIONS = [CAMERA_STOPPED_CAPTION, CAMERA_DENIED_CAPTION, CAMERA_FAILED_CAPTION];
 const NEXT_CAPTION = "次の問題も、見てるよ";
 const NO_SESSION_CAPTION = "セッションの URL から開いてね";
 const OPENING_CAPTION = "準備しているよ…";
 const BUSY_CAPTION = "少し待ってから、もう一度開いてね";
+const OPEN_FAILED_CAPTION = "つながらなかったよ。少ししたら、もう一度つないでみるね";
 const FAILED_CAPTION = "うまくいかなかったよ。もう一度押してみてね";
 const RATE_LIMITED_CAPTION = "少し待ってから、もう一度押してね";
 const SETTINGS_FAILED_CAPTION = "秒数を変えられなかったよ。前の秒数のまま見守るね";
@@ -38,6 +41,7 @@ const LOAD_FAILED_CAPTION = "つながらなかったよ。ページを開き直
 const PERSONA_FAILED = "切り替えられませんでした。もう一度試してね。";
 const RECORD_FAILED = "記録を読めませんでした";
 const OPEN_RETRY_MS = 20000;
+const OPEN_RETRY_LIMIT = 3;
 // 平均輝度がこれ未満なら「明るさが足りません」を重ねる（docs/tasks/b.md の B1-4）
 const DARK_BRIGHTNESS = 60;
 // 聞き取った文字を字幕の下に出しておく時間（docs/06 の「声のトリガー」）
@@ -49,6 +53,11 @@ function pageWithoutSession(): string {
   query.delete("t");
   const rest = query.toString();
   return rest ? `/device?${rest}` : "/device";
+}
+
+function cameraFailureCaption(error: unknown): string {
+  const denied = error instanceof TypeError || (error instanceof Error && error.name === "CameraDenied");
+  return denied ? CAMERA_DENIED_CAPTION : CAMERA_FAILED_CAPTION;
 }
 
 function failureCaption(error: unknown): string | null {
@@ -70,7 +79,6 @@ function Device() {
   const requestVersion = useRef(0);
   const endSpokenRef = useRef(false);
   const recordLoadingRef = useRef(false);
-  const hintWhileCheckingRef = useRef(false);
   const lastCheckRef = useRef<string | null>(null);
   const [session, setSession, sessionRef] = useSyncedState<SessionDetail | null>(null);
   const [record, setRecord] = useState<SessionDetail | null>(null);
@@ -78,15 +86,17 @@ function Device() {
   const [state, setState, stateRef] = useSyncedState<State>("created");
   const [problemNo, setProblemNo, problemNoRef] = useSyncedState(1);
   const [problemText, setProblemText] = useState<string | null>(null);
-  const [caption, setCaption] = useState(sessionId && token ? FIXED_CAPTIONS.created ?? "" : OPENING_CAPTION);
+  const [caption, setCaption, captionRef] = useSyncedState(sessionId && token ? FIXED_CAPTIONS.created ?? "" : OPENING_CAPTION);
   const [stuckSeconds, setStuckSeconds] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [personaUpdating, setPersonaUpdating, personaUpdatingRef] = useSyncedState(false);
   const [finishing, setFinishing, finishingRef] = useSyncedState(false);
   const [personaError, setPersonaError] = useState("");
+  const [dark, setDark] = useState(false);
   const [brightness, setBrightness] = useState<number | null>(null);
   const [stillSeconds, setStillSeconds] = useState(0);
   const [connected, setConnected] = useState(true);
+  const [cameraStopped, setCameraStopped] = useState(false);
   // 同じ文字が続けて来ても 3 秒を数え直すように、受け取るたびに新しいオブジェクトにする
   const [heard, setHeard] = useState<{ text: string } | null>(null);
   const [openAttempt, setOpenAttempt] = useState(0);
@@ -98,7 +108,7 @@ function Device() {
   const tell = useCallback((text: string) => {
     setCaption(text);
     announce(text);
-  }, [announce]);
+  }, [announce, setCaption]);
   const recordButtonRef = useRef<HTMLButtonElement>(null);
   const closeRecord = useCallback(() => {
     setRecord(null);
@@ -123,21 +133,25 @@ function Device() {
         openingRef.current = null;
         if (cancelled) return;
         console.warn("[device] openSession に失敗", error);
-        if (error instanceof ApiError && error.status === 429) {
-          tell(BUSY_CAPTION);
-          retry = setTimeout(() => {
-            setCaption(OPENING_CAPTION);
-            setOpenAttempt((attempt) => attempt + 1);
-          }, OPEN_RETRY_MS);
+        const busy = error instanceof ApiError && error.status === 429;
+        if (error instanceof ApiError && error.status < 500 && !busy) {
+          tell(NO_SESSION_CAPTION);
           return;
         }
-        tell(NO_SESSION_CAPTION);
+        const willRetry = openAttempt < OPEN_RETRY_LIMIT;
+        if (busy) tell(BUSY_CAPTION);
+        else tell(willRetry ? OPEN_FAILED_CAPTION : LOAD_FAILED_CAPTION);
+        if (!willRetry) return;
+        retry = setTimeout(() => {
+          setCaption(OPENING_CAPTION);
+          setOpenAttempt((attempt) => attempt + 1);
+        }, OPEN_RETRY_MS);
       });
     return () => {
       cancelled = true;
       clearTimeout(retry);
     };
-  }, [sessionId, token, router, openAttempt, tell]);
+  }, [sessionId, token, router, openAttempt, tell, setCaption]);
 
   useEffect(() => {
     if (!sessionId || !token) return;
@@ -155,6 +169,8 @@ function Device() {
         setFinishing(false);
         setSession(detail);
         setConnected(true);
+        setCameraStopped(false);
+        setOpenAttempt(0);
         setNotice("");
         setRecord(null);
         setRecordStatus("idle");
@@ -190,7 +206,7 @@ function Device() {
       stopCamera();
       stopSpeaking();
     };
-  }, [sessionId, token, router, tell, setSession, setState, setProblemNo, setPersonaUpdating, setFinishing]);
+  }, [sessionId, token, router, tell, setCaption, setSession, setState, setProblemNo, setPersonaUpdating, setFinishing]);
 
   useEffect(() => {
     if (!heard) return;
@@ -236,13 +252,9 @@ function Device() {
   const selectedPersona = session?.settings.persona ?? "teacher";
   // 絵と話し方は、サーバーで保存が確認できた同じ人格にそろえる。
   const characterId = voiceOf(selectedPersona);
-  const canChangePersona = ["created", "watching", "still", "cooldown"].includes(state);
 
   async function handlePersonaChange(value: Persona) {
-    if (
-      personaUpdatingRef.current || startingRef.current || finishingRef.current || busy ||
-      !["created", "watching", "still", "cooldown"].includes(stateRef.current)
-    ) return;
+    if (personaUpdatingRef.current || startingRef.current || busy || stateRef.current !== "created") return;
     const confirmed = sessionRef.current;
     if (!confirmed || confirmed.settings.persona === value) return;
     const version = requestVersion.current;
@@ -250,11 +262,11 @@ function Device() {
     setPersonaError("");
     try {
       const response = await patchSettings(sessionId, token, { persona: value });
-      if (version !== requestVersion.current || stateRef.current === "ended" || !sessionRef.current) return;
+      if (version !== requestVersion.current || !sessionRef.current) return;
       setSession({ ...sessionRef.current, settings: response.settings });
       setSpeechCharacter(voiceOf(response.settings.persona));
     } catch (error) {
-      if (version === requestVersion.current && stateRef.current !== "ended") {
+      if (version === requestVersion.current) {
         setPersonaError(PERSONA_FAILED);
         announce(PERSONA_FAILED);
         console.warn("[device] 人格を切り替えられなかった", error);
@@ -294,8 +306,7 @@ function Device() {
       if (version !== requestVersion.current) return;
       console.warn("[device] startCamera に失敗", error);
       stopListening();
-      const denied = error instanceof TypeError || (error instanceof Error && error.name === "CameraDenied");
-      tell(denied ? CAMERA_DENIED_CAPTION : CAMERA_FAILED_CAPTION);
+      tell(cameraFailureCaption(error));
       setBusy(false);
       startingRef.current = false;
       return;
@@ -308,9 +319,9 @@ function Device() {
     if (updated) {
       setSession({ ...sessionRef.current, settings: updated.settings });
       setSpeechCharacter(voiceOf(updated.settings.persona));
-    } else if (patching) {
-      tell(SETTINGS_FAILED_CAPTION);
     }
+    if (patching && !updated) tell(SETTINGS_FAILED_CAPTION);
+    else setCaption(GREETING);
     endSpokenRef.current = false;
     stopRef.current = startSession(video, sessionId, token, {
       onState: (signal) => {
@@ -319,20 +330,20 @@ function Device() {
           (signal.state !== "ended" && signal.current_problem_no < problemNoRef.current)
         ) return;
         applyState(signal.state, signal.current_problem_no);
-        setStillSeconds(signal.still_seconds);
+        if (debug) setStillSeconds(signal.still_seconds);
       },
       onHint: (hint) => {
         if (
           version !== requestVersion.current || stateRef.current === "ended" ||
           hint.problem_no !== problemNoRef.current
         ) return;
-        if (hint.speech !== null) {
-          if (stateRef.current === "checking") hintWhileCheckingRef.current = true;
-          setCaption(hint.display);
-        }
+        if (hint.speech !== null) setCaption(hint.display);
         setProblemText(hint.problem_text);
       },
-      onBrightness: setBrightness,
+      onBrightness: (value) => {
+        setDark(value < DARK_BRIGHTNESS);
+        if (debug) setBrightness(value);
+      },
       onConnection: (connected) => {
         setConnected(connected);
         if (connected) setNotice("");
@@ -346,9 +357,50 @@ function Device() {
       onProblem: (text) => {
         if (version === requestVersion.current && stateRef.current !== "ended") setProblemText(text);
       },
+      onCamera: (live) => {
+        if (version !== requestVersion.current || stateRef.current === "ended") return;
+        if (live) {
+          showCameraBack();
+          return;
+        }
+        setCameraStopped(true);
+        tell(CAMERA_STOPPED_CAPTION);
+      },
     });
     setBusy(false);
     startingRef.current = false;
+  }
+
+  function showCameraBack() {
+    setCameraStopped(false);
+    if (CAMERA_CAPTIONS.includes(captionRef.current)) tell(GREETING);
+  }
+
+  async function handleResumeCamera() {
+    const video = videoRef.current;
+    if (!video || startingRef.current) return;
+    const version = requestVersion.current;
+    const outdated = () => version !== requestVersion.current || finishingRef.current || stateRef.current === "ended";
+    startingRef.current = true;
+    setBusy(true);
+    unlockSpeech();
+    resumeListening();
+    try {
+      await startCamera(video);
+      if (outdated()) {
+        stopCamera();
+        return;
+      }
+      showCameraBack();
+    } catch (error) {
+      console.warn("[device] カメラを取り直せなかった", error);
+      if (!outdated()) tell(cameraFailureCaption(error));
+    } finally {
+      if (version === requestVersion.current) {
+        setBusy(false);
+        startingRef.current = false;
+      }
+    }
   }
 
   function showFailure(version: number, error: unknown) {
@@ -382,7 +434,6 @@ function Device() {
     const before = { state, problemNo, caption };
     setBusy(true);
     applyState("checking", problemNo);
-    hintWhileCheckingRef.current = false;
     try {
       const check = await requestCheck();
       if (version !== requestVersion.current || checkedProblemNo !== problemNoRef.current) return;
@@ -402,13 +453,8 @@ function Device() {
         stateRef.current === "checking" && !finishingRef.current
       ) {
         setState(before.state);
-        if (hintWhileCheckingRef.current) {
-          if (message) announce(message);
-        } else if (message) {
-          tell(message);
-        } else {
-          setCaption(before.caption);
-        }
+        if (message) tell(message);
+        else setCaption(before.caption);
       }
     } finally {
       if (version === requestVersion.current) setBusy(false);
@@ -472,24 +518,22 @@ function Device() {
 
   return (
     <>
-      <main inert={record !== null} className="relative isolate flex flex-1 flex-col overflow-hidden bg-linear-to-b from-sky-400 via-sky-200 to-cyan-100 text-slate-800">
+      <main inert={record !== null} className="relative isolate flex flex-1 flex-col bg-linear-to-b from-sky-400 via-sky-200 to-cyan-100 text-slate-800">
         <p role="status" className="sr-only">{notice}</p>
         {/* 下の丘（飾り） */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -inset-x-1/2 -bottom-1/3 -z-10 h-1/2 rounded-[50%] bg-linear-to-b from-lime-300 to-green-600"
-        />
-        <div className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-3 p-4">
-          {/* 上：ヘッダと問題文を真ん中、映像は右上に小さく（映像は常に表示する。docs/06） */}
-          <div className="flex items-start gap-3">
-            <div className="flex min-w-0 flex-1 flex-col items-center gap-2">
+        <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+          <div className="absolute -inset-x-1/2 -bottom-1/3 h-1/2 rounded-[50%] bg-linear-to-b from-lime-300 to-green-600" />
+        </div>
+        <div className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-3 p-4 wide:grid wide:max-w-5xl wide:grid-cols-2 wide:grid-rows-[auto_auto_1fr_auto] wide:gap-x-6">
+          <div className="flex items-start gap-3 wide:contents">
+            <div className="flex min-w-0 flex-1 flex-col items-center gap-2 wide:col-start-1 wide:row-start-1">
               <Header mode={session?.mode ?? null} connected={connected} />
               <ProblemText text={problemText} />
             </div>
-            <div className="flex w-28 shrink-0 flex-col gap-3">
+            <div className="flex w-28 shrink-0 flex-col gap-3 sm:w-48 wide:col-start-1 wide:row-start-2 wide:w-full">
               <VideoFrame
                 videoRef={videoRef}
-                dark={brightness !== null && brightness < DARK_BRIGHTNESS}
+                dark={dark}
                 debugText={debug ? `輝度 ${brightness === null ? "-" : Math.round(brightness)} / 静止 ${stillSeconds} 秒 / 声 ${voiceStatus()}` : null}
               />
               {state === "ended" && (
@@ -498,7 +542,7 @@ function Device() {
                   type="button"
                   onClick={handleShowRecord}
                   disabled={recordStatus === "loading"}
-                  className="rounded-full bg-white px-3 py-2.5 text-sm font-bold text-sky-700 shadow-md ring-2 ring-sky-300 disabled:opacity-60"
+                  className="min-h-11 rounded-full bg-white px-3 py-2.5 text-sm font-bold text-sky-700 shadow-md ring-2 ring-sky-300 disabled:opacity-60"
                 >
                   {recordStatus === "loading" ? "読み込み中…" : "記録を見る"}
                 </button>
@@ -509,28 +553,31 @@ function Device() {
             </div>
           </div>
           {/* 真ん中：キャラクターを左下に大きく、吹き出しを右に重ねる（Tolan の会話画面の並び） */}
-          <div className="relative flex min-h-48 flex-1 items-end">
+          <div className="relative flex min-h-48 flex-1 items-end wide:col-start-2 wide:row-span-3 wide:row-start-1">
             <Character state={state} id={characterId} className="absolute bottom-0 -left-4 h-full max-h-[28rem] w-auto" />
-            <div className="relative ml-[38%] flex w-[62%] flex-col gap-3 self-center">
+            <div className="relative ml-[38%] flex w-[62%] flex-col self-center">
               {heard && <HeardBubble text={heard.text} />}
               <Caption text={caption} />
             </div>
           </div>
+          {state === "created" && (
+            <div className="flex flex-col gap-3 rounded-[2rem] bg-white/70 p-3 shadow-lg backdrop-blur wide:col-start-1 wide:row-span-2 wide:row-start-3 wide:self-start">
+              <CharacterPicker
+                value={characterId}
+                onChange={(id) => void handlePersonaChange(personaOf(id))}
+                disabled={!session || busy || personaUpdating}
+              />
+              {personaError && <p className="px-2 text-sm text-red-700">{personaError}</p>}
+              {selectedSeconds !== null && <SecondsPicker value={selectedSeconds} onChange={setStuckSeconds} />}
+            </div>
+          )}
           {/* 下：入力欄の位置にボタン */}
-          <div className="relative flex flex-col gap-3 rounded-[2rem] bg-white/70 p-3 shadow-lg backdrop-blur">
-            {state !== "ended" && <CharacterPicker
-              value={characterId}
-              onChange={(id) => void handlePersonaChange(personaOf(id))}
-              disabled={!session || busy || personaUpdating || finishing || !canChangePersona}
-            />}
-            {personaError && <p className="px-2 text-sm text-red-700">{personaError}</p>}
-            {state === "created" && selectedSeconds !== null && (
-              <SecondsPicker value={selectedSeconds} onChange={setStuckSeconds} />
-            )}
+          <div className="sticky bottom-3 flex flex-col rounded-[2rem] bg-white/70 p-3 shadow-lg backdrop-blur wide:col-start-2 wide:row-start-4">
             <Buttons
               state={state}
+              cameraStopped={cameraStopped}
               busy={busy || personaUpdating || finishing || !session}
-              onStart={handleStart}
+              onStart={cameraStopped ? handleResumeCamera : handleStart}
               onHint={handleHint}
               onCheck={handleCheck}
               onNext={handleNext}
@@ -550,7 +597,13 @@ function Device() {
 
 export default function DevicePage() {
   return (
-    <Suspense>
+    <Suspense
+      fallback={
+        <main className="flex flex-1 items-center justify-center bg-linear-to-b from-sky-400 via-sky-200 to-cyan-100 p-4 text-2xl font-bold text-slate-800">
+          <p role="status">{OPENING_CAPTION}</p>
+        </main>
+      }
+    >
       <Device />
     </Suspense>
   );

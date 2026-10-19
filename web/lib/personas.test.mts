@@ -27,6 +27,11 @@ test("サーバが逆の順で返しても、画面の並びは先生・イケ�
   assert.deepEqual(personaOptions(reversed).map((option) => option.id), ["teacher", "ikemen"]);
 });
 
+test("表示名はサーバの名前ではなく、画面のボタンと同じ「先生」「イケメン」", () => {
+  const server = [{ id: "teacher", display_name: "家庭教師", end_message: "またね。" }];
+  assert.deepEqual(personaOptions(server).map((option) => option.display_name), ["先生", "イケメン"]);
+});
+
 test("人格ごとに声が決まる", () => {
   assert.equal(voiceOf("ikemen"), "handsome");
   assert.equal(voiceOf("teacher"), "teacher");

@@ -1,7 +1,13 @@
 @import "tailwindcss";
 
+@custom-variant wide {
+  @media (orientation: landscape), (min-width: 64rem) {
+    @slot;
+  }
+}
+
 :root {
-  --background: #ffffff;
+  --background: var(--color-sky-400);
   --foreground: #171717;
 }
 

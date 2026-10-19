@@ -8,7 +8,7 @@ export type PersonaOption = { id: Persona; display_name: string; end_message: st
 const FALLBACK_OPTIONS: readonly PersonaOption[] = [
   {
     id: "teacher",
-    display_name: "家庭教師",
+    display_name: "先生",
     end_message: "今日もよく頑張りました。できるようになったことを記録で振り返ってみましょう。",
   },
   {

@@ -8,7 +8,7 @@ const MOTIONS: Record<State, string> = {
   watching: "",
   still: "",
   stuck: "-rotate-3",
-  speaking: "animate-bounce",
+  speaking: "motion-safe:animate-bounce",
   cooldown: "",
   checking: "-rotate-3",
   ended: "",
@@ -21,7 +21,7 @@ export function Character({ state, id, className = "" }: { state: State; id: Cha
       src={characterOf(id).image}
       alt=""
       priority
-      className={`origin-bottom object-contain object-bottom drop-shadow-xl transition-transform duration-500 ${MOTIONS[state]} ${className}`}
+      className={`origin-bottom object-contain object-bottom drop-shadow-xl motion-safe:transition-transform motion-safe:duration-500 ${MOTIONS[state]} ${className}`}
     />
   );
 }

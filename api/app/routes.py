@@ -40,7 +40,6 @@ from app.state import (
     HintAbandoned,
     HintIssued,
     HintRequested,
-    LeakCheck,
     Mode,
     Problem,
     Rejected,
@@ -416,10 +415,7 @@ async def request_hint(
     composing = take_prefetch(context, session) if body.trigger == "auto" else None
     try:
         if session.mode == "scripted":
-            composed = fixed_hint(
-                FALLBACK_HINTS[accepted.level], "scripted", LeakCheck(ok=True, fallback=False), problem.leak_strings,
-                session.settings.persona,
-            )
+            composed = fixed_hint(FALLBACK_HINTS[accepted.level], problem.leak_strings, session.settings.persona, source="scripted")
         elif composing:
             composed = await composing
         else:

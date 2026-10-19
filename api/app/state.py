@@ -45,7 +45,7 @@ class SessionSettings:
     persona: PersonaId = "teacher"
 
 
-@dataclass
+@dataclass(frozen=True)
 class LeakCheck:
     ok: bool
     fallback: bool

@@ -443,6 +443,11 @@ def test_a_paperless_photo_with_an_other_reason_asks_for_the_paper() -> None:
     assert compose(FakeAI(reply)).speech == "紙を枠の中に入れてみて"
 
 
+def test_a_voice_answer_on_a_paperless_photo_said_to_be_hidden_asks_for_the_paper() -> None:
+    reply = {**ai_answer("見てみて"), "paper_visible": False, "readable": False, "unreadable_reason": "hidden"}
+    assert answer(FakeAI(reply)).speech == "紙を枠の中に入れてみて"
+
+
 def test_a_voice_answer_without_paper_still_keeps_the_ai_answer_as_a_guard() -> None:
     reply = ai_answer("両辺を3で割ると5になるよ")
     reply.update(paper_visible=False, final_answer="x = 5", key_values=["3x = 15"])

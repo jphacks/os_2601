@@ -318,7 +318,8 @@ async def compose_answer(
         if out["respond"] is not True:
             return None
         if out["readable"] is not True:
-            return _unreadable(out, UNREADABLE_ANSWER, known_leaks, persona)
+            unreadable = _paperless_reason(out) if out.get("paper_visible") is False else out
+            return _unreadable(unreadable, UNREADABLE_ANSWER, known_leaks, persona)
         paperless = _paper_missing(out, known_problem)
         if paperless and not MEANING_QUESTION.search(utterance):
             return _unreadable(_paperless_reason(out), UNREADABLE_ANSWER, known_leaks, persona)

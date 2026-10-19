@@ -246,13 +246,9 @@ function Device() {
   const selectedPersona = session?.settings.persona ?? "teacher";
   // 絵と話し方は、サーバーで保存が確認できた同じ人格にそろえる。
   const characterId = voiceOf(selectedPersona);
-  const canChangePersona = ["created", "watching", "still", "cooldown"].includes(state);
 
   async function handlePersonaChange(value: Persona) {
-    if (
-      personaUpdatingRef.current || startingRef.current || finishingRef.current || busy ||
-      !["created", "watching", "still", "cooldown"].includes(stateRef.current)
-    ) return;
+    if (personaUpdatingRef.current || startingRef.current || busy || stateRef.current !== "created") return;
     const confirmed = sessionRef.current;
     if (!confirmed || confirmed.settings.persona === value) return;
     const version = requestVersion.current;
@@ -260,11 +256,11 @@ function Device() {
     setPersonaError("");
     try {
       const response = await patchSettings(sessionId, token, { persona: value });
-      if (version !== requestVersion.current || stateRef.current === "ended" || !sessionRef.current) return;
+      if (version !== requestVersion.current || !sessionRef.current) return;
       setSession({ ...sessionRef.current, settings: response.settings });
       setSpeechCharacter(voiceOf(response.settings.persona));
     } catch (error) {
-      if (version === requestVersion.current && stateRef.current !== "ended") {
+      if (version === requestVersion.current) {
         setPersonaError(PERSONA_FAILED);
         announce(PERSONA_FAILED);
         console.warn("[device] 人格を切り替えられなかった", error);
@@ -505,21 +501,20 @@ function Device() {
 
   return (
     <>
-      <main inert={record !== null} className="relative isolate flex flex-1 flex-col overflow-hidden bg-linear-to-b from-sky-400 via-sky-200 to-cyan-100 text-slate-800">
+      <main inert={record !== null} className="relative isolate flex flex-1 flex-col overflow-clip bg-linear-to-b from-sky-400 via-sky-200 to-cyan-100 text-slate-800">
         <p role="status" className="sr-only">{notice}</p>
         {/* 下の丘（飾り） */}
         <div
           aria-hidden
           className="pointer-events-none absolute -inset-x-1/2 -bottom-1/3 -z-10 h-1/2 rounded-[50%] bg-linear-to-b from-lime-300 to-green-600"
         />
-        <div className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-3 p-4">
-          {/* 上：ヘッダと問題文を真ん中、映像は右上に小さく（映像は常に表示する。docs/06） */}
-          <div className="flex items-start gap-3">
-            <div className="flex min-w-0 flex-1 flex-col items-center gap-2">
+        <div className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-3 p-4 wide:grid wide:max-w-5xl wide:grid-cols-2 wide:grid-rows-[auto_auto_1fr_auto] wide:gap-x-6">
+          <div className="flex items-start gap-3 wide:contents">
+            <div className="flex min-w-0 flex-1 flex-col items-center gap-2 wide:col-start-1 wide:row-start-1">
               <Header mode={session?.mode ?? null} connected={connected} />
               <ProblemText text={problemText} />
             </div>
-            <div className="flex w-28 shrink-0 flex-col gap-3">
+            <div className="flex w-28 shrink-0 flex-col gap-3 sm:w-48 wide:col-start-1 wide:row-start-2 wide:w-full">
               <VideoFrame
                 videoRef={videoRef}
                 dark={dark}
@@ -542,24 +537,26 @@ function Device() {
             </div>
           </div>
           {/* 真ん中：キャラクターを左下に大きく、吹き出しを右に重ねる（Tolan の会話画面の並び） */}
-          <div className="relative flex min-h-48 flex-1 items-end">
+          <div className="relative flex min-h-48 flex-1 items-end wide:col-start-2 wide:row-span-3 wide:row-start-1">
             <Character state={state} id={characterId} className="absolute bottom-0 -left-4 h-full max-h-[28rem] w-auto" />
-            <div className="relative ml-[38%] flex w-[62%] flex-col gap-3 self-center">
+            <div className="relative ml-[38%] flex w-[62%] flex-col self-center">
               {heard && <HeardBubble text={heard.text} />}
               <Caption text={caption} />
             </div>
           </div>
+          {state === "created" && (
+            <div className="flex flex-col gap-3 rounded-[2rem] bg-white/70 p-3 shadow-lg backdrop-blur wide:col-start-1 wide:row-span-2 wide:row-start-3 wide:self-start">
+              <CharacterPicker
+                value={characterId}
+                onChange={(id) => void handlePersonaChange(personaOf(id))}
+                disabled={!session || busy || personaUpdating}
+              />
+              {personaError && <p className="px-2 text-sm text-red-700">{personaError}</p>}
+              {selectedSeconds !== null && <SecondsPicker value={selectedSeconds} onChange={setStuckSeconds} />}
+            </div>
+          )}
           {/* 下：入力欄の位置にボタン */}
-          <div className="relative flex flex-col gap-3 rounded-[2rem] bg-white/70 p-3 shadow-lg backdrop-blur">
-            {state !== "ended" && <CharacterPicker
-              value={characterId}
-              onChange={(id) => void handlePersonaChange(personaOf(id))}
-              disabled={!session || busy || personaUpdating || finishing || !canChangePersona}
-            />}
-            {personaError && <p className="px-2 text-sm text-red-700">{personaError}</p>}
-            {state === "created" && selectedSeconds !== null && (
-              <SecondsPicker value={selectedSeconds} onChange={setStuckSeconds} />
-            )}
+          <div className="sticky bottom-3 flex flex-col rounded-[2rem] bg-white/70 p-3 shadow-lg backdrop-blur wide:col-start-2 wide:row-start-4">
             <Buttons
               state={state}
               cameraStopped={cameraStopped}

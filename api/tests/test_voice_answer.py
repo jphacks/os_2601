@@ -1,8 +1,8 @@
 import pytest
 from conftest import OPERATOR_KEY, Device, ScriptedAI
 
+from app.fixed_texts import ANSWER_FALLBACK, CHECK_REPLY
 from app.gemini import AIUnavailable
-from app.hints import ANSWER_FALLBACK, CHECK_REPLY
 
 ANSWER = "移項は、項を反対の辺に移すこと。符号が変わるよ"
 

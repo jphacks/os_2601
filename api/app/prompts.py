@@ -1,3 +1,4 @@
+from app.fixed_texts import UNREADABLE_HINTS
 from app.personas import get_persona
 
 STUCK_POINTS = (
@@ -14,7 +15,6 @@ STUCK_POINTS = (
     "答えの確認",
     "その他",
 )
-UNREADABLE_REASONS = ("none", "dark", "blurry", "out_of_frame", "hidden", "other")
 
 PAPER_RULE = (
     "まず、写真に、問題か答案が書かれた紙（ノート・プリント・問題集）が写っているかを paper_visible に書いてください。"
@@ -114,14 +114,14 @@ def _schema(ordering: list[str], extra: dict) -> dict:
 
 HINT_SCHEMA = _schema(
     ["paper_visible", "problem_text", "final_answer", "key_values", "written_lines", "readable", "unreadable_reason", "stuck_point", "speech", "display"],
-    {"readable": {"type": "BOOLEAN"}, "unreadable_reason": {"type": "STRING", "enum": list(UNREADABLE_REASONS)}},
+    {"readable": {"type": "BOOLEAN"}, "unreadable_reason": {"type": "STRING", "enum": ["none", *UNREADABLE_HINTS, "other"]}},
 )
 ANSWER_SCHEMA = _schema(
     ["respond", "paper_visible", "problem_text", "final_answer", "key_values", "written_lines", "readable", "unreadable_reason", "stuck_point", "speech", "display"],
     {
         "respond": {"type": "BOOLEAN"},
         "readable": {"type": "BOOLEAN"},
-        "unreadable_reason": {"type": "STRING", "enum": list(UNREADABLE_REASONS)},
+        "unreadable_reason": {"type": "STRING", "enum": ["none", *UNREADABLE_HINTS, "other"]},
     },
 )
 

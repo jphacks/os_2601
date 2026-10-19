@@ -12,8 +12,9 @@ from app.check import CORRECT_TEXT, Judgement, judge
 from app.composer import answer_for, hint_for
 from app.context import AppContext, get_context
 from app.errors import fail
+from app.fixed_texts import FALLBACK_HINTS
 from app.gemini import AIUnavailable
-from app.hints import FALLBACK_HINTS, ComposedHint, answer_fallback, check_reply, fixed_hint, read_problem
+from app.hints import ComposedHint, answer_fallback, check_reply, fixed_hint, read_problem
 from app.leak import same_problem
 from app.limits import (
     MAX_FRAME_BYTES,

@@ -314,9 +314,9 @@ function Device() {
     if (updated) {
       setSession({ ...sessionRef.current, settings: updated.settings });
       setSpeechCharacter(voiceOf(updated.settings.persona));
-    } else if (patching) {
-      tell(SETTINGS_FAILED_CAPTION);
     }
+    if (patching && !updated) tell(SETTINGS_FAILED_CAPTION);
+    else setCaption(GREETING);
     endSpokenRef.current = false;
     stopRef.current = startSession(video, sessionId, token, {
       onState: (signal) => {

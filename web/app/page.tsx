@@ -27,9 +27,6 @@ export default function Home() {
             <br />
             AI 家庭教師
           </p>
-          <p className="max-w-sm text-xs leading-relaxed text-slate-700">
-            用意するもの：紙の問題と、スマホを立てる台（背面カメラで真上から撮る）。PC なら手元を真上から映せるカメラ（内蔵カメラは顔が映る）。中学の一次方程式で確かめています。
-          </p>
         </div>
 
         <div className="relative flex h-56 w-full max-w-sm items-end justify-center gap-2">
@@ -61,6 +58,10 @@ export default function Home() {
             </li>
           ))}
         </ol>
+
+        <p className="max-w-sm text-sm leading-relaxed text-slate-700">
+          用意するもの：紙の問題と、スマホを立てる台（背面カメラで真上から撮る）。PC なら手元を真上から映せるカメラ（内蔵カメラは顔が映る）。中学の一次方程式で確かめています。
+        </p>
 
         <p className="max-w-sm text-xs leading-relaxed text-slate-700">
           カメラとマイクを使います。写真は、はじめたとき・次の問題に進んだとき・手が止まりかけたとき・ボタンや声で呼んだときだけ Google の Gemini API に送ります（声で呼んだときは聞き取った文も）。無料枠なので、Google のサービス改善に使われることがあります。声の聞き取りはブラウザの機能で、Google や Apple のサーバで文字になります。映像と声は残しません。

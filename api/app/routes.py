@@ -26,6 +26,7 @@ from app.limits import (
     count_call,
     one_at_a_time,
 )
+from app.personas import PersonaId
 from app.prefetch import discard_prefetch, settle_prefetch, start_prefetch, take_prefetch
 from app.schemas import CheckRequest, HintRequest, ProblemRequest, SessionCreateRequest, SettingsPatch, SignalRequest, SpeechRequest
 from app.state import (
@@ -73,6 +74,7 @@ PROBLEM_SLOTS = 20
 @dataclass(frozen=True)
 class PendingHint:
     problem_no: int
+    persona: PersonaId
     level: int
     trigger: Trigger
     ticket: datetime
@@ -317,6 +319,7 @@ def _accept_and_issue_voice_hint(
     session, accepted = _apply(context, session, HintRequested("voice"), accepted_at)
     pending = PendingHint(
         problem_no=session.current_problem_no,
+        persona=session.settings.persona,
         level=accepted.level,
         trigger="voice",
         ticket=accepted.ticket,
@@ -367,6 +370,7 @@ async def request_hint(
     session, accepted = _apply(context, session, HintRequested(body.trigger), now)
     pending = PendingHint(
         problem_no=session.current_problem_no,
+        persona=session.settings.persona,
         level=accepted.level,
         trigger=body.trigger,
         ticket=accepted.ticket,
@@ -377,7 +381,7 @@ async def request_hint(
     composing = take_prefetch(context, session) if body.trigger == "auto" else None
     try:
         if session.mode == "scripted":
-            composed = fixed_hint(FALLBACK_HINTS[pending.level], problem.leak_strings, session.settings.persona, source="scripted")
+            composed = fixed_hint(FALLBACK_HINTS[pending.level], problem.leak_strings, pending.persona, source="scripted")
         elif composing:
             composed = await composing
         else:
@@ -386,12 +390,12 @@ async def request_hint(
                 count_ai_call(context, session_id, frame, now)
             elif not allow_background_call(context, session_id, frame, now):
                 frame = None
-            composed = await hint_for(context, problem, pending.level, frame, session.settings.persona)
+            composed = await hint_for(context, problem, pending.level, frame, pending.persona)
     except Exception:
         _abandon_hint(context, session_id, pending.ticket)
         raise
     latest = _find_session(context, session_id)
-    if latest.current_problem_no != pending.problem_no or latest.settings.persona != session.settings.persona:
+    if latest.current_problem_no != pending.problem_no or latest.settings.persona != pending.persona:
         _abandon_hint(context, session_id, pending.ticket)
         fail(409, "ヒント生成中に問題か人格が変わったため、もう一度お試しください")
     return _issue_hint(context, session_id, pending, composed, prefetched=composing is not None)

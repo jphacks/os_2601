@@ -190,7 +190,7 @@ def test_answer_about_an_unreadable_paper_tells_the_reason_instead_of_guessing()
 
 def test_question_that_needs_no_paper_is_answered_even_without_anything_to_guard() -> None:
     reply = ai_answer("移項は、項を反対の辺に移すことだよ")
-    reply.update(problem_text="", final_answer="", key_values=[])
+    reply.update(problem_text="", final_answer="", key_values=[], written_lines=["2x = 4x + 10"])
     assert answer(FakeAI(reply)).source == "ai"
 
 
@@ -410,42 +410,17 @@ def test_a_known_problem_keeps_a_guarded_hint_even_if_this_reply_lost_the_text()
     assert hint.source == "ai"
 
 
-@pytest.mark.parametrize(
-    "utterance", ["次どうすればいい？", "あとはどうすればいい？", "とはいえ、わからない", "これってなんで？", "この式って何？", "って何回やればいいの"]
-)
-def test_a_voice_question_that_is_not_about_a_meaning_without_paper_asks_for_the_paper(utterance: str) -> None:
-    reply = ai_answer("最後の式の x の係数で両辺を割ってみて")
-    reply.update(paper_visible=False)
-    replied = asyncio.run(compose_answer(FakeAI(reply), MODEL, FRAME, utterance, [], None, [], "teacher"))
-    assert replied.speech == "紙を枠の中に入れてみて"
-
-
-@pytest.mark.parametrize("utterance", ["移項とは？", "移項ってなんですか", "係数の意味がわからない", "同類項ってどういうこと？"])
-def test_a_meaning_question_without_paper_is_answered(utterance: str) -> None:
+@pytest.mark.parametrize("utterance", ["次どうすればいい？", "移項って何？", "あのー、係数の意味がわからない"])
+def test_a_voice_question_without_paper_asks_for_the_paper_even_when_it_is_about_a_word(utterance: str) -> None:
     reply = ai_answer("移項は、項の符号を変えて反対の辺に移すことだよ")
     reply.update(paper_visible=False)
-    replied = asyncio.run(compose_answer(FakeAI(reply), MODEL, FRAME, utterance, [], None, [], "teacher"))
-    assert replied.source == "ai"
-
-
-def test_a_voice_explanation_without_paper_is_kept() -> None:
-    reply = ai_answer("移項は、項の符号を変えて左辺から右辺に移すことだよ")
-    reply.update(paper_visible=False, final_answer="x = 3", key_values=["3x = 9"])
-    kept = asyncio.run(compose_answer(FakeAI(reply), MODEL, FRAME, "移項って何？", [], "2x - 7 = 4x + 3", ["x=-5"], "teacher"))
-    assert (kept.source, kept.problem_text, kept.leak_strings) == ("ai", None, ["x=-5"])
-
-
-def test_a_meaning_answer_without_paper_that_points_at_a_line_asks_for_the_paper() -> None:
-    reply = ai_answer("1行目の4xを左辺に移すことだよ")
-    reply.update(paper_visible=False)
-    assert answer(FakeAI(reply), "移項って何？").speech == "紙を枠の中に入れてみて"
-
-
-def test_a_meaning_answer_without_paper_still_guards_the_earlier_answer() -> None:
-    reply = ai_answer("答えは x=-5 になるよ")
-    reply.update(paper_visible=False, final_answer="", key_values=[])
-    replied = asyncio.run(compose_answer(FakeAI(reply), MODEL, FRAME, "移項って何？", [], "2x - 7 = 4x + 3", ["x=-5"], "teacher"))
-    assert replied.leak_check == LeakCheck(ok=False, fallback=True)
+    replied = asyncio.run(compose_answer(FakeAI(reply), MODEL, FRAME, utterance, [], "2x - 7 = 4x + 3", ["x=-5"], "teacher"))
+    assert (replied.speech, replied.source, replied.problem_text, replied.leak_strings) == (
+        "紙を枠の中に入れてみて",
+        "fallback",
+        None,
+        ["x=-5"],
+    )
 
 
 def test_a_voice_answer_with_nothing_on_paper_is_replaced_even_if_the_ai_says_there_is_paper() -> None:
@@ -465,11 +440,9 @@ def test_a_voice_answer_on_a_paperless_photo_said_to_be_hidden_asks_for_the_pape
     assert answer(FakeAI(reply)).speech == "紙を枠の中に入れてみて"
 
 
-def test_a_voice_answer_without_paper_still_keeps_the_ai_answer_as_a_guard() -> None:
-    reply = ai_answer("両辺を3で割ると5になるよ")
-    reply.update(paper_visible=False, final_answer="x = 5", key_values=["3x = 15"])
-    replied = asyncio.run(compose_answer(FakeAI(reply), MODEL, FRAME, "割るって何？", [], None, [], "teacher"))
-    assert replied.leak_check == LeakCheck(ok=False, fallback=True)
+def test_a_voice_answer_on_a_dark_paperless_photo_tells_the_reason() -> None:
+    reply = {**ai_answer("見てみて"), "paper_visible": False, "readable": False, "unreadable_reason": "dark"}
+    assert answer(FakeAI(reply)).speech == "もう少し明るいところで見せてみて"
 
 
 def test_a_dark_paperless_photo_keeps_the_earlier_guard() -> None:

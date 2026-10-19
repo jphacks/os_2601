@@ -1,6 +1,6 @@
 import logging
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from app.gemini import AIUnavailable, Gemini
 from app.leak import contains_leak, leak_strings, same_problem, states_an_answer, without_written
@@ -92,9 +92,6 @@ CHECK_QUESTION = re.compile(
     r"(正解|正しい)(ですか|でしょう|だよね|よね|かな|か?[？?]|か?$|か(どうか)?(わからない|わかんない|分からない|教えて|おしえて))"
 )
 ASKS_WHAT = re.compile(r"何が|何を|なにが|なにを|どこ|どうすれば|どうやって|どうしたら")
-MEANING_QUESTION = re.compile(r"(?<=[一-龥ァ-ヶーA-Za-z0-9])とは|って(?:何|なに|なあに|なん)(?![回個度人]|で(?!す))|の意味|ってどういう")
-POINTING_WORDS = re.compile(r"これ|それ|あれ|どれ|この|その|あの|ここ|そこ")
-SHEET_POINTERS = re.compile(r"行目|最後の行|[0-9０-９一二三四五]行|答案|書いた|書いてある|書かれて|この式|その式")
 HELP_WORDS = (
     "わからない",
     "わかんない",
@@ -224,12 +221,9 @@ def _read_problem(out: dict, known_problem: str | None, known_leaks: list[str]) 
 
 
 def _paper_missing(out: dict, known_problem: str | None) -> bool:
-    return out.get("paper_visible") is False or not (out["problem_text"] or out.get("written_lines") or known_problem)
-
-
-def _answers_without_paper(utterance: str, out: dict) -> bool:
-    asks_meaning = MEANING_QUESTION.search(utterance) is not None and POINTING_WORDS.search(utterance) is None
-    return asks_meaning and SHEET_POINTERS.search(f"{out['speech']} {out['display']}") is None
+    if out.get("paper_visible") is False:
+        return True
+    return out["readable"] is True and not (out["problem_text"] or out.get("written_lines") or known_problem)
 
 
 def _paperless_reason(out: dict) -> dict:
@@ -297,7 +291,7 @@ async def compose_hint(
     try:
         request = "\n".join([LEVEL_INSTRUCTIONS[level], *_context_lines(previous, known_problem)])
         out = await ai.generate_json(model, _persona_prompt(SYSTEM_PROMPT, persona), request, frame, HINT_SCHEMA)
-        if out.get("paper_visible") is False or (out["readable"] is True and _paper_missing(out, known_problem)):
+        if _paper_missing(out, known_problem):
             return _unreadable(_paperless_reason(out), UNREADABLE_HINT, known_leaks, persona)
         problem_text, leaks, answer_guarded = _read_problem(out, known_problem, known_leaks)
         readable = out["readable"] is True
@@ -329,21 +323,16 @@ async def compose_answer(
     try:
         if out["respond"] is not True:
             return None
-        if out["readable"] is not True:
-            unreadable = _paperless_reason(out) if out.get("paper_visible") is False else out
-            return _unreadable(unreadable, UNREADABLE_ANSWER, known_leaks, persona)
-        paperless = _paper_missing(out, known_problem)
-        if paperless and not _answers_without_paper(utterance, out):
+        if _paper_missing(out, known_problem):
             return _unreadable(_paperless_reason(out), UNREADABLE_ANSWER, known_leaks, persona)
-        if paperless:
-            out = {**out, "problem_text": "", "written_lines": []}
+        if out["readable"] is not True:
+            return _unreadable(out, UNREADABLE_ANSWER, known_leaks, persona)
         problem_text, leaks, answer_guarded = _read_problem(out, known_problem, known_leaks)
         if not answer_guarded and (problem_text or states_an_answer(f"{out['speech']} {out['display']}")):
             return _unchecked_fallback(known_leaks, ANSWER_FALLBACK, persona)
-        answered = _checked(
+        return _checked(
             out, model, problem_text, leaks, (ANSWER_SPEECH_MAX_CHARS, ANSWER_DISPLAY_MAX_CHARS), ANSWER_FALLBACK, persona
         )
-        return replace(answered, problem_text=None, leak_strings=known_leaks) if paperless else answered
     except (KeyError, TypeError, AttributeError) as error:
         raise AIUnavailable("AI の応答の形が違う") from error
 

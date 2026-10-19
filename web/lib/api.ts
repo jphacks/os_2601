@@ -1,6 +1,7 @@
 import { mockApi } from "./api.mock";
 import { ApiError } from "./apiError";
 import { personaOptions, type Persona, type PersonaOption, type VoiceCharacter } from "./personas";
+import { requestSignal } from "./requestSignal";
 
 export { ApiError, type ApiErrorBody, type ErrorCode } from "./apiError";
 export type { Persona, PersonaOption, VoiceCharacter } from "./personas";
@@ -175,7 +176,7 @@ function jsonInit(method: string, auth: Auth, body?: unknown): RequestInit {
 
 async function send(path: string, init: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Response> {
   if (!API_BASE) throw new Error("NEXT_PUBLIC_API_BASE が無い。web/.env.local か Vercel の環境変数に入れる");
-  const response = await fetch(`${API_BASE}${path}`, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  const response = await fetch(`${API_BASE}${path}`, { ...init, signal: requestSignal(timeoutMs, init.signal) });
   if (!response.ok) throw await ApiError.fromResponse(response);
   return response;
 }

@@ -170,6 +170,7 @@ function Device() {
         setSession(detail);
         setConnected(true);
         setCameraStopped(false);
+        setOpenAttempt(0);
         setNotice("");
         setRecord(null);
         setRecordStatus("idle");

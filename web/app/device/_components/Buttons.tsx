@@ -42,7 +42,9 @@ export function Buttons({ state, cameraStopped, busy, onStart, onHint, onCheck, 
   useEffect(() => {
     if (shownStartRef.current === showsStart) return;
     shownStartRef.current = showsStart;
-    if (state !== "ended") rootRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+    if (state === "ended") return;
+    const root = rootRef.current;
+    (root?.querySelector<HTMLButtonElement>("button:not(:disabled)") ?? root)?.focus();
   }, [showsStart, state]);
 
   const startButton = (
@@ -105,7 +107,7 @@ export function Buttons({ state, cameraStopped, busy, onStart, onHint, onCheck, 
   }
 
   return (
-    <div ref={rootRef} className="flex flex-col gap-3">
+    <div ref={rootRef} tabIndex={-1} className="flex flex-col gap-3 outline-none">
       {content}
     </div>
   );

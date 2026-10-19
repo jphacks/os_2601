@@ -393,11 +393,6 @@ def _on_advance(session: Session, now: datetime) -> Result:
     return Accepted()
 
 
-def _on_end(session: Session, now: datetime) -> Result:
-    _end_session(session, now)
-    return Accepted()
-
-
 def _on_ended(event: Event) -> Result:
     if isinstance(event, Signal) and not event.force_stuck:
         return Accepted()
@@ -434,6 +429,7 @@ def step(session: Session, event: Event, now: datetime, thresholds: Thresholds) 
         case Advance():
             return next_session, _on_advance(next_session, now)
         case End():
-            return next_session, _on_end(next_session, now)
+            _end_session(next_session, now)
+            return next_session, Accepted()
         case Tick():
             return next_session, Accepted()

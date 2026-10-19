@@ -1,7 +1,7 @@
 import logging
 import secrets
 import time
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
@@ -46,6 +46,7 @@ from app.state import (
     SessionSettings,
     Signal,
     Tick,
+    Trigger,
     cooldown_remaining,
     step,
     still_seconds,
@@ -64,6 +65,16 @@ SPEECH_AFTER_END_SECONDS = 60
 MODE_DEFAULT = "live"
 WORKSHEET_ID = "FREE"
 PROBLEM_SLOTS = 20
+
+
+@dataclass(frozen=True)
+class PendingHint:
+    problem_no: int
+    level: int
+    trigger: Trigger
+    ticket: datetime
+    started: float
+    requested_at: datetime
 
 
 router = APIRouter()
@@ -246,34 +257,22 @@ async def post_frame(
     return {"frame_id": frame_id, "received_at": iso(now), "bytes": len(data)}
 
 
-def _issue_hint(
-    context: AppContext,
-    session_id: str,
-    *,
-    problem_no: int,
-    level: int,
-    trigger: str,
-    composed: ComposedHint,
-    ticket: datetime,
-    started: float,
-    requested_at: datetime,
-    prefetched: bool,
-) -> dict:
-    session, _ = _apply(context, _find_session(context, session_id), HintIssued(len(composed.speech), ticket), _now())
+def _issue_hint(context: AppContext, session_id: str, pending: PendingHint, composed: ComposedHint, *, prefetched: bool) -> dict:
+    session, _ = _apply(context, _find_session(context, session_id), HintIssued(len(composed.speech), pending.ticket), _now())
     hint = Hint(
         hint_id=_new_id("hnt"),
-        level=level,
-        trigger=trigger,
+        level=pending.level,
+        trigger=pending.trigger,
         speech=composed.speech,
         display=composed.display,
         stuck_point=composed.stuck_point,
         source=composed.source,
         leak_check=composed.leak_check,
         model=composed.model,
-        latency_ms=elapsed_ms(started),
-        created_at=requested_at,
+        latency_ms=elapsed_ms(pending.started),
+        created_at=pending.requested_at,
     )
-    recorded = session.problems[problem_no - 1]
+    recorded = session.problems[pending.problem_no - 1]
     recorded.hints.append(hint)
     recorded.problem_text = composed.problem_text or recorded.problem_text
     recorded.leak_strings = composed.leak_strings
@@ -293,6 +292,21 @@ def _issue_hint(
     return hint_response(hint, recorded, session)
 
 
+def _accept_and_issue_voice_hint(
+    context: AppContext, session: Session, composed: ComposedHint, started: float, requested_at: datetime, accepted_at: datetime
+) -> dict:
+    session, accepted = _apply(context, session, HintRequested("voice"), accepted_at)
+    pending = PendingHint(
+        problem_no=session.current_problem_no,
+        level=accepted.level,
+        trigger="voice",
+        ticket=accepted.ticket,
+        started=started,
+        requested_at=requested_at,
+    )
+    return _issue_hint(context, session.session_id, pending, composed, prefetched=False)
+
+
 async def _answer_utterance(context: AppContext, session: Session, utterance: str) -> dict | Response:
     started = time.monotonic()
     now = _now()
@@ -304,18 +318,8 @@ async def _answer_utterance(context: AppContext, session: Session, utterance: st
     problem_no = session.current_problem_no
     problem = session.current_problem
     if asks_if_correct(utterance):
-        _, requested = _apply(context, session, HintRequested("voice"), now)
-        return _issue_hint(
-            context,
-            session.session_id,
-            problem_no=problem_no,
-            level=requested.level,
-            trigger="voice",
-            composed=check_reply(problem.leak_strings, session.settings.persona),
-            ticket=requested.ticket,
-            started=started,
-            requested_at=now,
-            prefetched=False,
+        return _accept_and_issue_voice_hint(
+            context, session, check_reply(problem.leak_strings, session.settings.persona), started, now, accepted_at=now
         )
     frame = _latest_frame(context, session.session_id)
     count_ai_call(context, session.session_id, frame, now)
@@ -328,19 +332,7 @@ async def _answer_utterance(context: AppContext, session: Session, utterance: st
     if composed is None or latest.current_problem_no != problem_no or latest.settings.persona != session.settings.persona:
         logger.info("answer session=%s answered=False", session.session_id)
         return Response(status_code=204)
-    latest, accepted = _apply(context, latest, HintRequested("voice"), _now())
-    return _issue_hint(
-        context,
-        session.session_id,
-        problem_no=problem_no,
-        level=accepted.level,
-        trigger="voice",
-        composed=composed,
-        ticket=accepted.ticket,
-        started=started,
-        requested_at=now,
-        prefetched=False,
-    )
+    return _accept_and_issue_voice_hint(context, latest, composed, started, now, accepted_at=_now())
 
 
 @router.post("/sessions/{session_id}/hints", response_model=None)
@@ -355,11 +347,19 @@ async def request_hint(
     started = time.monotonic()
     now = _now()
     session, accepted = _apply(context, session, HintRequested(body.trigger), now)
+    pending = PendingHint(
+        problem_no=session.current_problem_no,
+        level=accepted.level,
+        trigger=body.trigger,
+        ticket=accepted.ticket,
+        started=started,
+        requested_at=now,
+    )
     problem = session.current_problem
     composing = take_prefetch(context, session) if body.trigger == "auto" else None
     try:
         if session.mode == "scripted":
-            composed = fixed_hint(FALLBACK_HINTS[accepted.level], problem.leak_strings, session.settings.persona, source="scripted")
+            composed = fixed_hint(FALLBACK_HINTS[pending.level], problem.leak_strings, session.settings.persona, source="scripted")
         elif composing:
             composed = await composing
         else:
@@ -368,26 +368,15 @@ async def request_hint(
                 count_ai_call(context, session_id, frame, now)
             elif not allow_background_call(context, session_id, frame, now):
                 frame = None
-            composed = await hint_for(context, problem, accepted.level, frame, session.settings.persona)
+            composed = await hint_for(context, problem, pending.level, frame, session.settings.persona)
     except Exception:
-        _abandon_hint(context, session_id, accepted.ticket)
+        _abandon_hint(context, session_id, pending.ticket)
         raise
     latest = _find_session(context, session_id)
-    if latest.current_problem_no != session.current_problem_no or latest.settings.persona != session.settings.persona:
-        _abandon_hint(context, session_id, accepted.ticket)
+    if latest.current_problem_no != pending.problem_no or latest.settings.persona != session.settings.persona:
+        _abandon_hint(context, session_id, pending.ticket)
         fail(409, "ヒント生成中に問題か人格が変わったため、もう一度お試しください")
-    return _issue_hint(
-        context,
-        session_id,
-        problem_no=session.current_problem_no,
-        level=accepted.level,
-        trigger=body.trigger,
-        composed=composed,
-        ticket=accepted.ticket,
-        started=started,
-        requested_at=now,
-        prefetched=composing is not None,
-    )
+    return _issue_hint(context, session_id, pending, composed, prefetched=composing is not None)
 
 
 @router.post("/sessions/{session_id}/check")

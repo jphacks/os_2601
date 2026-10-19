@@ -83,7 +83,7 @@ def test_startup_read_remains_separate_from_the_persona_hint_and_keeps_analysis_
     assert read.status_code == 200
     assert read.json() == {"problem_no": 1, "problem_text": "2x - 7 = 4x + 3", "state": "watching"}
     assert len(ai.calls) == 1 and ai.calls[0][2] == b"\xff\xd8jpeg"
-    assert set(ai.calls[0][3]["properties"]) == {"problem_text", "readable"}
+    assert set(ai.calls[0][3]["properties"]) == {"paper_visible", "problem_text", "readable"}
     initial = device.client.get(f"/sessions/{device.session_id}", headers=device.headers).json()
     assert initial["problems"][0]["hints"] == []
     assert initial["problems"][0]["stuck_count"] == 0

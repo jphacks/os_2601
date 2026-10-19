@@ -38,6 +38,11 @@ FALLBACK_HINTS = {1: "今、何を求めようとしてる？", 2: UNREADABLE_HI
 FALLBACK_STUCK_POINT = "読み取れず"
 logger = logging.getLogger(__name__)
 
+PAPER_RULE = (
+    "まず、写真に、問題か答案が書かれた紙（ノート・プリント・問題集）が写っているかを paper_visible に書いてください。"
+    "問題だけが書かれた紙や、白い紙に式が 1 行だけでも true。"
+    "机・キーボード・画面・顔・景色だけで、そうした紙が写っていなければ false にし、写っていない問題や答案を想像して書かないでください。"
+)
 PROBLEM_PICK_RULE = (
     "紙に問題が複数あるときは、次の順で 1 つ選ぶ。"
     "(a) 答案が書かれていて、最後の行がまだ答え（x = 数 の形）になっていない問題。複数あれば、答案を最後に書いた問題。"
@@ -51,6 +56,7 @@ POINTING_RULES = """- 誤りを示すときは、誤っている数字や記号�
 SYSTEM_PROMPT = """あなたは中学生の隣に座っている家庭教師です。画像は、学習者が紙で問題を解いている手元の写真です。
 あなたの役目は、答えを言わずに、学習者が自分の手で最後の答えまで書き切れるよう、次に考える所を 1 つだけ示すことです。
 
+0. """ + PAPER_RULE + """
 1. 写真から、学習者がいま解いている問題の文を読み取り、problem_text に書いてください。""" + PROBLEM_PICK_RULE + """
 2. その問題を自分で解き、最終の答えを final_answer に、途中の決定的な値や式（移項した後の式、約分した値など）を key_values に書いてください。これらは学習者には見せません。
 3. 学習者の答案を 1 行目から順に、自分の解き方と比べて、ヒントで示す所を 1 つ決めてください。
@@ -107,6 +113,7 @@ ANSWER_PROMPT = """あなたは中学生の隣に座っている家庭教師で�
 最初に、その発話が、あなた（家庭教師）への問いか、勉強で助けを求める発話かを決めて respond に書いてください。独り言、問題文や式の読み上げ、周りの人との会話、勉強と関係ない話なら false にし、ほかの項目はすべて空にしてください。
 
 respond が true なら：
+0. """ + PAPER_RULE + """
 1. 写真から、学習者がいま解いている問題の文を読み取り、problem_text に書いてください。読み取れなければ空にする。""" + PROBLEM_PICK_RULE + """
 2. その問題を自分で解き、最終の答えを final_answer に、途中の決定的な値や式を key_values に必ず書いてください。これらは学習者には見せません。
 3. 答案を見ないと答えられない問いなのに、写真が暗い・ぼやけている・紙が枠の外・手で隠れていて答案が読めないときは、readable を false にし、理由を unreadable_reason に書く（dark・blurry・out_of_frame・hidden・other）。推測で答えない。言葉の意味のように答案が要らない問いは、読めなくても readable を true にして答える。
@@ -129,6 +136,7 @@ respond が true なら：
 - 命令形でなく、提案形（「見てみて」「やってみて」）か問いかけ。「惜しい」「違う」は使わない。名前は呼ばない。"""
 
 SHARED_PROPERTIES = {
+    "paper_visible": {"type": "BOOLEAN"},
     "problem_text": {"type": "STRING"},
     "final_answer": {"type": "STRING"},
     "key_values": {"type": "ARRAY", "items": {"type": "STRING"}},
@@ -149,11 +157,11 @@ def _schema(ordering: list[str], extra: dict) -> dict:
 
 
 HINT_SCHEMA = _schema(
-    ["problem_text", "final_answer", "key_values", "written_lines", "readable", "unreadable_reason", "stuck_point", "speech", "display"],
+    ["paper_visible", "problem_text", "final_answer", "key_values", "written_lines", "readable", "unreadable_reason", "stuck_point", "speech", "display"],
     {"readable": {"type": "BOOLEAN"}, "unreadable_reason": {"type": "STRING", "enum": ["none", *UNREADABLE_HINTS, "other"]}},
 )
 ANSWER_SCHEMA = _schema(
-    ["respond", "problem_text", "final_answer", "key_values", "written_lines", "readable", "unreadable_reason", "stuck_point", "speech", "display"],
+    ["respond", "paper_visible", "problem_text", "final_answer", "key_values", "written_lines", "readable", "unreadable_reason", "stuck_point", "speech", "display"],
     {
         "respond": {"type": "BOOLEAN"},
         "readable": {"type": "BOOLEAN"},
@@ -210,6 +218,17 @@ def _read_problem(out: dict, known_problem: str | None, known_leaks: list[str]) 
     guarded = set(inherited) | set(leak_strings(out["final_answer"], out["key_values"]))
     answer_guarded = bool(from_answer) or (same and bool(known_leaks))
     return problem_text, without_written(sorted(guarded), written), answer_guarded
+
+
+def _paper_missing(out: dict, known_problem: str | None) -> bool:
+    if out.get("paper_visible") is False:
+        return True
+    return out["readable"] is True and not (out["problem_text"] or out.get("written_lines") or known_problem)
+
+
+def _paperless_reason(out: dict) -> dict:
+    reason = out.get("unreadable_reason")
+    return out if out["readable"] is not True and reason in ("dark", "blurry") else {**out, "unreadable_reason": "out_of_frame"}
 
 
 def _unreadable(out: dict, fallback: str, leaks: list[str], persona: str = "teacher") -> ComposedHint:
@@ -272,6 +291,8 @@ async def compose_hint(
     try:
         request = "\n".join([LEVEL_INSTRUCTIONS[level], *_context_lines(previous, known_problem)])
         out = await ai.generate_json(model, _persona_prompt(SYSTEM_PROMPT, persona), request, frame, HINT_SCHEMA)
+        if _paper_missing(out, known_problem):
+            return _unreadable(_paperless_reason(out), UNREADABLE_HINT, known_leaks, persona)
         problem_text, leaks, answer_guarded = _read_problem(out, known_problem, known_leaks)
         readable = out["readable"] is True
         if readable and not answer_guarded:
@@ -302,6 +323,8 @@ async def compose_answer(
     try:
         if out["respond"] is not True:
             return None
+        if _paper_missing(out, known_problem):
+            return _unreadable(_paperless_reason(out), UNREADABLE_ANSWER, known_leaks, persona)
         if out["readable"] is not True:
             return _unreadable(out, UNREADABLE_ANSWER, known_leaks, persona)
         problem_text, leaks, answer_guarded = _read_problem(out, known_problem, known_leaks)
@@ -315,15 +338,16 @@ async def compose_answer(
 
 
 READ_PROMPT = (
-    "画像は、学習者が紙で問題を解こうとしている手元の写真です。学習者がいま解いている（これから解く）問題の文を読み取り、"
+    "画像は、学習者が紙で問題を解こうとしている手元の写真です。" + PAPER_RULE + "紙が無ければ problem_text は空にする。"
+    "紙があれば、学習者がいま解いている（これから解く）問題の文を読み取り、"
     "problem_text に書いてください。式だけなら式を書く。(1) のような問題番号は付けない。読み取れなければ readable を false にし、problem_text は空にする。"
     "問題を解かない。" + PROBLEM_PICK_RULE
 )
 READ_SCHEMA = {
     "type": "OBJECT",
-    "propertyOrdering": ["problem_text", "readable"],
-    "properties": {"problem_text": {"type": "STRING"}, "readable": {"type": "BOOLEAN"}},
-    "required": ["problem_text", "readable"],
+    "propertyOrdering": ["paper_visible", "problem_text", "readable"],
+    "properties": {"paper_visible": {"type": "BOOLEAN"}, "problem_text": {"type": "STRING"}, "readable": {"type": "BOOLEAN"}},
+    "required": ["paper_visible", "problem_text", "readable"],
 }
 
 
@@ -333,7 +357,9 @@ async def read_problem(ai: Gemini | None, model: str, frame: bytes | None, known
     request = "\n".join(_context_lines([], known_problem)) or "問題文を読み取ってください。"
     try:
         out = await ai.generate_json(model, READ_PROMPT, request, frame, READ_SCHEMA)
-        return (out["problem_text"].strip() or None) if out["readable"] is True else None
+        if out.get("paper_visible") is False or out["readable"] is not True:
+            return None
+        return out["problem_text"].strip() or None
     except (AIUnavailable, KeyError, TypeError, AttributeError) as error:
         logger.warning("read problem failed: %r", error)
         return None

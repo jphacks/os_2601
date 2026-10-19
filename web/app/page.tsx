@@ -59,10 +59,6 @@ export default function Home() {
           ))}
         </ol>
 
-        <p className="max-w-sm text-sm leading-relaxed text-slate-700">
-          用意するもの：スマホを立てる台
-        </p>
-
         <footer className="mt-auto flex w-full max-w-sm flex-col items-center rounded-3xl bg-white/80 px-4 pb-3 text-sm text-slate-800 shadow-md backdrop-blur">
           <nav className="flex flex-wrap justify-center gap-x-4">
             <a href="https://github.com/jphacks/os_2601" className={LINK}>
